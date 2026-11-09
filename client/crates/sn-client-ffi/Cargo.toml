@@ -1,0 +1,21 @@
+[package]
+name = "sn-client-ffi"
+description = "sentinel.dll: the C ABI of the client SDK (header: sdk/native/include/sentinel.h)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "sentinel"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Test-only exports (sn_dev_*). Never enabled in shipped builds.
+dev-hooks = []
+
+[dependencies]
+hex = "0.4.3"
+sn-client-core = { path = "../sn-client-core" }
+sn-crypto = { path = "../sn-crypto" }
+sn-sched = { path = "../sn-sched" }
