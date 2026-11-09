@@ -347,16 +347,6 @@ func (v *Verifier) Attest(req AttestRequest) (*Report, error) {
 	}
 	add("nonce_fresh_single_use", nonceErr, fmt.Sprintf("issued %s ago", time.Since(nonceAt).Round(time.Millisecond)))
 
-	pcrs := make([]goattest.PCR, 0, len(req.PCRs))
-	idx := make([]int, 0, len(req.PCRs))
-	for _, p := range req.PCRs {
-		pcrs = append(pcrs, goattest.PCR{Index: p.Index, Digest: p.Digest, DigestAlg: crypto.SHA256})
-		idx = append(idx, p.Index)
-	}
-	sort.Ints(idx)
-	quoteErr := e.akPub.Verify(goattest.Quote{Quote: req.Quote, Signature: req.QuoteSignature}, pcrs, nonce)
-	add("quote_signature_nonce_pcrs", quoteErr, fmt.Sprintf("AK signature valid, nonce bound, PCR digest matches PCRs %v (sha256)", idx))
-
 	var devErr error
 	digest := sha256.Sum256(append(append([]byte{}, req.Nonce...), req.Quote...))
 	switch pub := e.devicePub.(type) {
@@ -371,31 +361,15 @@ func (v *Verifier) Attest(req AttestRequest) (*Report, error) {
 	}
 	add("device_key_signature", devErr, e.req.DeviceKeyAlg+" signature over sha256(nonce||quote)")
 
-	el, err := goattest.ParseEventLog(req.EventLog)
-	var events []goattest.Event
-	if err == nil {
-		rep.EventLog = map[string]any{"bytes": len(req.EventLog), "algs": fmt.Sprint(el.Algs), "raw_events": len(el.Events(goattest.HashSHA256))}
-		events, err = el.Verify(pcrs)
-	}
-	if add("event_log_replay", err, "") {
-		rep.EventLog["verified_events"] = len(events)
-		rep.Checks[len(rep.Checks)-1].Detail = fmt.Sprintf("%d events replay to the quoted PCRs", len(events))
-	}
+	boot := VerifyBootEvidence(e.req.AK.Public, nonce, req.Quote, req.QuoteSignature, req.PCRs, req.EventLog)
+	rep.Checks = append(rep.Checks, boot.Checks...)
+	rep.EventLog = boot.EventLog
+	rep.Security = boot.Security
 
-	cryptoOK := true
+	cryptoOK := rep.Security != nil
 	for _, c := range rep.Checks {
 		cryptoOK = cryptoOK && c.OK
 	}
-
-	if err == nil {
-		sec, perr := securityState(events)
-		add("boot_state_parse", perr, "Secure Boot (PCR7), SIPA (PCR12/13)")
-		if perr == nil {
-			rep.Security = sec
-		}
-		cryptoOK = cryptoOK && perr == nil
-	}
-
 	rep.Policy = evaluatePolicy(cryptoOK, rep.Security)
 	rep.Verdict = "fail"
 	if cryptoOK {

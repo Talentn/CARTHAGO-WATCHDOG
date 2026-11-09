@@ -332,6 +332,30 @@ pub(crate) fn certify_with_ek(
     result
 }
 
+/// TPM2_Certify of `object` signed by `sign_key` (the AK) with its own scheme. Both keys
+/// use empty-password sessions, as PCP keys without a PIN do.
+pub(crate) fn certify(ch: Channel, object: u32, sign_key: u32, qualifying: &[u8]) -> Result<Certification> {
+    if qualifying.len() > 64 {
+        return Err(Error::Parse("certify qualifying data longer than 64 bytes".into()));
+    }
+    let mut body = Vec::new();
+    body.extend_from_slice(&object.to_be_bytes());
+    body.extend_from_slice(&sign_key.to_be_bytes());
+    let mut auth = pw_session();
+    auth.extend_from_slice(&pw_session());
+    body.extend_from_slice(&(auth.len() as u32).to_be_bytes());
+    body.extend_from_slice(&auth);
+    u16_prefixed(&mut body, qualifying);
+    body.extend_from_slice(&ALG_NULL.to_be_bytes());
+    let resp = ch.submit("TPM2_Certify(device key by AK)", &command(ST_SESSIONS, CC_CERTIFY, &body))?;
+    let mut r = Reader::new(&resp[10..], "TPM2_Certify");
+    let param_size = r.u32()? as usize;
+    let params = r.take(param_size)?;
+    let mut p = Reader::new(params, "TPM2_Certify params");
+    let attest = p.tpm2b()?.to_vec();
+    Ok(Certification { attest, signature: params[p.pos..].to_vec() })
+}
+
 pub struct RawQuote {
     /// `TPMS_ATTEST` bytes (contents of the returned `TPM2B_ATTEST`).
     pub attest: Vec<u8>,

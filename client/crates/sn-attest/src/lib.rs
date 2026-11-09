@@ -272,6 +272,16 @@ impl Tpm {
         )
     }
 
+    /// `TPMT_PUBLIC` of a PCP key, read from the TPM (the verifier recomputes its Name).
+    pub fn key_public_area(&self, key: &Key) -> Result<Vec<u8>> {
+        tpm2::read_public(self.channel()?, key.tpm_handle()?)
+    }
+
+    /// TPM2_Certify of `key` by the AK: proves `key` is TPM-generated and non-exportable.
+    pub fn certify_key(&self, key: &Key, ak: &AttestationKey, qualifying: &[u8]) -> Result<Certification> {
+        tpm2::certify(self.channel()?, key.tpm_handle()?, ak.key.tpm_handle()?, qualifying)
+    }
+
     pub fn quote(&self, ak: &AttestationKey, nonce: &[u8], hash: u16, pcrs: &[u32]) -> Result<RawQuote> {
         tpm2::quote(self.channel()?, ak.key.tpm_handle()?, nonce, hash, pcrs)
     }

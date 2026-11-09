@@ -105,6 +105,7 @@ message TpmEvidence {
   bytes device_key_certify_attest = 7; // TPMS_ATTEST, extraData = quote_nonce(transcript)
   bytes device_key_certify_signature = 8;
   string error = 9; // why the client could not produce (part of) the evidence
+  bytes device_key_public_area = 10; // TPMT_PUBLIC of the device key (Name check for the certify)
 }
 
 // First sealed client message.

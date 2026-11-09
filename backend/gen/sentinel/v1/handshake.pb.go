@@ -764,7 +764,8 @@ type TpmEvidence struct {
 	EventLog                  []byte                 `protobuf:"bytes,6,opt,name=event_log,json=eventLog,proto3" json:"event_log,omitempty"`                                               // WBCL
 	DeviceKeyCertifyAttest    []byte                 `protobuf:"bytes,7,opt,name=device_key_certify_attest,json=deviceKeyCertifyAttest,proto3" json:"device_key_certify_attest,omitempty"` // TPMS_ATTEST, extraData = quote_nonce(transcript)
 	DeviceKeyCertifySignature []byte                 `protobuf:"bytes,8,opt,name=device_key_certify_signature,json=deviceKeyCertifySignature,proto3" json:"device_key_certify_signature,omitempty"`
-	Error                     string                 `protobuf:"bytes,9,opt,name=error,proto3" json:"error,omitempty"` // why the client could not produce (part of) the evidence
+	Error                     string                 `protobuf:"bytes,9,opt,name=error,proto3" json:"error,omitempty"`                                                             // why the client could not produce (part of) the evidence
+	DeviceKeyPublicArea       []byte                 `protobuf:"bytes,10,opt,name=device_key_public_area,json=deviceKeyPublicArea,proto3" json:"device_key_public_area,omitempty"` // TPMT_PUBLIC of the device key (Name check for the certify)
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -860,6 +861,13 @@ func (x *TpmEvidence) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *TpmEvidence) GetDeviceKeyPublicArea() []byte {
+	if x != nil {
+		return x.DeviceKeyPublicArea
+	}
+	return nil
 }
 
 // First sealed client message.
@@ -1662,7 +1670,7 @@ const file_sentinel_v1_handshake_proto_rawDesc = "" +
 	"\rserver_key_id\x18\x03 \x01(\tR\vserverKeyId\"3\n" +
 	"\x03Pcr\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\rR\x05index\x12\x16\n" +
-	"\x06digest\x18\x02 \x01(\fR\x06digest\"\xff\x02\n" +
+	"\x06digest\x18\x02 \x01(\fR\x06digest\"\xb4\x03\n" +
 	"\vTpmEvidence\x12*\n" +
 	"\x11ek_certify_attest\x18\x01 \x01(\fR\x0fekCertifyAttest\x120\n" +
 	"\x14ek_certify_signature\x18\x02 \x01(\fR\x12ekCertifySignature\x12\x14\n" +
@@ -1672,7 +1680,9 @@ const file_sentinel_v1_handshake_proto_rawDesc = "" +
 	"\tevent_log\x18\x06 \x01(\fR\beventLog\x129\n" +
 	"\x19device_key_certify_attest\x18\a \x01(\fR\x16deviceKeyCertifyAttest\x12?\n" +
 	"\x1cdevice_key_certify_signature\x18\b \x01(\fR\x19deviceKeyCertifySignature\x12\x14\n" +
-	"\x05error\x18\t \x01(\tR\x05error\"b\n" +
+	"\x05error\x18\t \x01(\tR\x05error\x123\n" +
+	"\x16device_key_public_area\x18\n" +
+	" \x01(\fR\x13deviceKeyPublicArea\"b\n" +
 	"\x05Prove\x12\x1d\n" +
 	"\n" +
 	"device_sig\x18\x01 \x01(\fR\tdeviceSig\x12:\n" +
