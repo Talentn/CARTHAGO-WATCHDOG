@@ -1,0 +1,90 @@
+{
+  "description": "Sealed frames. Seal plaintext at (direction, seq) and compare the frame; decode plaintext as message_type and re-encode it byte-for-byte; invalid frames must fail with error.",
+  "key": "28a81c8a96dd9ea7efaf9351e34c98303e5e11a244a9f28713fb5b75ef43c5f1",
+  "session_id": "d7f6fe678013c9c84b5998d9196f3810",
+  "valid": [
+    {
+      "name": "client_prove_seq0",
+      "direction": 0,
+      "seq": 0,
+      "message_type": "ClientMsg",
+      "plaintext": "1210d7f6fe678013c9c84b5998d9196f38101880ecb7819c3452a4010a40e10a1549a54e5131ff508d2292515a2e757e7fb1ec685c43f6b5e378ae7eb03dfab45c3c8463dbf55b2ba4fbad6f685acfb51233f8df60f7d41ece2e3e1d62da12601a14bce919925d8f86ce07c9993a02db32d0d875d69b2a221220c12066052224493ca3396c18082c8cbd17625af6fc4efe917939124c74dce3392a2408071220dd53caa9c0ccbc1977387aff2b6c984a59e7a34cc4f0c473b55882b586e3d2ac",
+      "frame": "030000000000000000a105dffa85a50e3a63b3626d5e0f055a3e717502df78ef8033ab1c92eaa123f16461a365de01634631d30be796c2ff737250f2b4580920511b206b0de9bcb6a3b8f7a83f2d739145359eaecb0d04053877503153319b3edc63839611695101ccbd5d3c31e6d89fabfa28fdfb9cc130dbd31f3fdccbbf0b6150efe9a7b3996219860defa41291168badc84acf9faa9a035b08b2e493780f03cb74308075b5448a355a5d88ad7606aa3c35975b0b3327ccd7b954cae61db9f6100f7934b6377a5adcd707ebe07ea299abbd1215bf7cda82"
+    },
+    {
+      "name": "client_heartbeat_seq1",
+      "direction": 0,
+      "seq": 1,
+      "message_type": "ClientMsg",
+      "plaintext": "08011210d7f6fe678013c9c84b5998d9196f38101898e1b8819c345a370801121008959aef3a102a18e0a03e20a84630031a210a126d656d6f72795f726567696f6e5f77616c6b1003188080d091e1fe1f208020",
+      "frame": "03000000000000000116550288372802d5d8c47b8042efa82b5b05fe67bc3aa0c0bd0f887acb66577a245fd297ddb3589720a62d396365ec34f49594fd7c2b2bb06f8d3cba57f19f5dc8106b8446a9947e2bf04abb42099ad641cbfe62de647dcb06c4c5ccd836ab3b17e27a5e"
+    },
+    {
+      "name": "server_session_seq0",
+      "direction": 1,
+      "seq": 0,
+      "message_type": "ServerMsg",
+      "plaintext": "1210d7f6fe678013c9c84b5998d9196f381018e4ecb7819c3452360a1176342e7075626c69632e6578616d706c65100318ff0720a0e3ee819c342a15656b20636861696e206e6f74207665726966696564",
+      "frame": "0300000000000000001c682e3d67879bc6264a2aa20e16fe14440794ea6d75646a16ebd1a1742cb56c6964d8df05c39cd8efb8bcd69ec46579a40fe4da1ce9cd2a27028e7fc873044d8fc45fdb26dfbfabff60bc274a2e89bc81ae6d7b6934bf8a1c0e60d70c66519d49"
+    },
+    {
+      "name": "server_kicked_seq5",
+      "direction": 1,
+      "seq": 5,
+      "message_type": "ServerMsg",
+      "plaintext": "08051210d7f6fe678013c9c84b5998d9196f381018a0f9bd819c3462130a116865617274626561745f74696d656f7574",
+      "frame": "030000000000000005cbdb05a6804ed0d688c426b67ac1c46d9f45f68db939f0e63e3e6105798e869e894b0407f9ddeaaeb941d197e49fbeca814fc920143e3f27f66eaa056cb0a3d5"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "replayed_seq",
+      "direction": 0,
+      "seq": 2,
+      "frame": "03000000000000000116550288372802d5d8c47b8042efa82b5b05fe67bc3aa0c0bd0f887acb66577a245fd297ddb3589720a62d396365ec34f49594fd7c2b2bb06f8d3cba57f19f5dc8106b8446a9947e2bf04abb42099ad641cbfe62de647dcb06c4c5ccd836ab3b17e27a5e",
+      "error": "seq"
+    },
+    {
+      "name": "flipped_ciphertext",
+      "direction": 0,
+      "seq": 1,
+      "frame": "03000000000000000116550289372802d5d8c47b8042efa82b5b05fe67bc3aa0c0bd0f887acb66577a245fd297ddb3589720a62d396365ec34f49594fd7c2b2bb06f8d3cba57f19f5dc8106b8446a9947e2bf04abb42099ad641cbfe62de647dcb06c4c5ccd836ab3b17e27a5e",
+      "error": "auth"
+    },
+    {
+      "name": "flipped_tag",
+      "direction": 0,
+      "seq": 1,
+      "frame": "03000000000000000116550288372802d5d8c47b8042efa82b5b05fe67bc3aa0c0bd0f887acb66577a245fd297ddb3589720a62d396365ec34f49594fd7c2b2bb06f8d3cba57f19f5dc8106b8446a9947e2bf04abb42099ad641cbfe62de647dcb06c4c5ccd836ab3b17e27a5f",
+      "error": "auth"
+    },
+    {
+      "name": "wrong_direction",
+      "direction": 1,
+      "seq": 1,
+      "frame": "03000000000000000116550288372802d5d8c47b8042efa82b5b05fe67bc3aa0c0bd0f887acb66577a245fd297ddb3589720a62d396365ec34f49594fd7c2b2bb06f8d3cba57f19f5dc8106b8446a9947e2bf04abb42099ad641cbfe62de647dcb06c4c5ccd836ab3b17e27a5e",
+      "error": "auth"
+    },
+    {
+      "name": "seq_rewritten",
+      "direction": 0,
+      "seq": 0,
+      "frame": "03000000000000000016550288372802d5d8c47b8042efa82b5b05fe67bc3aa0c0bd0f887acb66577a245fd297ddb3589720a62d396365ec34f49594fd7c2b2bb06f8d3cba57f19f5dc8106b8446a9947e2bf04abb42099ad641cbfe62de647dcb06c4c5ccd836ab3b17e27a5e",
+      "error": "auth"
+    },
+    {
+      "name": "short",
+      "direction": 0,
+      "seq": 1,
+      "frame": "03000000000000000116550288372802d5d8c4",
+      "error": "malformed"
+    },
+    {
+      "name": "wrong_type",
+      "direction": 0,
+      "seq": 1,
+      "frame": "01000000000000000116550288372802d5d8c47b8042efa82b5b05fe67bc3aa0c0bd0f887acb66577a245fd297ddb3589720a62d396365ec34f49594fd7c2b2bb06f8d3cba57f19f5dc8106b8446a9947e2bf04abb42099ad641cbfe62de647dcb06c4c5ccd836ab3b17e27a5e",
+      "error": "malformed"
+    }
+  ]
+}

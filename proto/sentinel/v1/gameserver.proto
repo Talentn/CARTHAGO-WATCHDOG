@@ -1,0 +1,41 @@
+// Game server <-> gateway control channel (sn-server). One binary WebSocket message per
+// protobuf message on /v1/gs, authenticated with the tenant's server API key.
+syntax = "proto3";
+
+package sentinel.v1;
+
+option go_package = "sentinel/backend/gen/sentinel/v1;sentinelv1";
+
+message WatchSession {
+  string session_id = 1; // hex, from a verified session token
+}
+
+message UnwatchSession {
+  string session_id = 1;
+}
+
+message GsClientMsg {
+  oneof body {
+    WatchSession watch = 1;
+    UnwatchSession unwatch = 2;
+  }
+}
+
+message Kick {
+  string session_id = 1;
+  string reason = 2; // e.g. "heartbeat_timeout"
+  uint64 at_ms = 3;
+  string player_hash = 4;
+}
+
+message WatchAck {
+  string session_id = 1;
+  bool known = 2;
+}
+
+message GsServerMsg {
+  oneof body {
+    Kick kick = 1;
+    WatchAck watch_ack = 2;
+  }
+}
