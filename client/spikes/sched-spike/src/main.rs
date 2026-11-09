@@ -1,7 +1,7 @@
 //! Phase 0 risk spike 2: does the budgeted scheduler hold the G2 budgets under a game loop?
 //!
 //!   sched-spike bench [--quick] [--block-secs N] [--pairs N] [--demo-secs N]
-//!                     [--profiles desktop,lowend-2c,lowend-1c] [--out DIR]
+//!                     [--profiles desktop,lowend-2c,lowend-1c] [--slice-us N] [--out DIR]
 //!   sched-spike hog --threads N --duty F --mask HEX [--eco]   (internal: background load)
 
 mod alloc;
@@ -74,6 +74,13 @@ fn profiles() -> Vec<Profile> {
     ]
 }
 
+static SLICE_TARGET_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(2000);
+
+fn sched_config() -> Config {
+    let us = SLICE_TARGET_US.load(std::sync::atomic::Ordering::Relaxed);
+    Config { worker_init: Some(alloc::tag_current_thread), slice_target: Duration::from_micros(us), ..Config::default() }
+}
+
 struct Opts {
     block_secs: f64,
     pairs: usize,
@@ -102,6 +109,7 @@ fn parse_opts(args: &[String]) -> Result<Opts> {
             "--block-secs" => o.block_secs = val()?.parse()?,
             "--pairs" => o.pairs = val()?.parse()?,
             "--demo-secs" => o.demo_secs = val()?.parse()?,
+            "--slice-us" => SLICE_TARGET_US.store(val()?.parse()?, std::sync::atomic::Ordering::Relaxed),
             "--profiles" => o.profiles = val()?.split(',').map(str::to_string).collect(),
             "--out" => o.out = PathBuf::from(val()?),
             other => bail!("unknown option {other}"),
@@ -142,7 +150,7 @@ fn run_block(game: &mut Game, secs: f64, make_jobs: Option<&dyn Fn() -> Vec<Box<
     let (p0, w0) = sysutil::mem();
     let mut sched = make_jobs.map(|mk| {
         let t = now_ns();
-        let cfg = Config { worker_init: Some(alloc::tag_current_thread), ..Config::default() };
+        let cfg = sched_config();
         let s = alloc::with_tag(|| Scheduler::start(cfg, mk()).expect("start scheduler"));
         b.init_main_ns = now_ns() - t;
         b.ticks.reserve(est);
@@ -615,7 +623,7 @@ fn bench(args: &[String]) -> Result<()> {
 
     let mut md = String::new();
     let _ = writeln!(md, "# Scheduler spike report\n");
-    let _ = writeln!(md, "CPU: {cpu}, {logical} logical processors. TSC {:.3} cycles/ns. Budget config: gameplay bucket 0.8% of one core (cap 6 ms), slice target 2 ms, hard cap 3 ms, worker below-normal + EcoQoS, ideal CPU = last in affinity mask.\n", cpn);
+    let _ = writeln!(md, "CPU: {cpu}, {logical} logical processors. TSC {:.3} cycles/ns. Budget config: gameplay bucket 0.8% of one core (cap 6 ms), slice target {} µs, hard cap 3 ms, worker below-normal + EcoQoS, ideal CPU = last in affinity mask.\n", cpn, sched_config().slice_target.as_micros());
     let _ = writeln!(md, "Intrinsic `tick()` cost (2M back-to-back calls, no game load): **{tick_intrinsic:.1} ns/call**. Per-frame tick samples below include two QPC reads (~100 ns resolution).\n");
     let _ = writeln!(md, "System-wide Toolhelp thread snapshot (what a naive thread audit would call, not sliceable): median {:.2} ms, max {:.2} ms. The spike uses per-process `NtGetNextThread` instead.\n", snaps[4] as f64 / 1e6, snaps[8] as f64 / 1e6);
 

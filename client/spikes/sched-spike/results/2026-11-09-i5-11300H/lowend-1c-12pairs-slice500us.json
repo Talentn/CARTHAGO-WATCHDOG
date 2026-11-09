@@ -1,0 +1,201 @@
+{
+  "cpu": "11th Gen Intel(R) Core(TM) i5-11300H @ 3.10GHz",
+  "cycles_per_ns": 3.076978539485847,
+  "hash": {
+    "gameplay_pass_secs": 3.754616931618868,
+    "mbps": 5702.656696125085,
+    "mbps_bursty_eco": 3446.409177199528,
+    "mbps_eco": 3588.402275741113,
+    "pass_bytes": 41407828
+  },
+  "logical_processors": 8,
+  "opts": {
+    "block_secs": 8.0,
+    "demo_secs": 1.0,
+    "pairs": 12
+  },
+  "profiles": [
+    {
+      "aa_noise_mean_pct": 5.702988642684099,
+      "aa_noise_p99_pct": 1.7856249687390586,
+      "affinity_mask": 64,
+      "charged_cpu_pct": 0.3365844338456005,
+      "desc": "worst case: 1 logical CPU (CPU 6), process EcoQoS, 60 fps, main thread only at 40% of frame, background load 1 thread x 20% duty",
+      "eco_qos": true,
+      "findings": 24,
+      "frame_block_p99_median_ms": {
+        "off": 13.7462,
+        "on": 13.2389
+      },
+      "frame_clean_ms": {
+        "max": 109.0702,
+        "mean": 8.470996627991298,
+        "n": 5516,
+        "p50": 8.3556,
+        "p99": 14.9914,
+        "p999": 44.5807
+      },
+      "frame_mean_delta_pct": 0.31064905437171775,
+      "frame_off_ms": {
+        "max": 121.063,
+        "mean": 8.445879863848083,
+        "n": 5582,
+        "p50": 8.4678,
+        "p99": 14.2421,
+        "p999": 33.38
+      },
+      "frame_on_ms": {
+        "max": 109.0702,
+        "mean": 8.472116909778498,
+        "n": 5553,
+        "p50": 8.357,
+        "p99": 14.9115,
+        "p999": 44.5807
+      },
+      "frame_overlapped_ms": {
+        "max": 12.3297,
+        "mean": 8.639129729729731,
+        "n": 37,
+        "p50": 8.9983,
+        "p99": 12.3297,
+        "p999": 12.3297
+      },
+      "frame_p99_delta_pct": 4.700149556596289,
+      "frame_started_in_slice_ms": {
+        "max": 11.5932,
+        "mean": 8.791925,
+        "n": 16,
+        "p50": 9.2296,
+        "p99": 11.5932,
+        "p999": 11.5932
+      },
+      "frame_started_outside_slice_ms": {
+        "max": 109.0702,
+        "mean": 8.471192775871412,
+        "n": 5537,
+        "p50": 8.3556,
+        "p99": 14.9914,
+        "p999": 44.5807
+      },
+      "hitch_deferrals": 73,
+      "init": {
+        "main_ms": 0.1795,
+        "worker_cpu_ms": 0.241767,
+        "worker_wall_ms": 7.1023
+      },
+      "jobs": [
+        {
+          "cpu_ms": 0.618061,
+          "last_pass_cpu_ms": 0.34385,
+          "last_pass_wall_s": 0.0666136,
+          "max_step_us": 148.476,
+          "name": "module_inventory",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 1.128985,
+          "last_pass_cpu_ms": 0.537001,
+          "last_pass_wall_s": 0.0005377,
+          "max_step_us": 376.194,
+          "name": "memory_region_walk",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 0.103295,
+          "last_pass_cpu_ms": 0.048211,
+          "last_pass_wall_s": 0.0000481,
+          "max_step_us": 54.579,
+          "name": "thread_audit",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 27.789455,
+          "last_pass_cpu_ms": 0.0,
+          "last_pass_wall_s": 0.0,
+          "max_step_us": 464.128,
+          "name": "text_hash",
+          "overruns": 0,
+          "passes": 0,
+          "run_budget_aborts": 0
+        }
+      ],
+      "memory": {
+        "heap_peak_bytes": 33001,
+        "private_delta_off": 0,
+        "private_delta_on": 73728,
+        "ws_delta_on": 4886528
+      },
+      "missed_deadline_pct": {
+        "off": 0.42995342171264783,
+        "on": 0.7023230686115614
+      },
+      "pass": {
+        "cpu": true,
+        "frame": false,
+        "init": true,
+        "ram": true,
+        "slice": true,
+        "tick": true
+      },
+      "process_cpu_pct": {
+        "off": 39.678986735714155,
+        "on": 39.68917752023966
+      },
+      "profile": "lowend-1c",
+      "slice": {
+        "count": 2537,
+        "cpu_max_ms": 0.78837,
+        "over_3ms_cpu": 0,
+        "over_3ms_wall": 29,
+        "wall_max_ms": 14.5863,
+        "wall_p99_ms": 11.6047
+      },
+      "tick_ns": {
+        "max": 68300.0,
+        "mean": 1359.4633531424456,
+        "n": 5553,
+        "p50": 1200.0,
+        "p99": 3200.0,
+        "p999": 17600.0
+      },
+      "units_per_ms": 23489.61758902565,
+      "worker_cpu_pct": 0.38069133050004633,
+      "worker_cpu_pct_getthreadtimes": 0.3577066388550891
+    }
+  ],
+  "throttle_demo": {
+    "charged_cpu_pct": 1.6804081503858264,
+    "global_throttled": 6,
+    "greedy": {
+      "cap_pct": 0.24,
+      "cpu_pct": 0.43962262945126335,
+      "run_budget_aborts": 0,
+      "share_throttled": 13
+    },
+    "hog": {
+      "cpu_ms": 6.926241,
+      "overruns": 1,
+      "quarantined": false,
+      "steps": 1
+    },
+    "pass": {
+      "greedy_capped": false,
+      "hog_quarantined": false,
+      "total_cpu": false
+    },
+    "secs": 1.0,
+    "text_hash_passes": 0,
+    "worker_cpu_pct": 1.7476351930250476
+  },
+  "tick_intrinsic_ns": 34.53765,
+  "toolhelp_snapshot_ms": {
+    "max": 6.6664,
+    "median": 6.1531
+  }
+}

@@ -1,0 +1,507 @@
+{
+  "cpu": "11th Gen Intel(R) Core(TM) i5-11300H @ 3.10GHz",
+  "cycles_per_ns": 3.0921727644302663,
+  "hash": {
+    "gameplay_pass_secs": 4.216223882301456,
+    "mbps": 6305.209237649623,
+    "mbps_bursty_eco": 3068.8873767626137,
+    "mbps_eco": 3180.4244429068367,
+    "pass_bytes": 41405172
+  },
+  "logical_processors": 8,
+  "opts": {
+    "block_secs": 8.0,
+    "demo_secs": 30.0,
+    "pairs": 8
+  },
+  "profiles": [
+    {
+      "aa_noise_mean_pct": 2.426242644965467,
+      "aa_noise_p99_pct": 0.7500211699523777,
+      "affinity_mask": 255,
+      "charged_cpu_pct": 0.3400695372566412,
+      "desc": "this PC, all logical CPUs, 144 fps target, main + 3 game workers at 30% of frame (single-thread calibrated; ~60-70% of frame once 4 threads share the memory system)",
+      "eco_qos": false,
+      "findings": 16,
+      "frame_block_p99_median_ms": {
+        "off": 27.8405,
+        "on": 13.212
+      },
+      "frame_clean_ms": {
+        "max": 105.5346,
+        "mean": 4.912657190836032,
+        "n": 8337,
+        "p50": 4.3263,
+        "p99": 14.0602,
+        "p999": 32.7664
+      },
+      "frame_mean_delta_pct": -15.062249120470925,
+      "frame_off_ms": {
+        "max": 225.1435,
+        "mean": 5.8701460422812195,
+        "n": 8136,
+        "p50": 4.6325,
+        "p99": 25.1296,
+        "p999": 67.6056
+      },
+      "frame_on_ms": {
+        "max": 105.5346,
+        "mean": 4.985970021657358,
+        "n": 8773,
+        "p50": 4.3458,
+        "p99": 14.8276,
+        "p999": 34.6645
+      },
+      "frame_overlapped_ms": {
+        "max": 59.9289,
+        "mean": 6.387825688073395,
+        "n": 436,
+        "p50": 4.9434,
+        "p99": 33.9598,
+        "p999": 59.9289
+      },
+      "frame_p99_delta_pct": -40.99547943461098,
+      "frame_started_in_slice_ms": {
+        "max": 27.7821,
+        "mean": 4.9619984375,
+        "n": 64,
+        "p50": 4.5013,
+        "p99": 8.8208,
+        "p999": 27.7821
+      },
+      "frame_started_outside_slice_ms": {
+        "max": 105.5346,
+        "mean": 4.986146182110461,
+        "n": 8709,
+        "p50": 4.3443,
+        "p99": 14.8276,
+        "p999": 34.6645
+      },
+      "hitch_deferrals": 116,
+      "init": {
+        "main_ms": 0.2687,
+        "worker_cpu_ms": 0.167057,
+        "worker_wall_ms": 0.638
+      },
+      "jobs": [
+        {
+          "cpu_ms": 0.406429,
+          "last_pass_cpu_ms": 0.159715,
+          "last_pass_wall_s": 0.0001595,
+          "max_step_us": 135.577,
+          "name": "module_inventory",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 1.340885,
+          "last_pass_cpu_ms": 0.650428,
+          "last_pass_wall_s": 0.0008287,
+          "max_step_us": 478.14,
+          "name": "memory_region_walk",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 0.180735,
+          "last_pass_cpu_ms": 0.114858,
+          "last_pass_wall_s": 0.000149,
+          "max_step_us": 114.556,
+          "name": "thread_audit",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 28.418253,
+          "last_pass_cpu_ms": 0.0,
+          "last_pass_wall_s": 0.0,
+          "max_step_us": 578.516,
+          "name": "text_hash",
+          "overruns": 0,
+          "passes": 0,
+          "run_budget_aborts": 0
+        }
+      ],
+      "memory": {
+        "heap_peak_bytes": 33001,
+        "private_delta_off": 0,
+        "private_delta_on": 94208,
+        "ws_delta_on": 5029888
+      },
+      "missed_deadline_pct": {
+        "off": 15.8062930186824,
+        "on": 8.001823777499146
+      },
+      "pass": {
+        "cpu": true,
+        "frame": true,
+        "init": true,
+        "ram": true,
+        "slice": true,
+        "tick": true
+      },
+      "process_cpu_pct": {
+        "off": 201.36391040454083,
+        "on": 206.50662257318652
+      },
+      "profile": "desktop",
+      "slice": {
+        "count": 871,
+        "cpu_max_ms": 1.022762,
+        "over_3ms_cpu": 0,
+        "over_3ms_wall": 9,
+        "wall_max_ms": 7.8422,
+        "wall_p99_ms": 7.8422
+      },
+      "tick_ns": {
+        "max": 89200.0,
+        "mean": 1045.8908013222388,
+        "n": 8773,
+        "p50": 900.0,
+        "p99": 4800.0,
+        "p999": 16700.0
+      },
+      "units_per_ms": 50246.20641141594,
+      "worker_cpu_pct": 0.37860184292425514,
+      "worker_cpu_pct_getthreadtimes": 0.21963597295659165
+    },
+    {
+      "aa_noise_mean_pct": 4.30464866749217,
+      "aa_noise_p99_pct": 28.769332258300963,
+      "affinity_mask": 80,
+      "charged_cpu_pct": 0.32860730778250197,
+      "desc": "simulated low-end laptop: 2 physical cores (CPU 4,6, no SMT siblings), process EcoQoS (lower clocks), 60 fps, main + 1 worker at 40% of frame, background load 2 threads x 25% duty in another process",
+      "eco_qos": true,
+      "findings": 16,
+      "frame_block_p99_median_ms": {
+        "off": 21.5189,
+        "on": 23.0809
+      },
+      "frame_clean_ms": {
+        "max": 84.8596,
+        "mean": 9.1670549869148,
+        "n": 3439,
+        "p50": 8.5358,
+        "p99": 25.3089,
+        "p999": 55.0913
+      },
+      "frame_mean_delta_pct": 0.8805534405842073,
+      "frame_off_ms": {
+        "max": 134.8882,
+        "mean": 9.224401077005922,
+        "n": 3714,
+        "p50": 8.4937,
+        "p99": 26.5158,
+        "p999": 87.1068
+      },
+      "frame_on_ms": {
+        "max": 159.6799,
+        "mean": 9.305626858062785,
+        "n": 3727,
+        "p50": 8.5664,
+        "p99": 26.6729,
+        "p999": 59.7735
+      },
+      "frame_overlapped_ms": {
+        "max": 159.6799,
+        "mean": 10.960309722222222,
+        "n": 288,
+        "p50": 9.0824,
+        "p99": 39.8937,
+        "p999": 159.6799
+      },
+      "frame_p99_delta_pct": 0.5924769382783095,
+      "frame_started_in_slice_ms": {
+        "max": 128.256,
+        "mean": 14.775573684210526,
+        "n": 19,
+        "p50": 8.1534,
+        "p99": 128.256,
+        "p999": 128.256
+      },
+      "frame_started_outside_slice_ms": {
+        "max": 159.6799,
+        "mean": 9.27759854368932,
+        "n": 3708,
+        "p50": 8.5735,
+        "p99": 26.5448,
+        "p999": 55.0913
+      },
+      "hitch_deferrals": 59,
+      "init": {
+        "main_ms": 0.3428,
+        "worker_cpu_ms": 0.191397,
+        "worker_wall_ms": 10.6998
+      },
+      "jobs": [
+        {
+          "cpu_ms": 0.365897,
+          "last_pass_cpu_ms": 0.192302,
+          "last_pass_wall_s": 0.0002938,
+          "max_step_us": 110.734,
+          "name": "module_inventory",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 1.480788,
+          "last_pass_cpu_ms": 0.468083,
+          "last_pass_wall_s": 0.0004658,
+          "max_step_us": 863.047,
+          "name": "memory_region_walk",
+          "overruns": 1,
+          "passes": 1,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 0.187574,
+          "last_pass_cpu_ms": 0.096553,
+          "last_pass_wall_s": 0.0000974,
+          "max_step_us": 95.849,
+          "name": "thread_audit",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 24.991998,
+          "last_pass_cpu_ms": 0.0,
+          "last_pass_wall_s": 0.0,
+          "max_step_us": 706.55,
+          "name": "text_hash",
+          "overruns": 0,
+          "passes": 0,
+          "run_budget_aborts": 0
+        }
+      ],
+      "memory": {
+        "heap_peak_bytes": 33001,
+        "private_delta_off": 0,
+        "private_delta_on": 180224,
+        "ws_delta_on": 40960
+      },
+      "missed_deadline_pct": {
+        "off": 2.88099084544965,
+        "on": 3.246579017976925
+      },
+      "pass": {
+        "cpu": true,
+        "frame": true,
+        "init": true,
+        "ram": true,
+        "slice": true,
+        "tick": true
+      },
+      "process_cpu_pct": {
+        "off": 72.36440507140584,
+        "on": 76.76662134146845
+      },
+      "profile": "lowend-2c",
+      "slice": {
+        "count": 913,
+        "cpu_max_ms": 1.038754,
+        "over_3ms_cpu": 0,
+        "over_3ms_wall": 20,
+        "wall_max_ms": 12.741,
+        "wall_p99_ms": 12.741
+      },
+      "tick_ns": {
+        "max": 171700.0,
+        "mean": 1410.5446740005366,
+        "n": 3727,
+        "p50": 1000.0,
+        "p99": 6700.0,
+        "p999": 45600.0
+      },
+      "units_per_ms": 21134.499957730997,
+      "worker_cpu_pct": 0.36917668523943675,
+      "worker_cpu_pct_getthreadtimes": 0.39017342486133905
+    },
+    {
+      "aa_noise_mean_pct": 0.03903184184443997,
+      "aa_noise_p99_pct": 0.6242947019707177,
+      "affinity_mask": 64,
+      "charged_cpu_pct": 0.33637171378700165,
+      "desc": "worst case: 1 logical CPU (CPU 6), process EcoQoS, 60 fps, main thread only at 40% of frame, background load 1 thread x 20% duty",
+      "eco_qos": true,
+      "findings": 16,
+      "frame_block_p99_median_ms": {
+        "off": 18.74425,
+        "on": 26.5342
+      },
+      "frame_clean_ms": {
+        "max": 76.8179,
+        "mean": 9.3902001953125,
+        "n": 3584,
+        "p50": 8.6429,
+        "p99": 28.3796,
+        "p999": 62.3628
+      },
+      "frame_mean_delta_pct": 4.333941062504035,
+      "frame_off_ms": {
+        "max": 61.2891,
+        "mean": 9.006958385093167,
+        "n": 3703,
+        "p50": 8.6321,
+        "p99": 20.7762,
+        "p999": 31.8648
+      },
+      "frame_on_ms": {
+        "max": 76.8179,
+        "mean": 9.39731465302737,
+        "n": 3617,
+        "p50": 8.6319,
+        "p99": 28.9365,
+        "p999": 62.3628
+      },
+      "frame_overlapped_ms": {
+        "max": 30.939,
+        "mean": 10.169987878787879,
+        "n": 33,
+        "p50": 7.9997,
+        "p99": 30.939,
+        "p999": 30.939
+      },
+      "frame_p99_delta_pct": 39.277153666214225,
+      "frame_started_in_slice_ms": {
+        "max": 30.939,
+        "mean": 10.61377391304348,
+        "n": 23,
+        "p50": 8.266,
+        "p99": 30.939,
+        "p999": 30.939
+      },
+      "frame_started_outside_slice_ms": {
+        "max": 76.8179,
+        "mean": 9.389529855314413,
+        "n": 3594,
+        "p50": 8.6366,
+        "p99": 28.3796,
+        "p999": 62.3628
+      },
+      "hitch_deferrals": 109,
+      "init": {
+        "main_ms": 1.0876,
+        "worker_cpu_ms": 0.401602,
+        "worker_wall_ms": 212.2741
+      },
+      "jobs": [
+        {
+          "cpu_ms": 0.365092,
+          "last_pass_cpu_ms": 0.175103,
+          "last_pass_wall_s": 0.0001748,
+          "max_step_us": 121.295,
+          "name": "module_inventory",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 1.650058,
+          "last_pass_cpu_ms": 0.758347,
+          "last_pass_wall_s": 0.0008729,
+          "max_step_us": 597.525,
+          "name": "memory_region_walk",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 0.128838,
+          "last_pass_cpu_ms": 0.053909,
+          "last_pass_wall_s": 0.0000541,
+          "max_step_us": 74.728,
+          "name": "thread_audit",
+          "overruns": 0,
+          "passes": 2,
+          "run_budget_aborts": 0
+        },
+        {
+          "cpu_ms": 22.341917,
+          "last_pass_cpu_ms": 0.0,
+          "last_pass_wall_s": 0.0,
+          "max_step_us": 845.848,
+          "name": "text_hash",
+          "overruns": 0,
+          "passes": 0,
+          "run_budget_aborts": 0
+        }
+      ],
+      "memory": {
+        "heap_peak_bytes": 33001,
+        "private_delta_off": 65536,
+        "private_delta_on": 176128,
+        "ws_delta_on": 110592
+      },
+      "missed_deadline_pct": {
+        "off": 2.2684310018903595,
+        "on": 3.9811998894111142
+      },
+      "pass": {
+        "cpu": true,
+        "frame": false,
+        "init": true,
+        "ram": true,
+        "slice": true,
+        "tick": true
+      },
+      "process_cpu_pct": {
+        "off": 41.59030537077026,
+        "on": 39.86753762834653
+      },
+      "profile": "lowend-1c",
+      "slice": {
+        "count": 824,
+        "cpu_max_ms": 1.256703,
+        "over_3ms_cpu": 0,
+        "over_3ms_wall": 33,
+        "wall_max_ms": 78.6594,
+        "wall_p99_ms": 78.6594
+      },
+      "tick_ns": {
+        "max": 89000.0,
+        "mean": 1266.9615703621787,
+        "n": 3617,
+        "p50": 1000.0,
+        "p99": 5700.0,
+        "p999": 18400.0
+      },
+      "units_per_ms": 27636.524430687597,
+      "worker_cpu_pct": 0.3757284725221995,
+      "worker_cpu_pct_getthreadtimes": 0.4145248560745511
+    }
+  ],
+  "throttle_demo": {
+    "charged_cpu_pct": 0.6707586565291748,
+    "global_throttled": 153,
+    "greedy": {
+      "cap_pct": 0.24,
+      "cpu_pct": 0.2492775962499195,
+      "run_budget_aborts": 2,
+      "share_throttled": 482
+    },
+    "hog": {
+      "cpu_ms": 23.111479,
+      "overruns": 3,
+      "quarantined": true,
+      "steps": 3
+    },
+    "pass": {
+      "greedy_capped": true,
+      "hog_quarantined": true,
+      "total_cpu": true
+    },
+    "secs": 30.0,
+    "text_hash_passes": 0,
+    "worker_cpu_pct": 0.730025589018577
+  },
+  "tick_intrinsic_ns": 31.9184,
+  "toolhelp_snapshot_ms": {
+    "max": 6.3776,
+    "median": 5.6084
+  }
+}
