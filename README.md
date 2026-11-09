@@ -1,9 +1,41 @@
 # Sentinel anti-cheat (monorepo)
 
-Layout follows the architecture plan §12. Only Phase 0 risk spike 1 exists so far.
+Layout follows the architecture plan §12. Phase 0: both risk spikes plus the foundations
+(protocol, handshake gateway, client SDK, game-server SDK).
+
+## Phase 0 foundations
 
 | Path | What |
 | --- | --- |
+| `proto/` | Wire protocol (`sentinel/v1/*.proto`), spec in `proto/README.md`, golden vectors in `proto/testvectors/` |
+| `client/crates/sn-proto`, `sn-crypto` | Rust: generated messages (prost + protox) and the handshake / AEAD / PASETO v4 token crypto |
+| `backend/internal/protocol` | Go: the same crypto; both sides pass `proto/testvectors` |
+| `backend/internal/gateway`, `cmd/gateway` | Go: Hello/Challenge/Prove handshake with TPM attestation, session tokens, heartbeats and kicks, game-server channel `/v1/gs` |
+| `backend/internal/store` | Store interface with in-memory and SQLite (modernc, no cgo) implementations |
+| `client/crates/sn-client-core` | Rust: SDK runtime (device identity, gateway session, sn-sched scan scheduler) |
+| `client/crates/sn-client-ffi` | `sentinel.dll`, C ABI; header `sdk/native/include/sentinel.h` |
+| `client/crates/sn-server` | Rust game-server SDK: offline token verification and the kick listener |
+| `client/examples/gs-stub` | Game-server stub (`serve` / one-shot `verify`) |
+| `sdk/native/sample` | Minimal C++ game using `sentinel.dll` (CMake) |
+| `tools/run-e2e.ps1` | Builds everything and runs the end-to-end demo |
+
+```powershell
+.\tools\run-e2e.ps1            # TPM path (trust level 2/3 on an attestable PC)
+.\tools\run-e2e.ps1 -NoTpm     # software device key (trust level 0)
+cd client; cargo test --workspace
+cd backend; go test ./...
+cd backend; go run ./cmd/gen-testvectors   # regenerate proto/testvectors (must be a no-op)
+```
+
+Regenerate Go protobuf code with `buf generate` in `proto/` (needs `protoc-gen-go` on PATH).
+Builds put cargo output in `$env:CARGO_TARGET_DIR` (the e2e script defaults it to
+`E:\sentinel-spike-scratch\cargo-target` when E: exists).
+
+## Risk spikes
+
+| Path | What |
+| --- | --- |
+| `client/crates/sn-sched`, `client/spikes/sched-spike` | Rust: budgeted scan scheduler and its measurement harness |
 | `client/crates/sn-attest` | Rust: TPM device key, AK enrollment, TBS quote and WBCL fetch via the Windows Platform Crypto Provider (no driver, no admin) |
 | `client/spikes/attest-spike` | Rust CLI driving the spike against the verifier |
 | `backend/internal/attest` | Go: verification on top of `google/go-attestation` (AK checks, AK-to-EK binding, quote, event-log replay, Secure Boot / HVCI / test-signing / debug state, ranked policy) |
