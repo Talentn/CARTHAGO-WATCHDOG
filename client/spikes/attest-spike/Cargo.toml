@@ -1,0 +1,15 @@
+[package]
+name = "attest-spike"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+sn-attest = { version = "0.0.1", path = "../../crates/sn-attest" }
+ureq = { version = "3.5.1", default-features = false, features = ["json"] }

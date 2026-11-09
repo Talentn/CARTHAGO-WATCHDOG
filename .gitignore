@@ -1,0 +1,9 @@
+# Build output
+/bin/
+client/target/
+*.exe
+*.pdb
+
+# Spike evidence (contains device-identifying EK/AK material and boot logs)
+/attest-out/
+/attest-reports/
