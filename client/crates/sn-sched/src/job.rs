@@ -11,7 +11,7 @@ pub enum Activity {
 }
 
 impl Activity {
-    pub(crate) fn from_u8(v: u8) -> Self {
+    pub fn from_u8(v: u8) -> Self {
         match v {
             1 => Self::Menu,
             2 => Self::Loading,
