@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
-use sn_sched::clock::{self, now_ns};
-use sn_sched::{Config, Job, SchedStats, Scheduler};
+use carthago_sched::clock::{self, now_ns};
+use carthago_sched::{Config, Job, SchedStats, Scheduler};
 use windows_sys::Win32::System::Memory::{VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE};
 
 use game::{Game, GameCfg};

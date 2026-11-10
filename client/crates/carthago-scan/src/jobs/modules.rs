@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sn_proto::v1::FindingCode;
-use sn_sched::{Ctx, Job, JobBudget, Step};
+use carthago_proto::v1::FindingCode;
+use carthago_sched::{Ctx, Job, JobBudget, Step};
 use windows_sys::Win32::System::Memory::MEM_IMAGE;
 
 use crate::paths::{base_name, Dirs};

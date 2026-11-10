@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use sn_proto::v1::{FindingCode, WatchedApi};
-use sn_sched::{Ctx, Job, JobBudget, Step};
+use carthago_proto::v1::{FindingCode, WatchedApi};
+use carthago_sched::{Ctx, Job, JobBudget, Step};
 use windows_sys::Wdk::System::Threading::{NtQueryInformationThread, ThreadQuerySetWin32StartAddress};
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Memory::{MEM_COMMIT, MEM_IMAGE};

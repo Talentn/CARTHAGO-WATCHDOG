@@ -24,8 +24,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
-use sn_crypto::time::now_unix;
-use sn_server::{GsEvent, KickListener, PublicKeys, Verifier};
+use carthago_crypto::time::now_unix;
+use carthago_server::{GsEvent, KickListener, PublicKeys, Verifier};
 
 mod simulate;
 

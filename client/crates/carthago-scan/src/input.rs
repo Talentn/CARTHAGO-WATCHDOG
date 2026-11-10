@@ -101,7 +101,7 @@ fn run(tid_out: Arc<AtomicU32>) {
             unsafe { UnhookWindowsHookEx(hook) };
             hook = std::ptr::null_mut();
         }
-        THREAD_CPU_NS.store(sn_sched::clock::cycles_to_ns(sn_sched::clock::thread_cycles()), Relaxed);
+        THREAD_CPU_NS.store(carthago_sched::clock::cycles_to_ns(carthago_sched::clock::thread_cycles()), Relaxed);
     }
     if !hook.is_null() {
         unsafe { UnhookWindowsHookEx(hook) };

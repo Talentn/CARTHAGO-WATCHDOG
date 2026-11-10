@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	pb "sentinel/backend/gen/sentinel/v1"
+	pb "carthago/backend/gen/carthago/v1"
 )
 
 func rules(evs []Evidence) map[string]Evidence {

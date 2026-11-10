@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use sn_proto::v1::{FindingCode, UnbackedFlags};
-use sn_sched::{Ctx, Job, JobBudget, Step};
+use carthago_proto::v1::{FindingCode, UnbackedFlags};
+use carthago_sched::{Ctx, Job, JobBudget, Step};
 use windows_sys::Win32::System::Memory::{MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_IMAGE, MEM_PRIVATE};
 
 use crate::seen::{fnv1a, Seen};

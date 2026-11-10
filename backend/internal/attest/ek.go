@@ -20,7 +20,7 @@ import (
 
 	goattest "github.com/google/go-attestation/attest"
 
-	"sentinel/backend/internal/attest/ekroots"
+	"carthago/backend/internal/attest/ekroots"
 )
 
 // DecodeBCryptRSAPublic decodes a Windows BCRYPT_RSAKEY_BLOB ("RSA1") public key.

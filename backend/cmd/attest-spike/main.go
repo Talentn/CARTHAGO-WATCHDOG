@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"sentinel/backend/internal/attest"
+	"carthago/backend/internal/attest"
 )
 
 func main() {

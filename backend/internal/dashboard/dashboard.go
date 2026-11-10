@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"sentinel/backend/internal/protocol"
-	"sentinel/backend/internal/store"
+	"carthago/backend/internal/protocol"
+	"carthago/backend/internal/store"
 )
 
 //go:embed templates/*.html

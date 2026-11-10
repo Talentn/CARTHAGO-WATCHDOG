@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	pb "sentinel/backend/gen/sentinel/v1"
+	pb "carthago/backend/gen/carthago/v1"
 )
 
 // Severity orders evidence for the dashboard and for the auto-kick policy.

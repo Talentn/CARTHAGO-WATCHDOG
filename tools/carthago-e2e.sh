@@ -29,11 +29,11 @@ fail() { printf 'FAIL: %s\n' "$*"; echo "logs in $run"; exit 1; }
 
 if [[ "${1:-}" != "--skip-build" ]]; then
   step "build carthago gateway, carthago-sim, gs-stub"
-  (cd "$root/backend" && go build -o "$bin/carthago-gateway" ./cmd/gateway && go build -o "$bin/carthago-sim" ./cmd/carthago-sim)
+  (cd "$root/backend" && go build -o "$bin/carthago-gateway" ./cmd/carthago-gateway && go build -o "$bin/carthago-sim" ./cmd/carthago-sim)
   (cd "$root/client" && cargo build -q -p gs-stub)
 fi
 gs_stub="${CARGO_TARGET_DIR:-$root/client/target}/debug/gs-stub"
-[[ -x "$bin/carthago-gateway" ]] || { (cd "$root/backend" && go build -o "$bin/carthago-gateway" ./cmd/gateway && go build -o "$bin/carthago-sim" ./cmd/carthago-sim); }
+[[ -x "$bin/carthago-gateway" ]] || { (cd "$root/backend" && go build -o "$bin/carthago-gateway" ./cmd/carthago-gateway && go build -o "$bin/carthago-sim" ./cmd/carthago-sim); }
 
 step "start gateway (SQLite in $run/data) with the dashboard"
 "$bin/carthago-gateway" -data "$run/data" -listen "127.0.0.1:$gw_port" -dashboard-listen "127.0.0.1:$dash_port" \

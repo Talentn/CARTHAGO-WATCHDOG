@@ -9,7 +9,7 @@ import (
 
 	_ "modernc.org/sqlite" // pure Go, no cgo
 
-	"sentinel/backend/migrations"
+	"carthago/backend/migrations"
 )
 
 type SQLite struct {

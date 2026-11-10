@@ -1,5 +1,5 @@
-// Package protocol implements the Sentinel wire protocol primitives shared with the Rust
-// client (client/crates/sn-crypto): handshake transcript, key schedule, AEAD framing,
+// Package protocol implements the Carthago Watchdog wire protocol primitives shared with the Rust
+// client (client/crates/carthago-crypto): handshake transcript, key schedule, AEAD framing,
 // device identity and session tokens. proto/README.md is the specification and
 // proto/testvectors/ the golden vectors both implementations must pass.
 package protocol
@@ -23,13 +23,13 @@ const (
 )
 
 const (
-	dstTranscript   = "sentinel/v1/transcript"
-	dstChallengeSig = "sentinel/v1/challenge-sig"
-	dstProve        = "sentinel/v1/prove"
-	dstQuote        = "sentinel/v1/quote"
-	dstDeviceID     = "sentinel/v1/device-id"
-	infoC2S         = "sentinel/v1/key/c2s"
-	infoS2C         = "sentinel/v1/key/s2c"
+	dstTranscript   = "carthago/v1/transcript"
+	dstChallengeSig = "carthago/v1/challenge-sig"
+	dstProve        = "carthago/v1/prove"
+	dstQuote        = "carthago/v1/quote"
+	dstDeviceID     = "carthago/v1/device-id"
+	infoC2S         = "carthago/v1/key/c2s"
+	infoS2C         = "carthago/v1/key/s2c"
 )
 
 const (

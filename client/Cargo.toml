@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/carthago-harden", "crates/carthago-net", "crates/carthago-scan", "crates/sn-attest", "crates/sn-sched", "crates/sn-proto", "crates/sn-crypto", "crates/sn-client-core", "crates/sn-client-ffi", "crates/sn-server", "examples/gs-stub", "spikes/attest-spike", "spikes/sched-spike"]
+members = ["crates/carthago-harden", "crates/carthago-net", "crates/carthago-scan", "crates/carthago-attest", "crates/carthago-sched", "crates/carthago-proto", "crates/carthago-crypto", "crates/carthago-core", "crates/carthago-sentinel", "crates/carthago-server", "examples/gs-stub", "spikes/attest-spike", "spikes/sched-spike"]
 
 [workspace.package]
 edition = "2021"

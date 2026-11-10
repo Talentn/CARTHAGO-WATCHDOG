@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/backend/internal/attest/ekroots"
+	"carthago/backend/internal/attest/ekroots"
 )
 
 func bcryptRSABlob(k *rsa.PublicKey) []byte {

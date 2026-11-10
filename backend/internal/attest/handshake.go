@@ -12,7 +12,7 @@ import (
 	goattest "github.com/google/go-attestation/attest"
 	"github.com/google/go-tpm/legacy/tpm2"
 
-	"sentinel/backend/internal/attest/ekroots"
+	"carthago/backend/internal/attest/ekroots"
 )
 
 // Handshake-oriented verification used by the gateway: no HTTP enrollment state, every

@@ -1,4 +1,4 @@
-module sentinel/backend
+module carthago/backend
 
 go 1.27.3
 

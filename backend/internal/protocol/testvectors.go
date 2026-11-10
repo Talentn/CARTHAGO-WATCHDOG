@@ -12,7 +12,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	pb "sentinel/backend/gen/sentinel/v1"
+	pb "carthago/backend/gen/carthago/v1"
 )
 
 // Golden vectors for proto/testvectors/. Inputs are derived from fixed labels, so
@@ -28,7 +28,7 @@ func (h *Hex) UnmarshalText(b []byte) error {
 }
 
 func seed(label string) Hex {
-	s := sha256.Sum256([]byte("sentinel test vector: " + label))
+	s := sha256.Sum256([]byte("carthago test vector: " + label))
 	return s[:]
 }
 
@@ -358,7 +358,7 @@ func BuildAEADVectors() (*AEADVectors, error) {
 		if err != nil {
 			return nil, err
 		}
-		v.Valid = append(v.Valid, AEADCase{Name: m.name, Direction: m.dir, Seq: m.seq, MessageType: fmt.Sprintf("%T", m.m)[len("*sentinelv1."):], Plaintext: pt, Frame: fr})
+		v.Valid = append(v.Valid, AEADCase{Name: m.name, Direction: m.dir, Seq: m.seq, MessageType: fmt.Sprintf("%T", m.m)[len("*carthagov1."):], Plaintext: pt, Frame: fr})
 	}
 	base := v.Valid[1].Frame
 	mut := func(i int) Hex {

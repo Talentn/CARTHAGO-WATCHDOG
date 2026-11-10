@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	pb "sentinel/backend/gen/sentinel/v1"
-	"sentinel/backend/internal/store"
+	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/store"
 )
 
 // Manager owns live sessions and their heartbeat deadlines. A missed deadline marks the

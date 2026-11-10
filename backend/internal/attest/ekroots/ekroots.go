@@ -1,7 +1,7 @@
 // Package ekroots holds the bundled TPM manufacturer CA certificates (Intel PTT/fTPM, AMD
 // fTPM, Infineon, STMicro, Nuvoton) and builds EK certificate chains to them.
 //
-// The bundle is generated from Microsoft's TrustedTpm.cab by tools/update-ek-roots.sh.
+// The bundle is generated from Microsoft's TrustedTpm.cab by tools/carthago-update-ek-roots.sh.
 // As on Windows, every certificate in a vendor's RootCA folder is a trust anchor, and
 // IntermediateCA certificates are untrusted path-building candidates.
 package ekroots

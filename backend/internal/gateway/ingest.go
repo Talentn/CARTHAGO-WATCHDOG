@@ -8,7 +8,7 @@ import (
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
-	pb "sentinel/backend/gen/sentinel/v1"
+	pb "carthago/backend/gen/carthago/v1"
 )
 
 // ingestTimeout bounds how long one batch may wait for the analysis queue before the game

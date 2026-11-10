@@ -1,6 +1,6 @@
 package protocol
 
-// attest_flags bits carried in session tokens (mirrored in sn-crypto and proto/README.md).
+// attest_flags bits carried in session tokens (mirrored in carthago-crypto and proto/README.md).
 const (
 	FlagTPMDeviceKey         uint64 = 1 << 0  // device key claims to be a PCP (TPM) key
 	FlagDeviceKeyCertified   uint64 = 1 << 1  // TPM2_Certify by the AK proves the device key is TPM-resident

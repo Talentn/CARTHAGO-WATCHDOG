@@ -1,5 +1,5 @@
 //! Carthago Watchdog client detections (architecture plan §6, Phase 1 client list). Every
-//! scanner is an incremental [`sn_sched::Job`] that runs on the budgeted scheduler worker,
+//! scanner is an incremental [`carthago_sched::Job`] that runs on the budgeted scheduler worker,
 //! never on the game thread, and only observes: findings go to the server, which owns all
 //! allowlists, thresholds and verdicts (plan §8.6).
 //!
@@ -26,7 +26,7 @@ pub use paths::Dirs;
 
 /// The Phase 1 scan set, in no particular order (the scheduler orders by priority).
 #[cfg(windows)]
-pub fn phase1_jobs(dirs: Arc<Dirs>) -> Vec<Box<dyn sn_sched::Job>> {
+pub fn phase1_jobs(dirs: Arc<Dirs>) -> Vec<Box<dyn carthago_sched::Job>> {
     vec![
         Box::new(jobs::ModuleInventory::new(dirs)),
         Box::new(jobs::MemoryWalk::new()),
@@ -41,7 +41,7 @@ pub fn phase1_jobs(dirs: Arc<Dirs>) -> Vec<Box<dyn sn_sched::Job>> {
 }
 
 #[cfg(not(windows))]
-pub fn phase1_jobs(_dirs: Arc<Dirs>) -> Vec<Box<dyn sn_sched::Job>> {
+pub fn phase1_jobs(_dirs: Arc<Dirs>) -> Vec<Box<dyn carthago_sched::Job>> {
     Vec::new()
 }
 

@@ -1,0 +1,306 @@
+// Client <-> gateway wire format (architecture plan §5.1-5.3).
+//
+// Framing over one binary WebSocket message per frame, first byte = frame type:
+//   0x01 Hello      (plaintext protobuf `Hello`)
+//   0x02 Challenge  (plaintext protobuf `Challenge`)
+//   0x03 Sealed     (seq u64 big-endian || ChaCha20-Poly1305 ciphertext of `ClientMsg`/`ServerMsg`)
+// Transcript, key schedule and AEAD layout: proto/README.md. Golden vectors: proto/testvectors/.
+//
+// Handshake messages are never re-encoded: signatures and the transcript hash cover the exact
+// bytes received, so encoder differences between prost and protobuf-go cannot break them.
+syntax = "proto3";
+
+package carthago.v1;
+
+option go_package = "carthago/backend/gen/carthago/v1;carthagov1";
+
+enum DeviceKeyAlg {
+  DEVICE_KEY_ALG_UNSPECIFIED = 0;
+  // Software fallback key (no TPM): 32-byte Ed25519 public key. Lower trust_level.
+  DEVICE_KEY_ALG_ED25519_SOFTWARE = 1;
+  // Non-exportable PCP (TPM) key: 65-byte SEC1 uncompressed P-256 point.
+  DEVICE_KEY_ALG_ECDSA_P256_TPM = 2;
+}
+
+message DeviceKey {
+  DeviceKeyAlg alg = 1;
+  bytes public_key = 2;
+}
+
+// AK enrollment evidence (go-attestation AttestationParameters + EK). Sent only when the
+// gateway has no verified AK for this device key.
+message TpmEnrollment {
+  bytes ek_public = 1; // BCRYPT_RSAKEY_BLOB
+  repeated bytes ek_certs = 2; // DER, from TPM NV
+  bytes ak_public = 3; // TPMT_PUBLIC
+  bytes ak_create_data = 4;
+  bytes ak_create_attestation = 5;
+  bytes ak_create_signature = 6;
+  string tpm_manufacturer = 7;
+  string tpm_firmware = 8;
+  // DER certificates from the TPM's EK certificate chain NV indices (0x01C00100-0x01C001FF,
+  // TCG EK Credential Profile 2.2.1.5.2), e.g. Intel PTT's per-device CSME PTT, Kernel and
+  // ROM CAs. The gateway uses them only as untrusted intermediates, never as the EK leaf.
+  repeated bytes ek_chain_certs = 9;
+}
+
+message EnvReport {
+  string os_build = 1;
+  bool elevated = 2;
+  bool tpm_present = 3;
+  string tpm_manufacturer = 4;
+}
+
+message Hello {
+  uint32 protocol_version = 1;
+  string sdk_version = 2;
+  string tenant_id = 3;
+  string build_id = 4;
+  bytes client_eph_pub = 5; // X25519, 32 bytes
+  DeviceKey device_key = 6;
+  string player_id_hash = 7;
+  EnvReport env = 8;
+  TpmEnrollment tpm_enrollment = 9;
+  bool tpm_attestation_available = 10;
+  uint64 client_ts_ms = 11;
+}
+
+// go-attestation DecryptionEkChallenge (AK-to-EK binding without elevation).
+message EkChallenge {
+  bytes object_public = 1;
+  bytes duplicate = 2;
+  bytes in_sym_seed = 3;
+}
+
+message AttestRequest {
+  repeated uint32 pcrs = 1; // quote over these PCRs (sha256 bank)
+  EkChallenge ek_challenge = 2; // set when the AK is not yet bound to an EK
+  bool certify_device_key = 3; // TPM2_Certify(device key) signed by the AK
+}
+
+message ChallengeBody {
+  bytes server_nonce = 1; // 32 bytes
+  bytes server_eph_pub = 2; // X25519, 32 bytes
+  bytes session_id = 3; // 16 bytes
+  uint64 server_ts_ms = 4;
+  AttestRequest attest = 5; // absent: no attestation requested
+  uint32 heartbeat_interval_ms = 6;
+  uint32 heartbeat_timeout_ms = 7;
+}
+
+message Challenge {
+  bytes body = 1; // encoded ChallengeBody
+  bytes server_sig = 2; // Ed25519 by the pinned server identity key
+  string server_key_id = 3;
+}
+
+message Pcr {
+  uint32 index = 1;
+  bytes digest = 2;
+}
+
+message TpmEvidence {
+  bytes ek_certify_attest = 1;
+  bytes ek_certify_signature = 2;
+  bytes quote = 3; // TPMS_ATTEST, extraData = quote_nonce(transcript)
+  bytes quote_signature = 4;
+  repeated Pcr pcrs = 5;
+  bytes event_log = 6; // WBCL
+  bytes device_key_certify_attest = 7; // TPMS_ATTEST, extraData = quote_nonce(transcript)
+  bytes device_key_certify_signature = 8;
+  string error = 9; // why the client could not produce (part of) the evidence
+  bytes device_key_public_area = 10; // TPMT_PUBLIC of the device key (Name check for the certify)
+}
+
+// First sealed client message.
+message Prove {
+  bytes device_sig = 1; // over prove_digest(transcript)
+  TpmEvidence attestation = 2;
+}
+
+// First sealed server message.
+message Session {
+  string session_token = 1; // PASETO v4.public
+  uint32 trust_level = 2;
+  uint64 attest_flags = 3;
+  uint64 expires_at_ms = 4;
+  repeated string notes = 5;
+}
+
+// Client scan finding codes (Finding.code). The client only observes and reports; every
+// threshold, allowlist and verdict lives on the server (plan §8.6). Meaning of a, b and
+// detail per code below. Codes 1 and 3 predate this enum and keep their values.
+enum FindingCode {
+  FINDING_CODE_UNSPECIFIED = 0;
+  // Loader-list module whose base is not an image mapping. a = module base.
+  FINDING_CODE_MODULE_NOT_IMAGE = 1;
+  // Image mapping whose allocation base is missing from the loader list (unlinked module).
+  // a = allocation base, b = region size, detail = mapped file base name.
+  FINDING_CODE_IMAGE_NOT_IN_LOADER = 2;
+  // Committed executable memory that is not image-backed. a = base, b = size in the low
+  // 48 bits plus UnbackedFlags << 48, detail empty.
+  FINDING_CODE_UNBACKED_EXEC = 3;
+  // Thread whose start address is outside every image mapping. a = start, b = thread id.
+  FINDING_CODE_THREAD_START_UNBACKED = 4;
+  // Thread starting at a loader entry point (LoadLibrary*/LdrLoadDll): the classic remote
+  // injection thread. a = start, b = thread id, detail = WatchedApi name of the target.
+  FINDING_CODE_THREAD_START_LOADER = 5;
+  // Exported API whose first bytes differ from the on-disk image. a = hook target address
+  // (0 if not a recognised jump), b = WatchedApi, detail = target module ("" = not image-backed).
+  FINDING_CODE_API_HOOK = 6;
+  // Code page of a graphics module (dxgi/d3d11/d3d12, which hold the Present path) that
+  // differs from disk. a = patched address, b = jump target (0 if not decoded),
+  // detail = "patched_module>target_module" (target "?" = not image-backed).
+  FINDING_CODE_CODE_PATCH = 7;
+  // Another process holds a handle to the game with memory or thread access.
+  // a = holder pid, b = granted access mask, detail = holder image base name.
+  FINDING_CODE_EXTERNAL_HANDLE = 8;
+  // Layered, transparent, topmost window of another process over the game window.
+  // a = owner pid, b = extended window style, detail = owner image base name. Never titles.
+  FINDING_CODE_OVERLAY_WINDOW = 9;
+  // Debugger signals. a = DebugSignal bit mask.
+  FINDING_CODE_DEBUGGER = 10;
+  // Loaded kernel driver matching the known-vulnerable driver list. detail = file name.
+  FINDING_CODE_VULNERABLE_DRIVER = 11;
+  // Module loaded into the game process outside the system directory.
+  // a = base, b = ModulePathClass, detail = base name.
+  FINDING_CODE_MODULE_LOADED = 12;
+  // Process mitigation profile outcome (informational). a = applied bits, b = failed bits.
+  FINDING_CODE_MITIGATIONS = 13;
+}
+
+// Bits in FINDING_CODE_UNBACKED_EXEC b >> 48.
+enum UnbackedFlags {
+  UNBACKED_FLAGS_NONE = 0;
+  UNBACKED_FLAGS_MZ_HEADER = 1;
+  UNBACKED_FLAGS_PE_SIGNATURE = 2;
+  UNBACKED_FLAGS_PRIVATE = 4; // MEM_PRIVATE (otherwise MEM_MAPPED)
+  UNBACKED_FLAGS_WRITABLE = 8; // executable and writable
+}
+
+// Bits in FINDING_CODE_DEBUGGER a.
+enum DebugSignal {
+  DEBUG_SIGNAL_NONE = 0;
+  DEBUG_SIGNAL_PEB_BEING_DEBUGGED = 1;
+  DEBUG_SIGNAL_DEBUG_PORT = 2;
+  DEBUG_SIGNAL_DEBUG_OBJECT = 4;
+  DEBUG_SIGNAL_NO_INHERIT_FLAG = 8; // ProcessDebugFlags == 0
+  DEBUG_SIGNAL_HARDWARE_BREAKPOINT = 16; // DR0-DR3 set on the scanning thread
+  DEBUG_SIGNAL_KERNEL_DEBUGGER = 32; // KUSER_SHARED_DATA.KdDebuggerEnabled
+}
+
+enum ModulePathClass {
+  MODULE_PATH_CLASS_OTHER = 0;
+  MODULE_PATH_CLASS_GAME_DIR = 1; // under the game executable's directory
+  MODULE_PATH_CLASS_PROGRAM_FILES = 2;
+}
+
+// Curated exports checked for inline hooks (timing APIs for speedhacks, loader and query
+// APIs that injectors and hiders patch). FINDING_CODE_API_HOOK b and THREAD_START_LOADER.
+enum WatchedApi {
+  WATCHED_API_UNSPECIFIED = 0;
+  WATCHED_API_NTDLL_NT_QUERY_PERFORMANCE_COUNTER = 1;
+  WATCHED_API_NTDLL_RTL_QUERY_PERFORMANCE_COUNTER = 2;
+  WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER = 3;
+  WATCHED_API_KERNELBASE_GET_TICK_COUNT64 = 4;
+  WATCHED_API_KERNELBASE_GET_TICK_COUNT = 5;
+  WATCHED_API_WINMM_TIME_GET_TIME = 6;
+  WATCHED_API_NTDLL_NT_QUERY_SYSTEM_INFORMATION = 7;
+  WATCHED_API_NTDLL_NT_QUERY_VIRTUAL_MEMORY = 8;
+  WATCHED_API_NTDLL_LDR_LOAD_DLL = 9;
+  WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W = 10;
+  WATCHED_API_KERNEL32_LOAD_LIBRARY_A = 11;
+  WATCHED_API_KERNEL32_LOAD_LIBRARY_W = 12;
+  WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A = 13;
+}
+
+message Finding {
+  string job = 1;
+  uint32 code = 2; // FindingCode
+  uint64 a = 3;
+  uint64 b = 4;
+  string detail = 5; // ≤ 47 bytes; module or process base name, never paths or titles
+}
+
+message SchedSummary {
+  uint64 worker_cpu_ns = 1;
+  uint64 slices = 2;
+  uint64 slice_cpu_max_ns = 3;
+  uint64 frames = 4;
+  uint32 jobs_quarantined = 5;
+  uint64 findings_dropped = 6;
+  uint64 slice_overruns = 7; // slices whose wall time exceeded the 3 ms hard cap
+  uint64 input_thread_cpu_ns = 8; // low-level mouse hook thread
+}
+
+// Raw clock readings taken together at heartbeat time. The server compares their rates
+// with each other and with its own clock (speedhack: hooked QPC/GetTickCount run fast,
+// KUSER_SHARED_DATA.InterruptTime cannot be hooked from user mode).
+message TimeSample {
+  uint64 qpc_ns = 1;
+  uint64 tick_count_ms = 2;
+  uint64 interrupt_time_100ns = 3;
+}
+
+// Low-level mouse hook counters, cumulative for the session, counted only while the game
+// window has focus (plan §6.1). Timing and counts only, never positions or keys.
+message InputStats {
+  uint64 mouse_events = 1;
+  uint64 injected = 2; // LLMHF_INJECTED
+  uint64 lower_il_injected = 3; // LLMHF_LOWER_IL_INJECTED
+  uint64 focused_ms = 4;
+}
+
+// Per scan family: completed passes so far (coverage accounting, plan §5.3).
+message JobCoverage {
+  string job = 1;
+  uint64 runs_completed = 2;
+  uint64 overruns = 3;
+  bool quarantined = 4;
+}
+
+message Heartbeat {
+  uint32 activity = 1; // 0 gameplay, 1 menu, 2 loading
+  SchedSummary sched = 2;
+  repeated Finding findings = 3;
+  TimeSample time = 4;
+  InputStats input = 5;
+  repeated JobCoverage coverage = 6;
+}
+
+message HeartbeatAck {
+  string renewed_token = 1; // set when the current token is close to expiry
+  uint64 renewed_expires_at_ms = 2;
+}
+
+message Kicked {
+  string reason = 1;
+}
+
+message Error {
+  string code = 1;
+  string message = 2;
+}
+
+// Plaintext of every client->server sealed frame. seq must equal the frame seq.
+message ClientMsg {
+  uint64 seq = 1;
+  bytes session_id = 2;
+  uint64 client_ts_ms = 3;
+  oneof body {
+    Prove prove = 10;
+    Heartbeat heartbeat = 11;
+  }
+}
+
+message ServerMsg {
+  uint64 seq = 1;
+  bytes session_id = 2;
+  uint64 server_ts_ms = 3;
+  oneof body {
+    Session session = 10;
+    HeartbeatAck heartbeat_ack = 11;
+    Kicked kicked = 12;
+    Error error = 13;
+  }
+}

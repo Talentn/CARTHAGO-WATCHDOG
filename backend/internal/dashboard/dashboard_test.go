@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/backend/internal/store"
+	"carthago/backend/internal/store"
 )
 
 type fixture struct {

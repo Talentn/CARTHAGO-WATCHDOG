@@ -7,7 +7,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use sn_sched::clock::now_ns;
+use carthago_sched::clock::now_ns;
 
 const BUF_WORDS: usize = 1 << 17; // 1 MiB per thread
 

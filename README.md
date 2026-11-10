@@ -81,33 +81,30 @@ players by verifying their token offline and removes them when the gateway sends
 
 ## Repository layout
 
-The product was renamed from its working title. New code already uses the Carthago names;
-**several existing crates still carry their old `sn-` names until the dedicated rename step**
-(see the right-hand column).
-
-| Path | Component | Carthago name |
-| --- | --- | --- |
-| `proto/` | Wire protocol (`sentinel/v1/*.proto`), spec in `proto/README.md`, golden vectors in `proto/testvectors/` | package `carthago.v1` |
-| `client/crates/sn-client-ffi` | Game-facing DLL with a C ABI; header `sdk/native/include/sentinel.h` | `carthago-sentinel` → `carthago_sentinel.dll` / `carthago_sentinel.h` |
-| `client/crates/sn-client-core` | SDK runtime: device identity, gateway session, scan scheduling, heartbeats | `carthago-core` |
-| `client/crates/sn-sched` | Budgeted scan scheduler (token bucket, slice caps, job quarantine) | `carthago-sched` |
-| `client/crates/sn-attest` | TPM device key, AK enrollment, quote and boot-log fetch via the Platform Crypto Provider | `carthago-attest` |
-| `client/crates/sn-proto`, `sn-crypto` | Generated messages; handshake, AEAD and token crypto | `carthago-proto`, `carthago-crypto` |
-| `client/crates/sn-server` | Game-server SDK: offline verification, kick listener, gameplay stream | `carthago-server` |
-| `client/crates/carthago-scan` | Phase 1 client integrity scans as budgeted jobs | — |
-| `client/crates/carthago-harden` | Mitigation-policy profiles applied at SDK init | — |
-| `client/examples/gs-stub` | Game-server stub: `serve`, `verify`, `simulate` | — |
-| `client/spikes/` | Phase 0 measurement harnesses (scheduler, attestation) | — |
-| `backend/cmd/gateway` | The gateway, analysis pipeline and dashboard in one binary | `carthago-gateway` |
-| `backend/internal/gateway` | Handshake, attestation glue, sessions, heartbeats, `/v1/gs`, `/v1/ingest` | |
-| `backend/internal/attest` | Attestation verification on `google/go-attestation` | |
-| `backend/internal/analyzer` | Pure detection rules (no I/O); every threshold lives here | |
-| `backend/internal/pipeline` | Bounded queue from gateway to analyzer and evidence store | |
-| `backend/internal/store` | Store interface; SQLite (pure Go, no cgo) and in-memory | |
-| `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) | |
-| `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) | |
-| `sdk/native/sample` | Minimal C++ game using the SDK (CMake) | |
-| `tools/` | `carthago-e2e.sh` (Linux), `run-e2e.ps1` and `run-tpm-spike.ps1` (Windows) | |
+| Path | Component |
+| --- | --- |
+| `proto/` | Wire protocol (package `carthago.v1`, `carthago/v1/*.proto`), spec in `proto/README.md`, golden vectors in `proto/testvectors/` |
+| `client/crates/carthago-sentinel` | Carthago Sentinel: the game-facing `carthago_sentinel.dll` with a C ABI; header `sdk/native/include/carthago_sentinel.h` |
+| `client/crates/carthago-core` | SDK runtime: device identity, gateway session, scan scheduling, heartbeats |
+| `client/crates/carthago-sched` | Budgeted scan scheduler (token bucket, slice caps, job quarantine) |
+| `client/crates/carthago-attest` | TPM device key, AK enrollment, EK chain NV read, quote and boot-log fetch via the Platform Crypto Provider |
+| `client/crates/carthago-proto`, `carthago-crypto` | Generated messages; handshake, AEAD and token crypto |
+| `client/crates/carthago-net` | rustls TLS 1.3 transport with SPKI pinning |
+| `client/crates/carthago-server` | Game-server SDK: offline verification, kick listener, gameplay stream |
+| `client/crates/carthago-scan` | Phase 1 client integrity scans as budgeted jobs |
+| `client/crates/carthago-harden` | Mitigation-policy profiles applied at SDK init |
+| `client/examples/gs-stub` | Game-server stub: `serve`, `verify`, `simulate` |
+| `client/spikes/` | Phase 0 measurement harnesses (scheduler, attestation) |
+| `backend/cmd/carthago-gateway` | Carthago Gateway: the gateway, analysis pipeline and dashboard in one binary |
+| `backend/internal/gateway` | Handshake, attestation glue, TLS, sessions, heartbeats, `/v1/gs`, `/v1/ingest` |
+| `backend/internal/attest` | Attestation verification on `google/go-attestation`; EK chain verification against the bundled vendor roots in `attest/ekroots` |
+| `backend/internal/analyzer` | Pure detection rules (no I/O); every threshold lives here |
+| `backend/internal/pipeline` | Bounded queue from gateway to analyzer and evidence store |
+| `backend/internal/store` | Store interface; SQLite (pure Go, no cgo) and in-memory |
+| `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
+| `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
+| `sdk/native/sample` | Minimal C++ game using the SDK (CMake) |
+| `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh` |
 
 ---
 
@@ -123,10 +120,10 @@ The product was renamed from its working title. New code already uses the Cartha
 ### Build and test
 
 ```bash
-cd backend && go test ./... && go build -o bin/carthago-gateway ./cmd/gateway
+cd backend && go test ./... && go build -o bin/carthago-gateway ./cmd/carthago-gateway
 cd client  && cargo build --workspace          # on Windows: the full workspace
-cd client  && cargo test --workspace --exclude sched-spike --exclude sn-attest \
-                --exclude attest-spike --exclude sn-client-core --exclude sn-client-ffi   # on Linux
+cd client  && cargo test --workspace --exclude sched-spike --exclude carthago-attest \
+                --exclude attest-spike --exclude carthago-core --exclude carthago-sentinel   # on Linux
 cd client  && cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu   # type-check the Windows code from Linux
 ```
 
@@ -134,7 +131,7 @@ cd client  && cargo clippy --workspace --all-targets --target x86_64-pc-windows-
 
 ```bash
 cd backend
-go run ./cmd/gateway -data gateway-data
+go run ./cmd/carthago-gateway -data gateway-data
 #   client and game-server endpoints   ws://127.0.0.1:8750   (/v1/client, /v1/gs, /v1/ingest; loopback only)
 #   dashboard                           http://127.0.0.1:8751
 #   dashboard login                     studio "demo", key "demo-dashboard-key"
@@ -169,9 +166,9 @@ tools/carthago-e2e.sh
 and a heartbeat-deadline kick):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\run-e2e.ps1          # TPM path (trust 2/3 on an attestable PC)
-powershell -ExecutionPolicy Bypass -File tools\run-e2e.ps1 -NoTpm   # software device key (trust 0)
-powershell -ExecutionPolicy Bypass -File tools\run-e2e.ps1 -Plaintext   # ws:// on loopback instead of pinned TLS
+powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1          # TPM path (trust 2/3 on an attestable PC)
+powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1 -NoTpm   # software device key (trust 0)
+powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1 -Plaintext   # ws:// on loopback instead of pinned TLS
 ```
 
 ---
@@ -180,34 +177,32 @@ powershell -ExecutionPolicy Bypass -File tools\run-e2e.ps1 -Plaintext   # ws:// 
 
 ### Native C++ (available)
 
-Link the import library, ship the DLL next to the game, and call four functions. The C ABI
-still uses the `sn_` prefix and `sentinel.h` until the rename step, after which it becomes
-`carthago_` / `carthago_sentinel.h`. Flags added since then already use the `CARTHAGO_`
-prefix.
+Link the import library `carthago_sentinel.dll.lib`, ship `carthago_sentinel.dll` next to the
+game, and call four functions. Every C symbol uses the `carthago_` / `CARTHAGO_` prefix.
 
 ```cpp
-#include "sentinel.h"
+#include "carthago_sentinel.h"
 
-SnConfig cfg{};
-cfg.abi_version = SN_ABI_VERSION;
-cfg.struct_size = sizeof(SnConfig);
+CarthagoConfig cfg{};
+cfg.abi_version = CARTHAGO_ABI_VERSION;
+cfg.struct_size = sizeof(CarthagoConfig);
 cfg.tenant_id = "your-studio";
 cfg.build_id = "1.4.2";
 cfg.gateway_url = "wss://gateway.example.com/v1/client";
 cfg.server_identity_key_hex = kGatewayIdentityKey;   // from public-keys.json, pinned in the build
 cfg.tls_pins_hex = kGatewayTlsPins;                  // tls_spki_sha256 from public-keys.json, comma-separated
 cfg.flags = 0;                                       // or CARTHAGO_FLAG_STRICT_MITIGATIONS, ...
-sn_init(&cfg);                                       // ≤ 50 ms, work happens off the main thread
+carthago_init(&cfg);                                 // ≤ 50 ms, work happens off the main thread
 
-sn_set_kick_callback(on_kick, nullptr);
-sn_begin_session(player_id_hmac, on_session_ready, nullptr);   // async; you get trust level + flags
+carthago_set_kick_callback(on_kick, nullptr);
+carthago_begin_session(player_id_hmac, on_session_ready, nullptr); // async; you get trust level + flags
 
 // every frame, on the game thread:
-sn_tick();                                           // ≤ 20 µs p99
-sn_set_activity(SN_IN_MATCH);                        // scans slow down in matches, catch up in menus
+carthago_tick();                                     // ≤ 20 µs p99
+carthago_set_activity(CARTHAGO_IN_MATCH);            // scans slow down in matches, catch up in menus
 
 // when joining a server: hand the token to your game server
-sn_get_session_token(buf, &len);
+carthago_get_session_token(buf, &len);
 ```
 
 The game server checks the token offline with `carthago-server` (Rust) and keeps the kick
@@ -352,7 +347,7 @@ Phases are defined by scope and exit criteria, not dates.
   `protoc-gen-go`). Run `go run ./cmd/gen-testvectors` in `backend/` to check the golden
   vectors; it must be a no-op.
 - **TPM attestation spike** (Windows, normal PowerShell, TPM 2.0):
-  `.\tools\run-tpm-spike.ps1` (options `-Activation pcp`, `-NoFetchEK`). Exit code 0 means
+  `.\tools\carthago-tpm-spike.ps1` (options `-Activation pcp`, `-NoFetchEK`). Exit code 0 means
   every cryptographic check passed; evidence lands in `attest-out\` and `attest-reports\`.
 - **Windows build output:** builds put cargo output in `$env:CARGO_TARGET_DIR`. The
   PowerShell scripts default it to a scratch directory.

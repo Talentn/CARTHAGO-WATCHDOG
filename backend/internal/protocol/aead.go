@@ -15,7 +15,7 @@ const (
 	ServerToClient Direction = 1
 )
 
-const dstAEAD = "sentinel/v1/aead"
+const dstAEAD = "carthago/v1/aead"
 
 // SealedHeaderLen is the frame type byte plus the big-endian sequence number.
 const SealedHeaderLen = 1 + 8

@@ -17,10 +17,10 @@ import (
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
-	pb "sentinel/backend/gen/sentinel/v1"
-	"sentinel/backend/internal/attest/ekroots"
-	"sentinel/backend/internal/protocol"
-	"sentinel/backend/internal/store"
+	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/attest/ekroots"
+	"carthago/backend/internal/protocol"
+	"carthago/backend/internal/store"
 )
 
 const serverKey = "test-server-key"

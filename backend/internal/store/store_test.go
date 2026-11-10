@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"sentinel/backend/migrations"
+	"carthago/backend/migrations"
 )
 
 func exercise(t *testing.T, s Store) {

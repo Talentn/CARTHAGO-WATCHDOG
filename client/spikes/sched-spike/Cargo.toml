@@ -10,7 +10,7 @@ publish.workspace = true
 anyhow = "1.0.104"
 blake3 = "1"
 serde_json = "1.0.154"
-sn-sched = { version = "0.0.1", path = "../../crates/sn-sched" }
+carthago-sched = { version = "0.0.1", path = "../../crates/carthago-sched" }
 windows-sys = { version = "0.61.2", features = [
     "Wdk_System_Threading",
     "Win32_Foundation",

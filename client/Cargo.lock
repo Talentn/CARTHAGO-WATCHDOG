@@ -78,10 +78,10 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "base64",
+ "carthago-attest",
  "serde",
  "serde_json",
  "sha2",
- "sn-attest",
  "ureq",
 ]
 
@@ -153,6 +153,53 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "carthago-attest"
+version = "0.0.1"
+dependencies = [
+ "thiserror",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "carthago-core"
+version = "0.0.1"
+dependencies = [
+ "carthago-attest",
+ "carthago-crypto",
+ "carthago-harden",
+ "carthago-net",
+ "carthago-proto",
+ "carthago-scan",
+ "carthago-sched",
+ "ed25519-dalek",
+ "hex",
+ "prost",
+ "sha2",
+ "thiserror",
+ "tungstenite",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "carthago-crypto"
+version = "0.0.1"
+dependencies = [
+ "base64",
+ "carthago-proto",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "hex",
+ "hkdf",
+ "p256",
+ "prost",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "carthago-harden"
 version = "0.0.1"
 dependencies = [
@@ -173,13 +220,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "carthago-proto"
+version = "0.0.1"
+dependencies = [
+ "prost",
+ "prost-build",
+ "protox",
+]
+
+[[package]]
 name = "carthago-scan"
 version = "0.0.1"
 dependencies = [
- "sn-proto",
- "sn-sched",
+ "carthago-proto",
+ "carthago-sched",
  "windows-link",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "carthago-sched"
+version = "0.0.1"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "carthago-sentinel"
+version = "0.0.1"
+dependencies = [
+ "carthago-core",
+ "carthago-crypto",
+ "carthago-net",
+ "carthago-sched",
+ "hex",
+]
+
+[[package]]
+name = "carthago-server"
+version = "0.0.1"
+dependencies = [
+ "carthago-crypto",
+ "carthago-net",
+ "carthago-proto",
+ "hex",
+ "prost",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tungstenite",
 ]
 
 [[package]]
@@ -601,9 +691,9 @@ dependencies = [
 name = "gs-stub"
 version = "0.0.1"
 dependencies = [
+ "carthago-crypto",
  "carthago-net",
- "sn-crypto",
- "sn-server",
+ "carthago-server",
 ]
 
 [[package]]
@@ -1373,8 +1463,8 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "blake3",
+ "carthago-sched",
  "serde_json",
- "sn-sched",
  "windows-sys 0.61.2",
 ]
 
@@ -1494,96 +1584,6 @@ name = "smallvec"
 version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
-
-[[package]]
-name = "sn-attest"
-version = "0.0.1"
-dependencies = [
- "thiserror",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "sn-client-core"
-version = "0.0.1"
-dependencies = [
- "carthago-harden",
- "carthago-net",
- "carthago-scan",
- "ed25519-dalek",
- "hex",
- "prost",
- "sha2",
- "sn-attest",
- "sn-crypto",
- "sn-proto",
- "sn-sched",
- "thiserror",
- "tungstenite",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "sn-client-ffi"
-version = "0.0.1"
-dependencies = [
- "carthago-net",
- "hex",
- "sn-client-core",
- "sn-crypto",
- "sn-sched",
-]
-
-[[package]]
-name = "sn-crypto"
-version = "0.0.1"
-dependencies = [
- "base64",
- "chacha20poly1305",
- "ed25519-dalek",
- "hex",
- "hkdf",
- "p256",
- "prost",
- "serde",
- "serde_json",
- "sha2",
- "sn-proto",
- "thiserror",
- "x25519-dalek",
-]
-
-[[package]]
-name = "sn-proto"
-version = "0.0.1"
-dependencies = [
- "prost",
- "prost-build",
- "protox",
-]
-
-[[package]]
-name = "sn-sched"
-version = "0.0.1"
-dependencies = [
- "libc",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "sn-server"
-version = "0.0.1"
-dependencies = [
- "carthago-net",
- "hex",
- "prost",
- "serde",
- "serde_json",
- "sn-crypto",
- "sn-proto",
- "thiserror",
- "tungstenite",
-]
 
 [[package]]
 name = "spki"

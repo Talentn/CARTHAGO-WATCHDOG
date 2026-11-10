@@ -38,9 +38,9 @@ import (
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
-	pb "sentinel/backend/gen/sentinel/v1"
-	"sentinel/backend/internal/protocol"
-	"sentinel/backend/internal/store"
+	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/protocol"
+	"carthago/backend/internal/store"
 )
 
 var jobs = []string{"module_inventory", "memory_region_walk", "thread_audit", "api_hooks", "text_integrity", "external_handles", "overlay_windows", "debugger_signals", "vulnerable_drivers"}

@@ -1,7 +1,7 @@
-// Minimal "game" using sentinel.dll: init, session, per-frame sn_tick, forward the session
+// Minimal "game" using carthago_sentinel.dll: init, session, per-frame carthago_tick, forward the session
 // token to the game server (gs-stub), and react to a kick.
 //
-//   sentinel-sample --server-key-hex HEX [--gateway ws://127.0.0.1:8750/v1/client]
+//   carthago-sample --server-key-hex HEX [--gateway ws://127.0.0.1:8750/v1/client]
 //                   [--gateway-pin HEX[,HEX]] [--gs 127.0.0.1:8760] [--tenant demo] [--player HASH] [--no-tpm]
 //                   [--run-secs 10] [--suppress-heartbeats-after SECS] [--token-out FILE]
 //
@@ -22,7 +22,7 @@
 #include <thread>
 #include <vector>
 
-#include "sentinel.h"
+#include "carthago_sentinel.h"
 
 using Clock = std::chrono::steady_clock;
 
@@ -38,7 +38,7 @@ void on_log(int32_t level, const char* msg, void*) {
     std::fflush(stdout);
 }
 
-void on_ready(SnResult result, uint32_t trust, uint64_t flags, void*) {
+void on_ready(CarthagoResult result, uint32_t trust, uint64_t flags, void*) {
     g_trust = trust;
     g_flags = flags;
     g_session_result = result;
@@ -103,29 +103,29 @@ int main(int argc, char** argv) {
     const double suppress_after = std::atof(arg(argc, argv, "--suppress-heartbeats-after", "-1"));
     const char* token_out = arg(argc, argv, "--token-out", nullptr);
 
-    SnConfig cfg{};
-    cfg.abi_version = SN_ABI_VERSION;
-    cfg.struct_size = sizeof(SnConfig);
+    CarthagoConfig cfg{};
+    cfg.abi_version = CARTHAGO_ABI_VERSION;
+    cfg.struct_size = sizeof(CarthagoConfig);
     cfg.tenant_id = arg(argc, argv, "--tenant", "demo");
     cfg.build_id = "sample-0.0.1";
     cfg.gateway_url = arg(argc, argv, "--gateway", "ws://127.0.0.1:8750/v1/client");
     cfg.server_identity_key_hex = key_hex;
     cfg.log = on_log;
-    cfg.flags = flag(argc, argv, "--no-tpm") ? SN_FLAG_NO_TPM : 0;
+    cfg.flags = flag(argc, argv, "--no-tpm") ? CARTHAGO_FLAG_NO_TPM : 0;
     cfg.tls_pins_hex = arg(argc, argv, "--gateway-pin", nullptr); // required with a wss:// --gateway
 
     auto t0 = Clock::now();
-    SnResult r = sn_init(&cfg);
-    if (r != SN_OK) {
-        std::printf("[game] sn_init failed: %d\n", r);
+    CarthagoResult r = carthago_init(&cfg);
+    if (r != CARTHAGO_OK) {
+        std::printf("[game] carthago_init failed: %d\n", r);
         return 1;
     }
-    std::printf("[game] sn_init returned in %.2f ms\n", std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
-    sn_set_kick_callback(on_kick, nullptr);
-    sn_set_activity(SN_MENU);
-    if ((r = sn_begin_session(player, on_ready, nullptr)) != SN_OK) {
-        std::printf("[game] sn_begin_session failed: %d\n", r);
-        sn_shutdown();
+    std::printf("[game] carthago_init returned in %.2f ms\n", std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
+    carthago_set_kick_callback(on_kick, nullptr);
+    carthago_set_activity(CARTHAGO_MENU);
+    if ((r = carthago_begin_session(player, on_ready, nullptr)) != CARTHAGO_OK) {
+        std::printf("[game] carthago_begin_session failed: %d\n", r);
+        carthago_shutdown();
         return 1;
     }
 
@@ -133,15 +133,15 @@ int main(int argc, char** argv) {
     const auto frame = std::chrono::microseconds(6944);
     auto next = Clock::now();
     auto tick_frame = [&] {
-        sn_tick();
+        carthago_tick();
         next += frame;
         std::this_thread::sleep_until(next);
     };
     auto deadline = Clock::now() + std::chrono::seconds(60);
     while (g_session_result < 0 && Clock::now() < deadline) tick_frame();
-    if (g_session_result != SN_OK) {
+    if (g_session_result != CARTHAGO_OK) {
         std::printf("[game] session failed (result %d)\n", g_session_result.load());
-        sn_shutdown();
+        carthago_shutdown();
         return 1;
     }
     std::printf("[game] session ready in %.0f ms: trust_level %u attest_flags 0x%llx\n",
@@ -150,14 +150,14 @@ int main(int argc, char** argv) {
 
     std::vector<char> buf(256);
     size_t len = buf.size();
-    r = sn_get_session_token(buf.data(), &len);
-    if (r == SN_ERR_BUFFER_TOO_SMALL) {
+    r = carthago_get_session_token(buf.data(), &len);
+    if (r == CARTHAGO_ERR_BUFFER_TOO_SMALL) {
         buf.resize(len);
-        r = sn_get_session_token(buf.data(), &len);
+        r = carthago_get_session_token(buf.data(), &len);
     }
-    if (r != SN_OK) {
-        std::printf("[game] sn_get_session_token failed: %d\n", r);
-        sn_shutdown();
+    if (r != CARTHAGO_OK) {
+        std::printf("[game] carthago_get_session_token failed: %d\n", r);
+        carthago_shutdown();
         return 1;
     }
     std::string token(buf.data(), len);
@@ -169,7 +169,7 @@ int main(int argc, char** argv) {
     SOCKET s = connect_gs(gs);
     if (s == INVALID_SOCKET) {
         std::printf("[game] cannot reach game server %s\n", gs.c_str());
-        sn_shutdown();
+        carthago_shutdown();
         return 1;
     }
     std::string hello = "TOKEN " + token + "\n", reply;
@@ -177,14 +177,14 @@ int main(int argc, char** argv) {
     if (!read_line(s, reply) || reply.rfind("OK ", 0) != 0) {
         std::printf("[game] game server rejected us: %s\n", reply.c_str());
         closesocket(s);
-        sn_shutdown();
+        carthago_shutdown();
         return 2;
     }
     std::printf("[game] game server admitted us: %s\n", reply.c_str());
     u_long nonblocking = 1;
     ioctlsocket(s, FIONBIO, &nonblocking);
 
-    sn_set_activity(SN_IN_MATCH);
+    carthago_set_activity(CARTHAGO_IN_MATCH);
     auto match_start = Clock::now(), last_status = match_start;
     bool suppressed = false;
     int exit_code = 0;
@@ -193,11 +193,11 @@ int main(int argc, char** argv) {
         tick_frame();
         auto elapsed = std::chrono::duration<double>(Clock::now() - match_start).count();
         if (suppress_after >= 0 && !suppressed && elapsed >= suppress_after) {
-#ifdef SN_DEV_HOOKS
+#ifdef CARTHAGO_DEV_HOOKS
             std::printf("[game] (test) suppressing heartbeats from now on\n");
-            sn_dev_suppress_heartbeats(1);
+            carthago_dev_suppress_heartbeats(1);
 #else
-            std::printf("[game] built without SN_DEV_HOOKS; cannot suppress heartbeats\n");
+            std::printf("[game] built without CARTHAGO_DEV_HOOKS; cannot suppress heartbeats\n");
 #endif
             suppressed = true;
         }
@@ -213,9 +213,9 @@ int main(int argc, char** argv) {
         }
         if (Clock::now() - last_status >= std::chrono::seconds(2)) {
             last_status = Clock::now();
-            SnStatus st{};
+            CarthagoStatus st{};
             st.struct_size = sizeof st;
-            if (sn_get_status(&st) == SN_OK)
+            if (carthago_get_status(&st) == CARTHAGO_OK)
                 std::printf("[game] status: state %u heartbeats %llu sent / %llu acked, scheduler %llu slices %.2f ms CPU, %llu frames\n",
                             st.state, (unsigned long long)st.heartbeats_sent, (unsigned long long)st.heartbeats_acked,
                             (unsigned long long)st.sched_slices, st.sched_worker_cpu_ns / 1e6, (unsigned long long)st.frames);
@@ -223,7 +223,7 @@ int main(int argc, char** argv) {
     }
     closesocket(s);
     WSACleanup();
-    sn_shutdown();
+    carthago_shutdown();
     std::printf("[game] exit %d\n", exit_code);
     return exit_code;
 }

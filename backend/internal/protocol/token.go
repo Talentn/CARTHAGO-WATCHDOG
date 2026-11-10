@@ -15,17 +15,17 @@ import (
 )
 
 // Session tokens are PASETO v4.public (Ed25519) with a JSON claims payload and a
-// {"kid":...} footer. Game servers verify them offline (sn-server) against the gateway's
+// {"kid":...} footer. Game servers verify them offline (carthago-server) against the gateway's
 // published token keys.
 
 const tokenHeader = "v4.public."
 
-const TokenIssuer = "sentinel-gateway"
+const TokenIssuer = "carthago-gateway"
 
 // DefaultLeeway is the clock-skew tolerance applied to exp and iat.
 const DefaultLeeway = 30 * time.Second
 
-// Claims field order is part of the golden vectors: keep it in sync with sn-crypto.
+// Claims field order is part of the golden vectors: keep it in sync with carthago-crypto.
 type Claims struct {
 	Iss         string `json:"iss"`
 	Tenant      string `json:"tenant"`

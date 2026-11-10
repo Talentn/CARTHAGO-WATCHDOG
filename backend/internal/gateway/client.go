@@ -18,11 +18,11 @@ import (
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
-	pb "sentinel/backend/gen/sentinel/v1"
-	"sentinel/backend/internal/attest"
-	"sentinel/backend/internal/attest/ekroots"
-	"sentinel/backend/internal/protocol"
-	"sentinel/backend/internal/store"
+	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/attest"
+	"carthago/backend/internal/attest/ekroots"
+	"carthago/backend/internal/protocol"
+	"carthago/backend/internal/store"
 )
 
 var windowsPCRs = []uint32{0, 2, 4, 7, 11, 12, 13, 14}

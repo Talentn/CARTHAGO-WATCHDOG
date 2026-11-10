@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	pb "sentinel/backend/gen/sentinel/v1"
-	"sentinel/backend/internal/store"
+	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/store"
 )
 
 type kicks struct {

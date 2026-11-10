@@ -18,9 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "sentinel/backend/gen/sentinel/v1"
-	"sentinel/backend/internal/analyzer"
-	"sentinel/backend/internal/store"
+	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/analyzer"
+	"carthago/backend/internal/store"
 )
 
 // Kicker is satisfied by gateway.Manager.

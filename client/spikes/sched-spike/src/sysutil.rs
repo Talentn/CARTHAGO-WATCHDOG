@@ -87,9 +87,9 @@ pub fn thread_cycles(h: HANDLE) -> u64 {
 
 /// Cost of the system-wide Toolhelp thread snapshot a naive thread audit would use.
 pub fn toolhelp_thread_snapshot_ns() -> u64 {
-    let t = sn_sched::clock::now_ns();
+    let t = carthago_sched::clock::now_ns();
     let h = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-    let dt = sn_sched::clock::now_ns() - t;
+    let dt = carthago_sched::clock::now_ns() - t;
     unsafe { CloseHandle(h) };
     dt
 }

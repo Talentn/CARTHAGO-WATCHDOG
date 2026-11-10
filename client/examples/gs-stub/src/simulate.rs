@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use sn_server::{pb, GameplayStream, IngestEvent, MatchRecorder};
+use carthago_server::{pb, GameplayStream, IngestEvent, MatchRecorder};
 
 use crate::Args;
 
@@ -119,7 +119,7 @@ fn run(a: &Args) -> Result<i32, String> {
     let seconds: u32 = a.get_or("--seconds", "120").parse().map_err(|_| "--seconds")?;
     let n: u32 = a.get_or("--players", "8").parse().map_err(|_| "--players")?;
     let realtime = a.has("--realtime");
-    let match_id = a.get_or("--match", &format!("match-{}", sn_crypto::time::now_unix()));
+    let match_id = a.get_or("--match", &format!("match-{}", carthago_crypto::time::now_unix()));
     let sessions = match a.get("--sessions") {
         Some(p) => load_sessions(&p)?,
         None => HashMap::new(),

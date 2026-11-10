@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use sn_proto::v1::{FindingCode, WatchedApi};
-use sn_sched::{Ctx, Job, JobBudget, Step};
+use carthago_proto::v1::{FindingCode, WatchedApi};
+use carthago_sched::{Ctx, Job, JobBudget, Step};
 
 use crate::hook::{self, Patch};
 use crate::pe::{first_diff, Dir, DiskImage, Export, Headers, DIR_IAT};

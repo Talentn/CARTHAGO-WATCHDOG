@@ -10,7 +10,7 @@ use std::time::Instant;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sn_attest::{AttestationKey, Key, Tpm, ALG_SHA256, WINDOWS_ATTEST_PCRS};
+use carthago_attest::{AttestationKey, Key, Tpm, ALG_SHA256, WINDOWS_ATTEST_PCRS};
 
 mod b64 {
     use base64::{engine::general_purpose::STANDARD, Engine};
@@ -51,7 +51,7 @@ struct Step {
 struct Steps(Vec<Step>);
 
 impl Steps {
-    fn run<T>(&mut self, name: &'static str, f: impl FnOnce() -> sn_attest::Result<T>, detail: impl Fn(&T) -> String) -> sn_attest::Result<T> {
+    fn run<T>(&mut self, name: &'static str, f: impl FnOnce() -> carthago_attest::Result<T>, detail: impl Fn(&T) -> String) -> carthago_attest::Result<T> {
         let t = Instant::now();
         let r = f();
         let ms = t.elapsed().as_millis();
@@ -211,8 +211,8 @@ fn parse_args() -> Result<Args> {
     let mut a = Args {
         server: "http://127.0.0.1:8740".into(),
         out: PathBuf::from("attest-out"),
-        ak_name: "sentinel-spike-ak".into(),
-        device_key_name: "sentinel-spike-device".into(),
+        ak_name: "carthago-spike-ak".into(),
+        device_key_name: "carthago-spike-device".into(),
         activation: Activation::Auto,
     };
     let mut it = std::env::args().skip(1);
@@ -256,7 +256,7 @@ fn post<Req: Serialize, Resp: for<'de> Deserialize<'de>>(agent: &ureq::Agent, ur
 
 fn ak_cache_path(name: &str) -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join("Sentinel").join("spike").join(format!("{name}.idbinding"))
+    base.join("CarthagoWatchdog").join("spike").join(format!("{name}.idbinding"))
 }
 
 fn write(out: &Path, name: &str, bytes: &[u8]) -> Result<()> {
@@ -269,7 +269,7 @@ fn main() -> Result<()> {
     let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).build().into();
     let mut steps = Steps::default();
 
-    let token = sn_attest::current_token();
+    let token = carthago_attest::current_token();
     println!(
         "process: elevated={:?} integrity={}",
         token.map(|t| t.elevated),
@@ -432,7 +432,7 @@ fn main() -> Result<()> {
         |q| format!("PCRs {WINDOWS_ATTEST_PCRS:?} sha256, attest {} B, sig {} B", q.attest.len(), q.signature.len()),
     )?;
     let pcrs = steps.run("TPM2_PCR_Read", || tpm.read_pcrs(ALG_SHA256, &WINDOWS_ATTEST_PCRS), |p| format!("{} PCRs", p.len()))?;
-    let event_log = steps.run("Tbsi_Get_TCG_Log_Ex (WBCL)", sn_attest::tcg_log, |l| format!("{} bytes", l.len()))?;
+    let event_log = steps.run("Tbsi_Get_TCG_Log_Ex (WBCL)", carthago_attest::tcg_log, |l| format!("{} bytes", l.len()))?;
 
     let mut h = Sha256::new();
     h.update(&nonce);

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use sn_sched::{clock, Ctx, Job, JobBudget, Step};
+use carthago_sched::{clock, Ctx, Job, JobBudget, Step};
 use windows_sys::Wdk::System::Threading::{NtQueryInformationThread, ThreadQuerySetWin32StartAddress};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HMODULE, NTSTATUS};
 use windows_sys::Win32::System::Diagnostics::Debug::{IMAGE_NT_HEADERS64, IMAGE_SCN_MEM_EXECUTE, IMAGE_SECTION_HEADER};

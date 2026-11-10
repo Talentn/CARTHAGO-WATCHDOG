@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"sentinel/backend/internal/protocol"
+	"carthago/backend/internal/protocol"
 )
 
 func main() {

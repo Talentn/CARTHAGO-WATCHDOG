@@ -1,13 +1,13 @@
-# Sentinel wire protocol v1
+# Carthago Watchdog wire protocol v1
 
-Single source of truth for the client (`client/crates/sn-proto`, `sn-crypto`) and the backend
+Single source of truth for the client (`client/crates/carthago-proto`, `carthago-crypto`) and the backend
 (`backend/gen`, `backend/internal/protocol`). Any change here must regenerate the golden vectors
 in `testvectors/`, and both test suites must pass them:
 
 ```powershell
 cd proto;   buf lint; buf generate                      # Go code -> backend/gen (Rust uses protox at build time)
 cd backend; go run ./cmd/gen-testvectors; go test ./internal/protocol/
-cd client;  cargo test -p sn-crypto
+cd client;  cargo test -p carthago-crypto
 ```
 
 ## Transport and frames
@@ -29,27 +29,27 @@ traffic after the Challenge is AEAD under ephemeral keys.
 ```
 C->S Hello      { eph_pub_c, device_key, tenant, build, player_id_hash, env, tpm_enrollment? }
 S->C Challenge  { body = ChallengeBody{ nonce_s, eph_pub_s, session_id, attest_req?, heartbeat timing },
-                  server_sig = Ed25519_identity("sentinel/v1/challenge-sig" || th) }
+                  server_sig = Ed25519_identity("carthago/v1/challenge-sig" || th) }
 C->S Sealed#0   ClientMsg{ Prove{ device_sig(prove_digest), TpmEvidence? } }
 S->C Sealed#0   ServerMsg{ Session{ token, trust_level, attest_flags, exp } }
 then Heartbeat / HeartbeatAck (and Kicked) both ways, seq strictly +1 per direction
 ```
 
-- `th = SHA-256("sentinel/v1/transcript" || u32be(len H) || H || u32be(len B) || B)`, where `H` is the
+- `th = SHA-256("carthago/v1/transcript" || u32be(len H) || H || u32be(len B) || B)`, where `H` is the
   exact Hello bytes and `B` the exact ChallengeBody bytes received. Nothing is ever re-encoded.
 - Keys: `shared = X25519(eph_c, eph_s)` (low-order points are rejected);
   `prk = HKDF-Extract(SHA-256, salt = th, ikm = shared)`;
-  `k_c2s = HKDF-Expand(prk, "sentinel/v1/key/c2s", 32)` and `k_s2c = HKDF-Expand(prk, "sentinel/v1/key/s2c", 32)`.
-- `prove_digest = SHA-256("sentinel/v1/prove" || th)`. Ed25519 signs it as the message; ECDSA P-256
+  `k_c2s = HKDF-Expand(prk, "carthago/v1/key/c2s", 32)` and `k_s2c = HKDF-Expand(prk, "carthago/v1/key/s2c", 32)`.
+- `prove_digest = SHA-256("carthago/v1/prove" || th)`. Ed25519 signs it as the message; ECDSA P-256
   (TPM key) signs it as a prehashed digest, output raw `r || s`.
-- `quote_nonce = SHA-256("sentinel/v1/quote" || th)` is the qualifying data of the TPM2_Quote and of
+- `quote_nonce = SHA-256("carthago/v1/quote" || th)` is the qualifying data of the TPM2_Quote and of
   TPM2_Certify(device key by AK), which binds the attestation to this handshake.
-- `device_id = hex(SHA-256("sentinel/v1/device-id" || alg_u8 || device_public_key)[..16])`.
+- `device_id = hex(SHA-256("carthago/v1/device-id" || alg_u8 || device_public_key)[..16])`.
 
 ## Sealed frames
 
 `nonce = u32be(direction) || u64be(seq)`, where direction is 0 for client to server and 1 for server
-to client. `AAD = "sentinel/v1/aead" || session_id(16) || 0x03 || u64be(seq)`. The receiver
+to client. `AAD = "carthago/v1/aead" || session_id(16) || 0x03 || u64be(seq)`. The receiver
 accepts only `seq == expected` (it starts at 0 and increments by 1), so replays, gaps and
 reordering all fail. The plaintext `ClientMsg`/`ServerMsg` repeats `seq`, `session_id` and a
 timestamp, and the gateway checks that they match.

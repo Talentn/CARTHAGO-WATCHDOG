@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"sentinel/backend/internal/protocol"
+	"carthago/backend/internal/protocol"
 )
 
 // Keys are the gateway's long-term Ed25519 keys. Phase 0 keeps the seeds in files under

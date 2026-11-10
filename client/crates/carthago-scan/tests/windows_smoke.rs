@@ -7,8 +7,8 @@
 use std::sync::{Arc, Mutex};
 
 use carthago_scan::{detect_dirs, jobs, phase1_jobs};
-use sn_proto::v1::FindingCode;
-use sn_sched::{drive, Finding};
+use carthago_proto::v1::FindingCode;
+use carthago_sched::{drive, Finding};
 
 /// The jobs read process-wide state; keep the passes from overlapping so timings stay comparable.
 static SERIAL: Mutex<()> = Mutex::new(());

@@ -14,7 +14,7 @@ pub struct TimeSample {
 #[cfg(windows)]
 pub fn sample() -> TimeSample {
     use windows_sys::Win32::System::SystemInformation::GetTickCount64;
-    TimeSample { qpc_ns: sn_sched::clock::now_ns(), tick_count_ms: unsafe { GetTickCount64() }, interrupt_time_100ns: interrupt_time() }
+    TimeSample { qpc_ns: carthago_sched::clock::now_ns(), tick_count_ms: unsafe { GetTickCount64() }, interrupt_time_100ns: interrupt_time() }
 }
 
 /// KSYSTEM_TIME at KUSER_SHARED_DATA+0x08: re-read until High1Time == High2Time.
@@ -35,6 +35,6 @@ fn interrupt_time() -> u64 {
 
 #[cfg(not(windows))]
 pub fn sample() -> TimeSample {
-    let ns = sn_sched::clock::now_ns();
+    let ns = carthago_sched::clock::now_ns();
     TimeSample { qpc_ns: ns, tick_count_ms: ns / 1_000_000, interrupt_time_100ns: ns / 100 }
 }

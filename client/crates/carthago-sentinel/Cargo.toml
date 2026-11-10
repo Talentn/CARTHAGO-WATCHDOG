@@ -1,0 +1,22 @@
+[package]
+name = "carthago-sentinel"
+description = "carthago_sentinel.dll: the C ABI of the client SDK (header: sdk/native/include/carthago_sentinel.h)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "carthago_sentinel"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Test-only exports (carthago_dev_*). Never enabled in shipped builds.
+dev-hooks = []
+
+[dependencies]
+carthago-net = { path = "../carthago-net" }
+hex = "0.4.3"
+carthago-core = { path = "../carthago-core" }
+carthago-crypto = { path = "../carthago-crypto" }
+carthago-sched = { path = "../carthago-sched" }

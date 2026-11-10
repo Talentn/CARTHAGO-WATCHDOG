@@ -1,4 +1,4 @@
-// Package attest verifies TPM attestation evidence from the Sentinel client (plan §5.4):
+// Package attest verifies TPM attestation evidence from the Carthago Watchdog client (plan §5.4):
 // AK enrollment via credential activation, TPM2_Quote over the Windows PCRs bound to a
 // server nonce, event-log replay, and the boot security state parsed from the WBCL.
 package attest
@@ -23,7 +23,7 @@ import (
 
 	goattest "github.com/google/go-attestation/attest"
 
-	"sentinel/backend/internal/attest/ekroots"
+	"carthago/backend/internal/attest/ekroots"
 )
 
 const nonceTTL = 2 * time.Minute
@@ -405,7 +405,7 @@ func securityState(events []goattest.Event) (*SecurityState, error) {
 	if err != nil {
 		// go-attestation rejects SIPA event types it does not know (newer Windows builds add
 		// some), so fall back to the same signals read by our own PCR 12 walker.
-		s.Source = "sentinel SIPA walker (go-attestation ParseWinEvents: " + err.Error() + ")"
+		s.Source = "carthago SIPA walker (go-attestation ParseWinEvents: " + err.Error() + ")"
 		set := func(p *uint64) bool { return p != nil && *p != 0 }
 		s.TestSigning = set(vbs.TestSigning)
 		s.KernelDebug = set(vbs.OSKernelDebug)

@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	pb "sentinel/backend/gen/sentinel/v1"
+	pb "carthago/backend/gen/carthago/v1"
 )
 
 // ClientState is what the heartbeat rules remember about one session between heartbeats.

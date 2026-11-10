@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	pb "sentinel/backend/gen/sentinel/v1"
+	pb "carthago/backend/gen/carthago/v1"
 )
 
 // Match accumulates one match's gameplay telemetry across batches and evaluates the

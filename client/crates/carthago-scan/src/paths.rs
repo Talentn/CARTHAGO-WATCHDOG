@@ -1,6 +1,6 @@
 //! Classifies module paths so only modules outside the Windows directory are reported.
 
-use sn_proto::v1::ModulePathClass;
+use carthago_proto::v1::ModulePathClass;
 
 #[derive(Debug, Clone, Default)]
 pub struct Dirs {

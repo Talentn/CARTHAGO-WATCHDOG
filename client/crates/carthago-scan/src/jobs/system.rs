@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use sn_proto::v1::{DebugSignal, FindingCode};
-use sn_sched::{Ctx, Job, JobBudget, Step};
+use carthago_proto::v1::{DebugSignal, FindingCode};
+use carthago_sched::{Ctx, Job, JobBudget, Step};
 use windows_sys::Wdk::System::SystemInformation::NtQuerySystemInformation;
 use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessDebugFlags, ProcessDebugObjectHandle, ProcessDebugPort};
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, RECT};

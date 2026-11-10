@@ -12,10 +12,10 @@ import (
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
-	pb "sentinel/backend/gen/sentinel/v1"
-	"sentinel/backend/internal/pipeline"
-	"sentinel/backend/internal/protocol"
-	"sentinel/backend/internal/store"
+	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/pipeline"
+	"carthago/backend/internal/protocol"
+	"carthago/backend/internal/store"
 )
 
 func newDetectEnv(t *testing.T, autoKick bool) (*env, *pipeline.Pipeline) {

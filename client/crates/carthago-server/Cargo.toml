@@ -1,0 +1,18 @@
+[package]
+name = "carthago-server"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+carthago-net = { path = "../carthago-net" }
+hex = "0.4.3"
+prost = "0.14.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+carthago-crypto = { version = "0.0.1", path = "../carthago-crypto" }
+carthago-proto = { version = "0.0.1", path = "../carthago-proto" }
+thiserror = "2.0.21"
+tungstenite = "0.30.0"
+
