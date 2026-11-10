@@ -1,0 +1,30 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <h1>{{if $d.All}}All players{{else}}Flagged players{{end}}</h1>
+  <div class="tabs"><a href="/players"{{if not $d.All}} class="on"{{end}}>Flagged</a><a href="/players?all=1"{{if $d.All}} class="on"{{end}}>All</a></div>
+</div>
+<section class="card">
+{{if $d.Rows}}
+<table>
+  <thead><tr><th>Player</th><th>Status</th><th class="num">Risk</th><th class="num">Evidence</th><th class="num">Integrity</th><th>Top rule</th><th>Latest trust</th><th class="num">Sessions</th><th>Last seen</th></tr></thead>
+  <tbody>
+  {{range $d.Rows}}
+  <tr>
+    <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
+    <td><span class="tier tier-{{tier .Risk}}">{{tier .Risk}}</span></td>
+    <td class="num">{{risk .Risk}}</td>
+    <td class="num">{{.EvidenceCount}}{{if ge .MaxSeverity 0}} <span class="sev sev-{{sev .MaxSeverity}}">{{sev .MaxSeverity}}</span>{{end}}</td>
+    <td class="num">{{.Integrity}}</td>
+    <td>{{.TopRule}}</td>
+    <td>{{if .Sessions}}<span class="trust t{{.TrustLevel}}">{{trust .TrustLevel}}</span>{{else}}<span class="muted">no session</span>{{end}}</td>
+    <td class="num">{{.Sessions}}</td>
+    <td title="{{when .LastSeen}}">{{ago .LastSeen}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}<p class="empty">{{if $d.All}}No players yet.{{else}}No flagged players. Risk weights severity by confidence; a player is flagged at one confident medium or any high verdict.{{end}}</p>{{end}}
+</section>
+<p class="muted note">Behavioural evidence (aim, headshot rate, reaction time, macros) is statistical and meant for review; only client integrity evidence can trigger an automatic kick, and only when the gateway runs with auto-kick enabled.</p>
+{{end}}

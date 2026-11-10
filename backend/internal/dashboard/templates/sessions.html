@@ -1,0 +1,4 @@
+{{define "content"}}
+<div class="head"><h1>Sessions</h1><span class="muted">newest first · {{len .Data}} shown</span></div>
+<section class="card">{{template "sessiontable" .Data}}</section>
+{{end}}

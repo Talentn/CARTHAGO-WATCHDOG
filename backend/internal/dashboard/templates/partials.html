@@ -1,0 +1,42 @@
+{{define "sessiontable"}}
+{{if .}}
+<table>
+  <thead><tr><th>Session</th><th>Player</th><th>Trust</th><th>State</th><th>Started</th><th>Last heartbeat</th><th class="num">Heartbeats</th><th>Detections</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td><a class="mono" href="/sessions/{{path .SessionID}}">{{short .SessionID}}</a></td>
+    <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
+    <td><span class="trust t{{.TrustLevel}}" title="{{trustDesc .TrustLevel}}">{{trust .TrustLevel}}</span></td>
+    <td><span class="state st-{{.State}}">{{.State}}</span>{{if .KickReason}} <small class="muted">{{.KickReason}}</small>{{end}}</td>
+    <td title="{{when .CreatedAt}}">{{ago .CreatedAt}}</td>
+    <td title="{{when .LastHeartbeat}}">{{ago .LastHeartbeat}}</td>
+    <td class="num">{{.Heartbeats}}</td>
+    <td>{{if .EvidenceCount}}<span class="sev sev-{{sev .MaxSeverity}}">{{.EvidenceCount}} · {{sev .MaxSeverity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}<p class="empty">No sessions yet.</p>{{end}}
+{{end}}
+
+{{define "evidencetable"}}
+{{if .}}
+<table>
+  <thead><tr><th>#</th><th>Severity</th><th>Rule</th><th>Source</th><th>Summary</th><th class="num">Confidence</th><th>Observed</th></tr></thead>
+  <tbody>
+  {{range .}}
+  <tr>
+    <td><a href="/evidence/{{.ID}}">{{.ID}}</a></td>
+    <td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>{{if .Integrity}} <span class="pill">integrity</span>{{end}}</td>
+    <td><b>{{.Rule}}</b></td>
+    <td>{{.Source}}{{if .MatchID}} <small class="muted mono">{{short .MatchID}}</small>{{end}}</td>
+    <td class="sum">{{.Summary}}</td>
+    <td class="num">{{score .Score}}</td>
+    <td title="{{when .ObservedAt}}">{{ago .ObservedAt}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}<p class="empty">No evidence.</p>{{end}}
+{{end}}
