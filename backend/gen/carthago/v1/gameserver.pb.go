@@ -24,6 +24,218 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type InputDevice int32
+
+const (
+	InputDevice_INPUT_DEVICE_UNSPECIFIED    InputDevice = 0
+	InputDevice_INPUT_DEVICE_MOUSE_KEYBOARD InputDevice = 1
+	InputDevice_INPUT_DEVICE_CONTROLLER     InputDevice = 2
+	InputDevice_INPUT_DEVICE_TOUCH          InputDevice = 3
+)
+
+// Enum value maps for InputDevice.
+var (
+	InputDevice_name = map[int32]string{
+		0: "INPUT_DEVICE_UNSPECIFIED",
+		1: "INPUT_DEVICE_MOUSE_KEYBOARD",
+		2: "INPUT_DEVICE_CONTROLLER",
+		3: "INPUT_DEVICE_TOUCH",
+	}
+	InputDevice_value = map[string]int32{
+		"INPUT_DEVICE_UNSPECIFIED":    0,
+		"INPUT_DEVICE_MOUSE_KEYBOARD": 1,
+		"INPUT_DEVICE_CONTROLLER":     2,
+		"INPUT_DEVICE_TOUCH":          3,
+	}
+)
+
+func (x InputDevice) Enum() *InputDevice {
+	p := new(InputDevice)
+	*p = x
+	return p
+}
+
+func (x InputDevice) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (InputDevice) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_gameserver_proto_enumTypes[0].Descriptor()
+}
+
+func (InputDevice) Type() protoreflect.EnumType {
+	return &file_carthago_v1_gameserver_proto_enumTypes[0]
+}
+
+func (x InputDevice) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use InputDevice.Descriptor instead.
+func (InputDevice) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{0}
+}
+
+// Selects the calibration segment the server-side models use.
+type GameMode int32
+
+const (
+	GameMode_GAME_MODE_UNSPECIFIED         GameMode = 0
+	GameMode_GAME_MODE_COMPETITIVE_SHOOTER GameMode = 1
+	GameMode_GAME_MODE_EXTRACTION          GameMode = 2
+)
+
+// Enum value maps for GameMode.
+var (
+	GameMode_name = map[int32]string{
+		0: "GAME_MODE_UNSPECIFIED",
+		1: "GAME_MODE_COMPETITIVE_SHOOTER",
+		2: "GAME_MODE_EXTRACTION",
+	}
+	GameMode_value = map[string]int32{
+		"GAME_MODE_UNSPECIFIED":         0,
+		"GAME_MODE_COMPETITIVE_SHOOTER": 1,
+		"GAME_MODE_EXTRACTION":          2,
+	}
+)
+
+func (x GameMode) Enum() *GameMode {
+	p := new(GameMode)
+	*p = x
+	return p
+}
+
+func (x GameMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GameMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_gameserver_proto_enumTypes[1].Descriptor()
+}
+
+func (GameMode) Type() protoreflect.EnumType {
+	return &file_carthago_v1_gameserver_proto_enumTypes[1]
+}
+
+func (x GameMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GameMode.Descriptor instead.
+func (GameMode) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{1}
+}
+
+type SoundKind int32
+
+const (
+	SoundKind_SOUND_KIND_UNSPECIFIED SoundKind = 0
+	SoundKind_SOUND_KIND_FOOTSTEP    SoundKind = 1
+	SoundKind_SOUND_KIND_GUNSHOT     SoundKind = 2
+	SoundKind_SOUND_KIND_RELOAD      SoundKind = 3
+	SoundKind_SOUND_KIND_ABILITY     SoundKind = 4
+	SoundKind_SOUND_KIND_INTERACT    SoundKind = 5 // doors, looting, equipment
+)
+
+// Enum value maps for SoundKind.
+var (
+	SoundKind_name = map[int32]string{
+		0: "SOUND_KIND_UNSPECIFIED",
+		1: "SOUND_KIND_FOOTSTEP",
+		2: "SOUND_KIND_GUNSHOT",
+		3: "SOUND_KIND_RELOAD",
+		4: "SOUND_KIND_ABILITY",
+		5: "SOUND_KIND_INTERACT",
+	}
+	SoundKind_value = map[string]int32{
+		"SOUND_KIND_UNSPECIFIED": 0,
+		"SOUND_KIND_FOOTSTEP":    1,
+		"SOUND_KIND_GUNSHOT":     2,
+		"SOUND_KIND_RELOAD":      3,
+		"SOUND_KIND_ABILITY":     4,
+		"SOUND_KIND_INTERACT":    5,
+	}
+)
+
+func (x SoundKind) Enum() *SoundKind {
+	p := new(SoundKind)
+	*p = x
+	return p
+}
+
+func (x SoundKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SoundKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_gameserver_proto_enumTypes[2].Descriptor()
+}
+
+func (SoundKind) Type() protoreflect.EnumType {
+	return &file_carthago_v1_gameserver_proto_enumTypes[2]
+}
+
+func (x SoundKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SoundKind.Descriptor instead.
+func (SoundKind) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{2}
+}
+
+type TeamInfoKind int32
+
+const (
+	TeamInfoKind_TEAM_INFO_KIND_UNSPECIFIED TeamInfoKind = 0
+	TeamInfoKind_TEAM_INFO_KIND_PING        TeamInfoKind = 1 // a teammate marked a location or an item
+	TeamInfoKind_TEAM_INFO_KIND_SPOTTED     TeamInfoKind = 2 // the game marked an enemy for the team
+	TeamInfoKind_TEAM_INFO_KIND_RADAR       TeamInfoKind = 3 // a scan or recon ability revealed an enemy
+)
+
+// Enum value maps for TeamInfoKind.
+var (
+	TeamInfoKind_name = map[int32]string{
+		0: "TEAM_INFO_KIND_UNSPECIFIED",
+		1: "TEAM_INFO_KIND_PING",
+		2: "TEAM_INFO_KIND_SPOTTED",
+		3: "TEAM_INFO_KIND_RADAR",
+	}
+	TeamInfoKind_value = map[string]int32{
+		"TEAM_INFO_KIND_UNSPECIFIED": 0,
+		"TEAM_INFO_KIND_PING":        1,
+		"TEAM_INFO_KIND_SPOTTED":     2,
+		"TEAM_INFO_KIND_RADAR":       3,
+	}
+)
+
+func (x TeamInfoKind) Enum() *TeamInfoKind {
+	p := new(TeamInfoKind)
+	*p = x
+	return p
+}
+
+func (x TeamInfoKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TeamInfoKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_gameserver_proto_enumTypes[3].Descriptor()
+}
+
+func (TeamInfoKind) Type() protoreflect.EnumType {
+	return &file_carthago_v1_gameserver_proto_enumTypes[3]
+}
+
+func (x TeamInfoKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TeamInfoKind.Descriptor instead.
+func (TeamInfoKind) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{3}
+}
+
 type WatchSession struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // hex, from a verified session token
@@ -397,11 +609,15 @@ func (*GsServerMsg_Kick) isGsServerMsg_Body() {}
 func (*GsServerMsg_WatchAck) isGsServerMsg_Body() {}
 
 type MatchPlayer struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
-	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // hex, from the verified session token ("" for unprotected bots)
-	PlayerHash    string                 `protobuf:"bytes,3,opt,name=player_hash,json=playerHash,proto3" json:"player_hash,omitempty"`
-	Mmr           int32                  `protobuf:"varint,4,opt,name=mmr,proto3" json:"mmr,omitempty"` // the studio's skill rating; 0 = unknown
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Slot       uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	SessionId  string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // hex, from the verified session token ("" for unprotected bots)
+	PlayerHash string                 `protobuf:"bytes,3,opt,name=player_hash,json=playerHash,proto3" json:"player_hash,omitempty"`
+	Mmr        int32                  `protobuf:"varint,4,opt,name=mmr,proto3" json:"mmr,omitempty"` // the studio's skill rating; 0 = unknown
+	// v2. Players with the same non-zero team share what they see and hear; 0 = no team (solo).
+	Team          uint32      `protobuf:"varint,5,opt,name=team,proto3" json:"team,omitempty"`
+	InputDevice   InputDevice `protobuf:"varint,6,opt,name=input_device,json=inputDevice,proto3,enum=carthago.v1.InputDevice" json:"input_device,omitempty"`
+	AimAssist     bool        `protobuf:"varint,7,opt,name=aim_assist,json=aimAssist,proto3" json:"aim_assist,omitempty"` // the game applies aim assistance to this player
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -462,6 +678,27 @@ func (x *MatchPlayer) GetMmr() int32 {
 		return x.Mmr
 	}
 	return 0
+}
+
+func (x *MatchPlayer) GetTeam() uint32 {
+	if x != nil {
+		return x.Team
+	}
+	return 0
+}
+
+func (x *MatchPlayer) GetInputDevice() InputDevice {
+	if x != nil {
+		return x.InputDevice
+	}
+	return InputDevice_INPUT_DEVICE_UNSPECIFIED
+}
+
+func (x *MatchPlayer) GetAimAssist() bool {
+	if x != nil {
+		return x.AimAssist
+	}
+	return false
 }
 
 // View angles in degrees for consecutive ticks starting at first_tick.
@@ -826,25 +1063,774 @@ func (x *TriggerPresses) GetClientTimeUs() []uint64 {
 	return nil
 }
 
-type GameplayBatch struct {
+// Eye positions and velocities sampled every `stride` ticks from first_tick. In each repeated
+// field the first value is absolute and every later one is the difference from the previous
+// sample (zigzag varints), so a running player costs about one byte per axis per sample.
+type MotionTrack struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	BatchSeq      uint64                 `protobuf:"varint,2,opt,name=batch_seq,json=batchSeq,proto3" json:"batch_seq,omitempty"` // strictly increasing per match
-	TickRate      uint32                 `protobuf:"varint,3,opt,name=tick_rate,json=tickRate,proto3" json:"tick_rate,omitempty"`
-	Players       []*MatchPlayer         `protobuf:"bytes,4,rep,name=players,proto3" json:"players,omitempty"`
-	Aim           []*AimTrack            `protobuf:"bytes,5,rep,name=aim,proto3" json:"aim,omitempty"`
-	Shots         []*ShotEvent           `protobuf:"bytes,6,rep,name=shots,proto3" json:"shots,omitempty"`
-	Visibility    []*VisibilityEvent     `protobuf:"bytes,7,rep,name=visibility,proto3" json:"visibility,omitempty"`
-	Commands      []*CommandWindow       `protobuf:"bytes,8,rep,name=commands,proto3" json:"commands,omitempty"`
-	Triggers      []*TriggerPresses      `protobuf:"bytes,9,rep,name=triggers,proto3" json:"triggers,omitempty"`
-	MatchOver     bool                   `protobuf:"varint,10,opt,name=match_over,json=matchOver,proto3" json:"match_over,omitempty"`
+	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	FirstTick     uint32                 `protobuf:"varint,2,opt,name=first_tick,json=firstTick,proto3" json:"first_tick,omitempty"`
+	Stride        uint32                 `protobuf:"varint,3,opt,name=stride,proto3" json:"stride,omitempty"` // 0 is read as 1
+	XCm           []int32                `protobuf:"zigzag32,4,rep,packed,name=x_cm,json=xCm,proto3" json:"x_cm,omitempty"`
+	YCm           []int32                `protobuf:"zigzag32,5,rep,packed,name=y_cm,json=yCm,proto3" json:"y_cm,omitempty"`
+	ZCm           []int32                `protobuf:"zigzag32,6,rep,packed,name=z_cm,json=zCm,proto3" json:"z_cm,omitempty"`
+	VxCmS         []int32                `protobuf:"zigzag32,7,rep,packed,name=vx_cm_s,json=vxCmS,proto3" json:"vx_cm_s,omitempty"`
+	VyCmS         []int32                `protobuf:"zigzag32,8,rep,packed,name=vy_cm_s,json=vyCmS,proto3" json:"vy_cm_s,omitempty"`
+	VzCmS         []int32                `protobuf:"zigzag32,9,rep,packed,name=vz_cm_s,json=vzCmS,proto3" json:"vz_cm_s,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MotionTrack) Reset() {
+	*x = MotionTrack{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MotionTrack) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MotionTrack) ProtoMessage() {}
+
+func (x *MotionTrack) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MotionTrack.ProtoReflect.Descriptor instead.
+func (*MotionTrack) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *MotionTrack) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *MotionTrack) GetFirstTick() uint32 {
+	if x != nil {
+		return x.FirstTick
+	}
+	return 0
+}
+
+func (x *MotionTrack) GetStride() uint32 {
+	if x != nil {
+		return x.Stride
+	}
+	return 0
+}
+
+func (x *MotionTrack) GetXCm() []int32 {
+	if x != nil {
+		return x.XCm
+	}
+	return nil
+}
+
+func (x *MotionTrack) GetYCm() []int32 {
+	if x != nil {
+		return x.YCm
+	}
+	return nil
+}
+
+func (x *MotionTrack) GetZCm() []int32 {
+	if x != nil {
+		return x.ZCm
+	}
+	return nil
+}
+
+func (x *MotionTrack) GetVxCmS() []int32 {
+	if x != nil {
+		return x.VxCmS
+	}
+	return nil
+}
+
+func (x *MotionTrack) GetVyCmS() []int32 {
+	if x != nil {
+		return x.VyCmS
+	}
+	return nil
+}
+
+func (x *MotionTrack) GetVzCmS() []int32 {
+	if x != nil {
+		return x.VzCmS
+	}
+	return nil
+}
+
+// A sound the game played. radius_cm is the game's own audibility rule for it: anyone within
+// the radius could hear it, walls or not.
+type SoundEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tick          uint32                 `protobuf:"varint,1,opt,name=tick,proto3" json:"tick,omitempty"`
+	SourceSlot    int32                  `protobuf:"varint,2,opt,name=source_slot,json=sourceSlot,proto3" json:"source_slot,omitempty"` // -1 = not a player
+	Kind          SoundKind              `protobuf:"varint,3,opt,name=kind,proto3,enum=carthago.v1.SoundKind" json:"kind,omitempty"`
+	XCm           int32                  `protobuf:"zigzag32,4,opt,name=x_cm,json=xCm,proto3" json:"x_cm,omitempty"`
+	YCm           int32                  `protobuf:"zigzag32,5,opt,name=y_cm,json=yCm,proto3" json:"y_cm,omitempty"`
+	ZCm           int32                  `protobuf:"zigzag32,6,opt,name=z_cm,json=zCm,proto3" json:"z_cm,omitempty"`
+	RadiusCm      uint32                 `protobuf:"varint,7,opt,name=radius_cm,json=radiusCm,proto3" json:"radius_cm,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SoundEvent) Reset() {
+	*x = SoundEvent{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SoundEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SoundEvent) ProtoMessage() {}
+
+func (x *SoundEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SoundEvent.ProtoReflect.Descriptor instead.
+func (*SoundEvent) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SoundEvent) GetTick() uint32 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
+func (x *SoundEvent) GetSourceSlot() int32 {
+	if x != nil {
+		return x.SourceSlot
+	}
+	return 0
+}
+
+func (x *SoundEvent) GetKind() SoundKind {
+	if x != nil {
+		return x.Kind
+	}
+	return SoundKind_SOUND_KIND_UNSPECIFIED
+}
+
+func (x *SoundEvent) GetXCm() int32 {
+	if x != nil {
+		return x.XCm
+	}
+	return 0
+}
+
+func (x *SoundEvent) GetYCm() int32 {
+	if x != nil {
+		return x.YCm
+	}
+	return 0
+}
+
+func (x *SoundEvent) GetZCm() int32 {
+	if x != nil {
+		return x.ZCm
+	}
+	return 0
+}
+
+func (x *SoundEvent) GetRadiusCm() uint32 {
+	if x != nil {
+		return x.RadiusCm
+	}
+	return 0
+}
+
+// Information the game gave a whole team.
+type TeamInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tick          uint32                 `protobuf:"varint,1,opt,name=tick,proto3" json:"tick,omitempty"`
+	Team          uint32                 `protobuf:"varint,2,opt,name=team,proto3" json:"team,omitempty"`
+	Kind          TeamInfoKind           `protobuf:"varint,3,opt,name=kind,proto3,enum=carthago.v1.TeamInfoKind" json:"kind,omitempty"`
+	SourceSlot    int32                  `protobuf:"varint,4,opt,name=source_slot,json=sourceSlot,proto3" json:"source_slot,omitempty"` // the teammate who shared it; -1 = the game
+	TargetSlot    int32                  `protobuf:"varint,5,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"` // the enemy revealed; -1 = a location
+	ItemId        uint32                 `protobuf:"varint,6,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`             // the item pinged; 0 = none
+	XCm           int32                  `protobuf:"zigzag32,7,opt,name=x_cm,json=xCm,proto3" json:"x_cm,omitempty"`
+	YCm           int32                  `protobuf:"zigzag32,8,opt,name=y_cm,json=yCm,proto3" json:"y_cm,omitempty"`
+	ZCm           int32                  `protobuf:"zigzag32,9,opt,name=z_cm,json=zCm,proto3" json:"z_cm,omitempty"`
+	DurationMs    uint32                 `protobuf:"varint,10,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TeamInfo) Reset() {
+	*x = TeamInfo{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TeamInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TeamInfo) ProtoMessage() {}
+
+func (x *TeamInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TeamInfo.ProtoReflect.Descriptor instead.
+func (*TeamInfo) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *TeamInfo) GetTick() uint32 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetTeam() uint32 {
+	if x != nil {
+		return x.Team
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetKind() TeamInfoKind {
+	if x != nil {
+		return x.Kind
+	}
+	return TeamInfoKind_TEAM_INFO_KIND_UNSPECIFIED
+}
+
+func (x *TeamInfo) GetSourceSlot() int32 {
+	if x != nil {
+		return x.SourceSlot
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetTargetSlot() int32 {
+	if x != nil {
+		return x.TargetSlot
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetItemId() uint32 {
+	if x != nil {
+		return x.ItemId
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetXCm() int32 {
+	if x != nil {
+		return x.XCm
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetYCm() int32 {
+	if x != nil {
+		return x.YCm
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetZCm() int32 {
+	if x != nil {
+		return x.ZCm
+	}
+	return 0
+}
+
+func (x *TeamInfo) GetDurationMs() uint32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+// Loot or objectives whose location matters (extraction games). Sent on spawn, move and pickup.
+type ItemEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemId        uint32                 `protobuf:"varint,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"` // non-zero
+	Tick          uint32                 `protobuf:"varint,2,opt,name=tick,proto3" json:"tick,omitempty"`
+	XCm           int32                  `protobuf:"zigzag32,3,opt,name=x_cm,json=xCm,proto3" json:"x_cm,omitempty"`
+	YCm           int32                  `protobuf:"zigzag32,4,opt,name=y_cm,json=yCm,proto3" json:"y_cm,omitempty"`
+	ZCm           int32                  `protobuf:"zigzag32,5,opt,name=z_cm,json=zCm,proto3" json:"z_cm,omitempty"`
+	Tier          uint32                 `protobuf:"varint,6,opt,name=tier,proto3" json:"tier,omitempty"` // the game's value tier, higher is more valuable
+	Removed       bool                   `protobuf:"varint,7,opt,name=removed,proto3" json:"removed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ItemEvent) Reset() {
+	*x = ItemEvent{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ItemEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ItemEvent) ProtoMessage() {}
+
+func (x *ItemEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ItemEvent.ProtoReflect.Descriptor instead.
+func (*ItemEvent) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ItemEvent) GetItemId() uint32 {
+	if x != nil {
+		return x.ItemId
+	}
+	return 0
+}
+
+func (x *ItemEvent) GetTick() uint32 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
+func (x *ItemEvent) GetXCm() int32 {
+	if x != nil {
+		return x.XCm
+	}
+	return 0
+}
+
+func (x *ItemEvent) GetYCm() int32 {
+	if x != nil {
+		return x.YCm
+	}
+	return 0
+}
+
+func (x *ItemEvent) GetZCm() int32 {
+	if x != nil {
+		return x.ZCm
+	}
+	return 0
+}
+
+func (x *ItemEvent) GetTier() uint32 {
+	if x != nil {
+		return x.Tier
+	}
+	return 0
+}
+
+func (x *ItemEvent) GetRemoved() bool {
+	if x != nil {
+		return x.Removed
+	}
+	return false
+}
+
+type MapRef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MapId         string                 `protobuf:"bytes,1,opt,name=map_id,json=mapId,proto3" json:"map_id,omitempty"`
+	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MapRef) Reset() {
+	*x = MapRef{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MapRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MapRef) ProtoMessage() {}
+
+func (x *MapRef) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MapRef.ProtoReflect.Descriptor instead.
+func (*MapRef) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *MapRef) GetMapId() string {
+	if x != nil {
+		return x.MapId
+	}
+	return ""
+}
+
+func (x *MapRef) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+// A convex polygon in the XY plane (x0, y0, x1, y1, ...; at least three vertices, either
+// winding) extruded from z_min_cm to z_max_cm: walls, buildings, large props. Concave shapes
+// are sent as several convex pieces.
+type Occluder struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	XyCm          []int32                `protobuf:"zigzag32,1,rep,packed,name=xy_cm,json=xyCm,proto3" json:"xy_cm,omitempty"`
+	ZMinCm        int32                  `protobuf:"zigzag32,2,opt,name=z_min_cm,json=zMinCm,proto3" json:"z_min_cm,omitempty"`
+	ZMaxCm        int32                  `protobuf:"zigzag32,3,opt,name=z_max_cm,json=zMaxCm,proto3" json:"z_max_cm,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Occluder) Reset() {
+	*x = Occluder{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Occluder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Occluder) ProtoMessage() {}
+
+func (x *Occluder) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Occluder.ProtoReflect.Descriptor instead.
+func (*Occluder) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *Occluder) GetXyCm() []int32 {
+	if x != nil {
+		return x.XyCm
+	}
+	return nil
+}
+
+func (x *Occluder) GetZMinCm() int32 {
+	if x != nil {
+		return x.ZMinCm
+	}
+	return 0
+}
+
+func (x *Occluder) GetZMaxCm() int32 {
+	if x != nil {
+		return x.ZMaxCm
+	}
+	return 0
+}
+
+// A named area (callout) used to word explanations; any simple polygon.
+type Zone struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	XyCm          []int32                `protobuf:"zigzag32,2,rep,packed,name=xy_cm,json=xyCm,proto3" json:"xy_cm,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Zone) Reset() {
+	*x = Zone{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Zone) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Zone) ProtoMessage() {}
+
+func (x *Zone) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Zone.ProtoReflect.Descriptor instead.
+func (*Zone) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *Zone) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Zone) GetXyCm() []int32 {
+	if x != nil {
+		return x.XyCm
+	}
+	return nil
+}
+
+// A place loot can appear. Whether it holds anything this match is sent as ItemEvents.
+type LootSpawn struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SpawnId       uint32                 `protobuf:"varint,1,opt,name=spawn_id,json=spawnId,proto3" json:"spawn_id,omitempty"`
+	XCm           int32                  `protobuf:"zigzag32,2,opt,name=x_cm,json=xCm,proto3" json:"x_cm,omitempty"`
+	YCm           int32                  `protobuf:"zigzag32,3,opt,name=y_cm,json=yCm,proto3" json:"y_cm,omitempty"`
+	ZCm           int32                  `protobuf:"zigzag32,4,opt,name=z_cm,json=zCm,proto3" json:"z_cm,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LootSpawn) Reset() {
+	*x = LootSpawn{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LootSpawn) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LootSpawn) ProtoMessage() {}
+
+func (x *LootSpawn) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LootSpawn.ProtoReflect.Descriptor instead.
+func (*LootSpawn) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *LootSpawn) GetSpawnId() uint32 {
+	if x != nil {
+		return x.SpawnId
+	}
+	return 0
+}
+
+func (x *LootSpawn) GetXCm() int32 {
+	if x != nil {
+		return x.XCm
+	}
+	return 0
+}
+
+func (x *LootSpawn) GetYCm() int32 {
+	if x != nil {
+		return x.YCm
+	}
+	return 0
+}
+
+func (x *LootSpawn) GetZCm() int32 {
+	if x != nil {
+		return x.ZCm
+	}
+	return 0
+}
+
+// Simplified visibility geometry of one map version, uploaded by the game server. A version
+// is immutable: the gateway refuses different geometry under a (map_id, version) it already
+// holds.
+type MapGeometry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MapId         string                 `protobuf:"bytes,1,opt,name=map_id,json=mapId,proto3" json:"map_id,omitempty"`
+	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Mode          GameMode               `protobuf:"varint,3,opt,name=mode,proto3,enum=carthago.v1.GameMode" json:"mode,omitempty"` // the map's default mode
+	Occluders     []*Occluder            `protobuf:"bytes,4,rep,name=occluders,proto3" json:"occluders,omitempty"`
+	Zones         []*Zone                `protobuf:"bytes,5,rep,name=zones,proto3" json:"zones,omitempty"`
+	LootSpawns    []*LootSpawn           `protobuf:"bytes,6,rep,name=loot_spawns,json=lootSpawns,proto3" json:"loot_spawns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MapGeometry) Reset() {
+	*x = MapGeometry{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MapGeometry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MapGeometry) ProtoMessage() {}
+
+func (x *MapGeometry) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MapGeometry.ProtoReflect.Descriptor instead.
+func (*MapGeometry) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *MapGeometry) GetMapId() string {
+	if x != nil {
+		return x.MapId
+	}
+	return ""
+}
+
+func (x *MapGeometry) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *MapGeometry) GetMode() GameMode {
+	if x != nil {
+		return x.Mode
+	}
+	return GameMode_GAME_MODE_UNSPECIFIED
+}
+
+func (x *MapGeometry) GetOccluders() []*Occluder {
+	if x != nil {
+		return x.Occluders
+	}
+	return nil
+}
+
+func (x *MapGeometry) GetZones() []*Zone {
+	if x != nil {
+		return x.Zones
+	}
+	return nil
+}
+
+func (x *MapGeometry) GetLootSpawns() []*LootSpawn {
+	if x != nil {
+		return x.LootSpawns
+	}
+	return nil
+}
+
+type GameplayBatch struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	MatchId    string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	BatchSeq   uint64                 `protobuf:"varint,2,opt,name=batch_seq,json=batchSeq,proto3" json:"batch_seq,omitempty"` // strictly increasing per match
+	TickRate   uint32                 `protobuf:"varint,3,opt,name=tick_rate,json=tickRate,proto3" json:"tick_rate,omitempty"`
+	Players    []*MatchPlayer         `protobuf:"bytes,4,rep,name=players,proto3" json:"players,omitempty"`
+	Aim        []*AimTrack            `protobuf:"bytes,5,rep,name=aim,proto3" json:"aim,omitempty"`
+	Shots      []*ShotEvent           `protobuf:"bytes,6,rep,name=shots,proto3" json:"shots,omitempty"`
+	Visibility []*VisibilityEvent     `protobuf:"bytes,7,rep,name=visibility,proto3" json:"visibility,omitempty"`
+	Commands   []*CommandWindow       `protobuf:"bytes,8,rep,name=commands,proto3" json:"commands,omitempty"`
+	Triggers   []*TriggerPresses      `protobuf:"bytes,9,rep,name=triggers,proto3" json:"triggers,omitempty"`
+	MatchOver  bool                   `protobuf:"varint,10,opt,name=match_over,json=matchOver,proto3" json:"match_over,omitempty"`
+	// v2
+	SchemaVersion uint32         `protobuf:"varint,11,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"` // 0 or 1 = v1, 2 = v2
+	Mode          GameMode       `protobuf:"varint,12,opt,name=mode,proto3,enum=carthago.v1.GameMode" json:"mode,omitempty"`
+	Map           *MapRef        `protobuf:"bytes,13,opt,name=map,proto3" json:"map,omitempty"`
+	MapGeometry   *MapGeometry   `protobuf:"bytes,14,opt,name=map_geometry,json=mapGeometry,proto3" json:"map_geometry,omitempty"` // the geometry for `map`, sent with a match's first batch
+	Motion        []*MotionTrack `protobuf:"bytes,15,rep,name=motion,proto3" json:"motion,omitempty"`
+	Sounds        []*SoundEvent  `protobuf:"bytes,16,rep,name=sounds,proto3" json:"sounds,omitempty"`
+	TeamInfo      []*TeamInfo    `protobuf:"bytes,17,rep,name=team_info,json=teamInfo,proto3" json:"team_info,omitempty"`
+	Items         []*ItemEvent   `protobuf:"bytes,18,rep,name=items,proto3" json:"items,omitempty"`
+	DroppedEvents uint32         `protobuf:"varint,19,opt,name=dropped_events,json=droppedEvents,proto3" json:"dropped_events,omitempty"` // v2 samples or events the recorder dropped at its per-batch caps
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GameplayBatch) Reset() {
 	*x = GameplayBatch{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +1842,7 @@ func (x *GameplayBatch) String() string {
 func (*GameplayBatch) ProtoMessage() {}
 
 func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +1855,7 @@ func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameplayBatch.ProtoReflect.Descriptor instead.
 func (*GameplayBatch) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{12}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GameplayBatch) GetMatchId() string {
@@ -942,6 +1928,69 @@ func (x *GameplayBatch) GetMatchOver() bool {
 	return false
 }
 
+func (x *GameplayBatch) GetSchemaVersion() uint32 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
+func (x *GameplayBatch) GetMode() GameMode {
+	if x != nil {
+		return x.Mode
+	}
+	return GameMode_GAME_MODE_UNSPECIFIED
+}
+
+func (x *GameplayBatch) GetMap() *MapRef {
+	if x != nil {
+		return x.Map
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetMapGeometry() *MapGeometry {
+	if x != nil {
+		return x.MapGeometry
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetMotion() []*MotionTrack {
+	if x != nil {
+		return x.Motion
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetSounds() []*SoundEvent {
+	if x != nil {
+		return x.Sounds
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetTeamInfo() []*TeamInfo {
+	if x != nil {
+		return x.TeamInfo
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetItems() []*ItemEvent {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetDroppedEvents() uint32 {
+	if x != nil {
+		return x.DroppedEvents
+	}
+	return 0
+}
+
 type IngestAck struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
@@ -954,7 +2003,7 @@ type IngestAck struct {
 
 func (x *IngestAck) Reset() {
 	*x = IngestAck{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +2015,7 @@ func (x *IngestAck) String() string {
 func (*IngestAck) ProtoMessage() {}
 
 func (x *IngestAck) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +2028,7 @@ func (x *IngestAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IngestAck.ProtoReflect.Descriptor instead.
 func (*IngestAck) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{13}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *IngestAck) GetMatchId() string {
@@ -1039,14 +2088,18 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\vGsServerMsg\x12'\n" +
 	"\x04kick\x18\x01 \x01(\v2\x11.carthago.v1.KickH\x00R\x04kick\x124\n" +
 	"\twatch_ack\x18\x02 \x01(\v2\x15.carthago.v1.WatchAckH\x00R\bwatchAckB\x06\n" +
-	"\x04body\"s\n" +
+	"\x04body\"\xe3\x01\n" +
 	"\vMatchPlayer\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1f\n" +
 	"\vplayer_hash\x18\x03 \x01(\tR\n" +
 	"playerHash\x12\x10\n" +
-	"\x03mmr\x18\x04 \x01(\x05R\x03mmr\"e\n" +
+	"\x03mmr\x18\x04 \x01(\x05R\x03mmr\x12\x12\n" +
+	"\x04team\x18\x05 \x01(\rR\x04team\x12;\n" +
+	"\finput_device\x18\x06 \x01(\x0e2\x18.carthago.v1.InputDeviceR\vinputDevice\x12\x1d\n" +
+	"\n" +
+	"aim_assist\x18\a \x01(\bR\taimAssist\"e\n" +
 	"\bAimTrack\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1d\n" +
 	"\n" +
@@ -1077,7 +2130,74 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\bcommands\x18\x04 \x01(\rR\bcommands\"J\n" +
 	"\x0eTriggerPresses\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\rR\x04slot\x12$\n" +
-	"\x0eclient_time_us\x18\x02 \x03(\x04R\fclientTimeUs\"\xbd\x03\n" +
+	"\x0eclient_time_us\x18\x02 \x03(\x04R\fclientTimeUs\"\xd9\x01\n" +
+	"\vMotionTrack\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1d\n" +
+	"\n" +
+	"first_tick\x18\x02 \x01(\rR\tfirstTick\x12\x16\n" +
+	"\x06stride\x18\x03 \x01(\rR\x06stride\x12\x11\n" +
+	"\x04x_cm\x18\x04 \x03(\x11R\x03xCm\x12\x11\n" +
+	"\x04y_cm\x18\x05 \x03(\x11R\x03yCm\x12\x11\n" +
+	"\x04z_cm\x18\x06 \x03(\x11R\x03zCm\x12\x16\n" +
+	"\avx_cm_s\x18\a \x03(\x11R\x05vxCmS\x12\x16\n" +
+	"\avy_cm_s\x18\b \x03(\x11R\x05vyCmS\x12\x16\n" +
+	"\avz_cm_s\x18\t \x03(\x11R\x05vzCmS\"\xc3\x01\n" +
+	"\n" +
+	"SoundEvent\x12\x12\n" +
+	"\x04tick\x18\x01 \x01(\rR\x04tick\x12\x1f\n" +
+	"\vsource_slot\x18\x02 \x01(\x05R\n" +
+	"sourceSlot\x12*\n" +
+	"\x04kind\x18\x03 \x01(\x0e2\x16.carthago.v1.SoundKindR\x04kind\x12\x11\n" +
+	"\x04x_cm\x18\x04 \x01(\x11R\x03xCm\x12\x11\n" +
+	"\x04y_cm\x18\x05 \x01(\x11R\x03yCm\x12\x11\n" +
+	"\x04z_cm\x18\x06 \x01(\x11R\x03zCm\x12\x1b\n" +
+	"\tradius_cm\x18\a \x01(\rR\bradiusCm\"\x96\x02\n" +
+	"\bTeamInfo\x12\x12\n" +
+	"\x04tick\x18\x01 \x01(\rR\x04tick\x12\x12\n" +
+	"\x04team\x18\x02 \x01(\rR\x04team\x12-\n" +
+	"\x04kind\x18\x03 \x01(\x0e2\x19.carthago.v1.TeamInfoKindR\x04kind\x12\x1f\n" +
+	"\vsource_slot\x18\x04 \x01(\x05R\n" +
+	"sourceSlot\x12\x1f\n" +
+	"\vtarget_slot\x18\x05 \x01(\x05R\n" +
+	"targetSlot\x12\x17\n" +
+	"\aitem_id\x18\x06 \x01(\rR\x06itemId\x12\x11\n" +
+	"\x04x_cm\x18\a \x01(\x11R\x03xCm\x12\x11\n" +
+	"\x04y_cm\x18\b \x01(\x11R\x03yCm\x12\x11\n" +
+	"\x04z_cm\x18\t \x01(\x11R\x03zCm\x12\x1f\n" +
+	"\vduration_ms\x18\n" +
+	" \x01(\rR\n" +
+	"durationMs\"\x9f\x01\n" +
+	"\tItemEvent\x12\x17\n" +
+	"\aitem_id\x18\x01 \x01(\rR\x06itemId\x12\x12\n" +
+	"\x04tick\x18\x02 \x01(\rR\x04tick\x12\x11\n" +
+	"\x04x_cm\x18\x03 \x01(\x11R\x03xCm\x12\x11\n" +
+	"\x04y_cm\x18\x04 \x01(\x11R\x03yCm\x12\x11\n" +
+	"\x04z_cm\x18\x05 \x01(\x11R\x03zCm\x12\x12\n" +
+	"\x04tier\x18\x06 \x01(\rR\x04tier\x12\x18\n" +
+	"\aremoved\x18\a \x01(\bR\aremoved\"9\n" +
+	"\x06MapRef\x12\x15\n" +
+	"\x06map_id\x18\x01 \x01(\tR\x05mapId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\rR\aversion\"S\n" +
+	"\bOccluder\x12\x13\n" +
+	"\x05xy_cm\x18\x01 \x03(\x11R\x04xyCm\x12\x18\n" +
+	"\bz_min_cm\x18\x02 \x01(\x11R\x06zMinCm\x12\x18\n" +
+	"\bz_max_cm\x18\x03 \x01(\x11R\x06zMaxCm\"/\n" +
+	"\x04Zone\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x13\n" +
+	"\x05xy_cm\x18\x02 \x03(\x11R\x04xyCm\"_\n" +
+	"\tLootSpawn\x12\x19\n" +
+	"\bspawn_id\x18\x01 \x01(\rR\aspawnId\x12\x11\n" +
+	"\x04x_cm\x18\x02 \x01(\x11R\x03xCm\x12\x11\n" +
+	"\x04y_cm\x18\x03 \x01(\x11R\x03yCm\x12\x11\n" +
+	"\x04z_cm\x18\x04 \x01(\x11R\x03zCm\"\x80\x02\n" +
+	"\vMapGeometry\x12\x15\n" +
+	"\x06map_id\x18\x01 \x01(\tR\x05mapId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\rR\aversion\x12)\n" +
+	"\x04mode\x18\x03 \x01(\x0e2\x15.carthago.v1.GameModeR\x04mode\x123\n" +
+	"\toccluders\x18\x04 \x03(\v2\x15.carthago.v1.OccluderR\toccluders\x12'\n" +
+	"\x05zones\x18\x05 \x03(\v2\x11.carthago.v1.ZoneR\x05zones\x127\n" +
+	"\vloot_spawns\x18\x06 \x03(\v2\x16.carthago.v1.LootSpawnR\n" +
+	"lootSpawns\"\xdf\x06\n" +
 	"\rGameplayBatch\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1b\n" +
@@ -1092,12 +2212,42 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\btriggers\x18\t \x03(\v2\x1b.carthago.v1.TriggerPressesR\btriggers\x12\x1d\n" +
 	"\n" +
 	"match_over\x18\n" +
-	" \x01(\bR\tmatchOver\"u\n" +
+	" \x01(\bR\tmatchOver\x12%\n" +
+	"\x0eschema_version\x18\v \x01(\rR\rschemaVersion\x12)\n" +
+	"\x04mode\x18\f \x01(\x0e2\x15.carthago.v1.GameModeR\x04mode\x12%\n" +
+	"\x03map\x18\r \x01(\v2\x13.carthago.v1.MapRefR\x03map\x12;\n" +
+	"\fmap_geometry\x18\x0e \x01(\v2\x18.carthago.v1.MapGeometryR\vmapGeometry\x120\n" +
+	"\x06motion\x18\x0f \x03(\v2\x18.carthago.v1.MotionTrackR\x06motion\x12/\n" +
+	"\x06sounds\x18\x10 \x03(\v2\x17.carthago.v1.SoundEventR\x06sounds\x122\n" +
+	"\tteam_info\x18\x11 \x03(\v2\x15.carthago.v1.TeamInfoR\bteamInfo\x12,\n" +
+	"\x05items\x18\x12 \x03(\v2\x16.carthago.v1.ItemEventR\x05items\x12%\n" +
+	"\x0edropped_events\x18\x13 \x01(\rR\rdroppedEvents\"u\n" +
 	"\tIngestAck\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1a\n" +
 	"\baccepted\x18\x03 \x01(\bR\baccepted\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05errorB-Z+carthago/backend/gen/carthago/v1;carthagov1b\x06proto3"
+	"\x05error\x18\x04 \x01(\tR\x05error*\x81\x01\n" +
+	"\vInputDevice\x12\x1c\n" +
+	"\x18INPUT_DEVICE_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bINPUT_DEVICE_MOUSE_KEYBOARD\x10\x01\x12\x1b\n" +
+	"\x17INPUT_DEVICE_CONTROLLER\x10\x02\x12\x16\n" +
+	"\x12INPUT_DEVICE_TOUCH\x10\x03*b\n" +
+	"\bGameMode\x12\x19\n" +
+	"\x15GAME_MODE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dGAME_MODE_COMPETITIVE_SHOOTER\x10\x01\x12\x18\n" +
+	"\x14GAME_MODE_EXTRACTION\x10\x02*\xa0\x01\n" +
+	"\tSoundKind\x12\x1a\n" +
+	"\x16SOUND_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13SOUND_KIND_FOOTSTEP\x10\x01\x12\x16\n" +
+	"\x12SOUND_KIND_GUNSHOT\x10\x02\x12\x15\n" +
+	"\x11SOUND_KIND_RELOAD\x10\x03\x12\x16\n" +
+	"\x12SOUND_KIND_ABILITY\x10\x04\x12\x17\n" +
+	"\x13SOUND_KIND_INTERACT\x10\x05*}\n" +
+	"\fTeamInfoKind\x12\x1e\n" +
+	"\x1aTEAM_INFO_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13TEAM_INFO_KIND_PING\x10\x01\x12\x1a\n" +
+	"\x16TEAM_INFO_KIND_SPOTTED\x10\x02\x12\x18\n" +
+	"\x14TEAM_INFO_KIND_RADAR\x10\x03B-Z+carthago/backend/gen/carthago/v1;carthagov1b\x06proto3"
 
 var (
 	file_carthago_v1_gameserver_proto_rawDescOnce sync.Once
@@ -1111,39 +2261,67 @@ func file_carthago_v1_gameserver_proto_rawDescGZIP() []byte {
 	return file_carthago_v1_gameserver_proto_rawDescData
 }
 
-var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_carthago_v1_gameserver_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_carthago_v1_gameserver_proto_goTypes = []any{
-	(*WatchSession)(nil),    // 0: carthago.v1.WatchSession
-	(*UnwatchSession)(nil),  // 1: carthago.v1.UnwatchSession
-	(*GsClientMsg)(nil),     // 2: carthago.v1.GsClientMsg
-	(*Kick)(nil),            // 3: carthago.v1.Kick
-	(*WatchAck)(nil),        // 4: carthago.v1.WatchAck
-	(*GsServerMsg)(nil),     // 5: carthago.v1.GsServerMsg
-	(*MatchPlayer)(nil),     // 6: carthago.v1.MatchPlayer
-	(*AimTrack)(nil),        // 7: carthago.v1.AimTrack
-	(*ShotEvent)(nil),       // 8: carthago.v1.ShotEvent
-	(*VisibilityEvent)(nil), // 9: carthago.v1.VisibilityEvent
-	(*CommandWindow)(nil),   // 10: carthago.v1.CommandWindow
-	(*TriggerPresses)(nil),  // 11: carthago.v1.TriggerPresses
-	(*GameplayBatch)(nil),   // 12: carthago.v1.GameplayBatch
-	(*IngestAck)(nil),       // 13: carthago.v1.IngestAck
+	(InputDevice)(0),        // 0: carthago.v1.InputDevice
+	(GameMode)(0),           // 1: carthago.v1.GameMode
+	(SoundKind)(0),          // 2: carthago.v1.SoundKind
+	(TeamInfoKind)(0),       // 3: carthago.v1.TeamInfoKind
+	(*WatchSession)(nil),    // 4: carthago.v1.WatchSession
+	(*UnwatchSession)(nil),  // 5: carthago.v1.UnwatchSession
+	(*GsClientMsg)(nil),     // 6: carthago.v1.GsClientMsg
+	(*Kick)(nil),            // 7: carthago.v1.Kick
+	(*WatchAck)(nil),        // 8: carthago.v1.WatchAck
+	(*GsServerMsg)(nil),     // 9: carthago.v1.GsServerMsg
+	(*MatchPlayer)(nil),     // 10: carthago.v1.MatchPlayer
+	(*AimTrack)(nil),        // 11: carthago.v1.AimTrack
+	(*ShotEvent)(nil),       // 12: carthago.v1.ShotEvent
+	(*VisibilityEvent)(nil), // 13: carthago.v1.VisibilityEvent
+	(*CommandWindow)(nil),   // 14: carthago.v1.CommandWindow
+	(*TriggerPresses)(nil),  // 15: carthago.v1.TriggerPresses
+	(*MotionTrack)(nil),     // 16: carthago.v1.MotionTrack
+	(*SoundEvent)(nil),      // 17: carthago.v1.SoundEvent
+	(*TeamInfo)(nil),        // 18: carthago.v1.TeamInfo
+	(*ItemEvent)(nil),       // 19: carthago.v1.ItemEvent
+	(*MapRef)(nil),          // 20: carthago.v1.MapRef
+	(*Occluder)(nil),        // 21: carthago.v1.Occluder
+	(*Zone)(nil),            // 22: carthago.v1.Zone
+	(*LootSpawn)(nil),       // 23: carthago.v1.LootSpawn
+	(*MapGeometry)(nil),     // 24: carthago.v1.MapGeometry
+	(*GameplayBatch)(nil),   // 25: carthago.v1.GameplayBatch
+	(*IngestAck)(nil),       // 26: carthago.v1.IngestAck
 }
 var file_carthago_v1_gameserver_proto_depIdxs = []int32{
-	0,  // 0: carthago.v1.GsClientMsg.watch:type_name -> carthago.v1.WatchSession
-	1,  // 1: carthago.v1.GsClientMsg.unwatch:type_name -> carthago.v1.UnwatchSession
-	3,  // 2: carthago.v1.GsServerMsg.kick:type_name -> carthago.v1.Kick
-	4,  // 3: carthago.v1.GsServerMsg.watch_ack:type_name -> carthago.v1.WatchAck
-	6,  // 4: carthago.v1.GameplayBatch.players:type_name -> carthago.v1.MatchPlayer
-	7,  // 5: carthago.v1.GameplayBatch.aim:type_name -> carthago.v1.AimTrack
-	8,  // 6: carthago.v1.GameplayBatch.shots:type_name -> carthago.v1.ShotEvent
-	9,  // 7: carthago.v1.GameplayBatch.visibility:type_name -> carthago.v1.VisibilityEvent
-	10, // 8: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
-	11, // 9: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	4,  // 0: carthago.v1.GsClientMsg.watch:type_name -> carthago.v1.WatchSession
+	5,  // 1: carthago.v1.GsClientMsg.unwatch:type_name -> carthago.v1.UnwatchSession
+	7,  // 2: carthago.v1.GsServerMsg.kick:type_name -> carthago.v1.Kick
+	8,  // 3: carthago.v1.GsServerMsg.watch_ack:type_name -> carthago.v1.WatchAck
+	0,  // 4: carthago.v1.MatchPlayer.input_device:type_name -> carthago.v1.InputDevice
+	2,  // 5: carthago.v1.SoundEvent.kind:type_name -> carthago.v1.SoundKind
+	3,  // 6: carthago.v1.TeamInfo.kind:type_name -> carthago.v1.TeamInfoKind
+	1,  // 7: carthago.v1.MapGeometry.mode:type_name -> carthago.v1.GameMode
+	21, // 8: carthago.v1.MapGeometry.occluders:type_name -> carthago.v1.Occluder
+	22, // 9: carthago.v1.MapGeometry.zones:type_name -> carthago.v1.Zone
+	23, // 10: carthago.v1.MapGeometry.loot_spawns:type_name -> carthago.v1.LootSpawn
+	10, // 11: carthago.v1.GameplayBatch.players:type_name -> carthago.v1.MatchPlayer
+	11, // 12: carthago.v1.GameplayBatch.aim:type_name -> carthago.v1.AimTrack
+	12, // 13: carthago.v1.GameplayBatch.shots:type_name -> carthago.v1.ShotEvent
+	13, // 14: carthago.v1.GameplayBatch.visibility:type_name -> carthago.v1.VisibilityEvent
+	14, // 15: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
+	15, // 16: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
+	1,  // 17: carthago.v1.GameplayBatch.mode:type_name -> carthago.v1.GameMode
+	20, // 18: carthago.v1.GameplayBatch.map:type_name -> carthago.v1.MapRef
+	24, // 19: carthago.v1.GameplayBatch.map_geometry:type_name -> carthago.v1.MapGeometry
+	16, // 20: carthago.v1.GameplayBatch.motion:type_name -> carthago.v1.MotionTrack
+	17, // 21: carthago.v1.GameplayBatch.sounds:type_name -> carthago.v1.SoundEvent
+	18, // 22: carthago.v1.GameplayBatch.team_info:type_name -> carthago.v1.TeamInfo
+	19, // 23: carthago.v1.GameplayBatch.items:type_name -> carthago.v1.ItemEvent
+	24, // [24:24] is the sub-list for method output_type
+	24, // [24:24] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_carthago_v1_gameserver_proto_init() }
@@ -1164,13 +2342,14 @@ func file_carthago_v1_gameserver_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_gameserver_proto_rawDesc), len(file_carthago_v1_gameserver_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   14,
+			NumEnums:      4,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_carthago_v1_gameserver_proto_goTypes,
 		DependencyIndexes: file_carthago_v1_gameserver_proto_depIdxs,
+		EnumInfos:         file_carthago_v1_gameserver_proto_enumTypes,
 		MessageInfos:      file_carthago_v1_gameserver_proto_msgTypes,
 	}.Build()
 	File_carthago_v1_gameserver_proto = out.File
