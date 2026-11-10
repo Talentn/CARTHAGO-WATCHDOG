@@ -136,6 +136,25 @@ pub trait Job: Send {
     fn step(&mut self, ctx: &Ctx<'_>) -> Step;
 }
 
+/// Runs one job synchronously on the calling thread, outside any budget, until it returns
+/// `Done` or `max_steps` steps have run. For tests and tools that exercise a scanner without
+/// the scheduler; returns the findings and whether the pass completed.
+pub fn drive(job: &mut dyn Job, max_steps: usize) -> (Vec<Finding>, bool) {
+    let (tx, rx) = std::sync::mpsc::sync_channel(4096);
+    let dropped = AtomicU64::new(0);
+    let ctx = Ctx { job: job.name(), tx: &tx, dropped: &dropped };
+    job.begin();
+    let mut done = false;
+    for _ in 0..max_steps {
+        if job.step(&ctx) == Step::Done {
+            done = true;
+            break;
+        }
+    }
+    drop(tx);
+    (rx.into_iter().collect(), done)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Detail;
