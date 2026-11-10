@@ -19,6 +19,8 @@ import (
 	"time"
 
 	goattest "github.com/google/go-attestation/attest"
+
+	"sentinel/backend/internal/attest/ekroots"
 )
 
 // DecodeBCryptRSAPublic decodes a Windows BCRYPT_RSAKEY_BLOB ("RSA1") public key.
@@ -51,14 +53,16 @@ type CertInfo struct {
 
 // EKReport describes what could be established about the endorsement key.
 type EKReport struct {
-	PublicSHA256    string     `json:"public_sha256"`
-	CertSource      string     `json:"cert_source"`
-	CertURL         string     `json:"cert_url,omitempty"`
-	CertMatchesEK   bool       `json:"cert_matches_ek"`
-	Chain           []CertInfo `json:"chain"`
-	ChainSignatures bool       `json:"chain_signatures_valid"`
-	ChainEndsAtRoot bool       `json:"chain_ends_at_self_signed_root"`
-	Notes           []string   `json:"notes,omitempty"`
+	PublicSHA256  string     `json:"public_sha256"`
+	CertSource    string     `json:"cert_source"`
+	CertURL       string     `json:"cert_url,omitempty"`
+	CertMatchesEK bool       `json:"cert_matches_ek"`
+	Chain         []CertInfo `json:"chain"`
+	// ChainStatus is the outcome of verification against the bundled manufacturer roots.
+	ChainStatus ekroots.Status `json:"chain_status"`
+	RootVendor  string         `json:"root_vendor,omitempty"`
+	Root        string         `json:"root,omitempty"`
+	Notes       []string       `json:"notes,omitempty"`
 }
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -121,25 +125,35 @@ func info(c *x509.Certificate, source string) CertInfo {
 	return CertInfo{Subject: c.Subject.String(), Issuer: c.Issuer.String(), NotBefore: c.NotBefore, NotAfter: c.NotAfter, Source: source}
 }
 
+func parseSuppliedCert(der []byte) (*x509.Certificate, error) {
+	if c, err := goattest.ParseEKCertificate(der); err == nil {
+		return c, nil
+	}
+	return ekroots.ParseCertificate(der)
+}
+
 // CheckEK finds an EK certificate (NV first, then the manufacturer service when allowed),
-// confirms it certifies the EK used for credential activation, and walks the AIA chain.
-// Roots are not pinned in this spike; the report only says where the chain ends.
-func CheckEK(ekPub *rsa.PublicKey, nvCerts [][]byte, manufacturer string, allowFetch bool) EKReport {
+// confirms it certifies the EK used for the AK binding, and verifies its chain against the
+// bundled manufacturer roots. Other supplied certificates (for example ECC EK certificates
+// or chain certificates from NV) are used as untrusted intermediates; with allowFetch,
+// missing issuers are also fetched from AIA URLs.
+func CheckEK(ekPub *rsa.PublicKey, nvCerts [][]byte, manufacturer string, allowFetch bool, roots *ekroots.Bundle, now time.Time) EKReport {
 	sum := sha256.Sum256(x509.MarshalPKCS1PublicKey(ekPub))
-	rep := EKReport{PublicSHA256: fmt.Sprintf("%x", sum), CertSource: "none"}
+	rep := EKReport{PublicSHA256: fmt.Sprintf("%x", sum), CertSource: "none", ChainStatus: ekroots.StatusNoCert}
 
 	var leaf *x509.Certificate
+	var extra []*x509.Certificate
 	for i, der := range nvCerts {
-		c, err := goattest.ParseEKCertificate(der)
+		c, err := parseSuppliedCert(der)
 		if err != nil {
 			rep.Notes = append(rep.Notes, fmt.Sprintf("NV cert %d unparseable: %v", i, err))
 			continue
 		}
-		if k, ok := c.PublicKey.(*rsa.PublicKey); ok && k.Equal(ekPub) {
+		if k, ok := c.PublicKey.(*rsa.PublicKey); ok && k.Equal(ekPub) && leaf == nil {
 			leaf, rep.CertSource = c, "tpm-nv"
-			break
+			continue
 		}
-		rep.Notes = append(rep.Notes, fmt.Sprintf("NV cert %d (%s) is not for the RSA EK", i, c.Subject))
+		extra = append(extra, c)
 	}
 	if leaf == nil {
 		rep.CertURL = ekCertURL(ekPub, manufacturer)
@@ -163,18 +177,61 @@ func CheckEK(ekPub *rsa.PublicKey, nvCerts [][]byte, manufacturer string, allowF
 	if leaf == nil {
 		return rep
 	}
-	if k, ok := leaf.PublicKey.(*rsa.PublicKey); ok && k.Equal(ekPub) {
-		rep.CertMatchesEK = true
+	if k, ok := leaf.PublicKey.(*rsa.PublicKey); !ok || !k.Equal(ekPub) {
+		rep.ChainStatus = ekroots.StatusInvalid
+		rep.Chain = []CertInfo{info(leaf, rep.CertSource)}
+		rep.Notes = append(rep.Notes, "EK certificate does not certify this EK")
+		return rep
 	}
-	rep.Chain = append(rep.Chain, info(leaf, rep.CertSource))
-
-	rep.ChainSignatures = true
-	cur := leaf
-	for depth := 0; depth < 6; depth++ {
-		if bytes.Equal(cur.RawIssuer, cur.RawSubject) && cur.CheckSignature(cur.SignatureAlgorithm, cur.RawTBSCertificate, cur.Signature) == nil {
-			rep.ChainEndsAtRoot = true
-			break
+	rep.CertMatchesEK = true
+	if allowFetch {
+		extra = append(extra, fetchIssuers(leaf, roots, extra, &rep)...)
+	}
+	// EK certs often carry critical TPM-specific extensions, so the chain is built and
+	// signatures checked by ekroots rather than x509.Verify.
+	res := roots.Verify(leaf, extra, now)
+	rep.ChainStatus, rep.RootVendor, rep.Root = res.Status, res.Vendor, res.Root
+	if res.Detail != "" {
+		rep.Notes = append(rep.Notes, "EK chain: "+res.Detail)
+	}
+	rep.Notes = append(rep.Notes, res.Notes...)
+	if res.Status == ekroots.StatusVerified {
+		rep.Chain = rep.Chain[:0]
+		for i, c := range res.Chain {
+			src := "bundle"
+			if i == 0 {
+				src = rep.CertSource
+			}
+			rep.Chain = append(rep.Chain, info(c, src))
 		}
+	} else {
+		rep.Chain = []CertInfo{info(leaf, rep.CertSource)}
+	}
+	if m := strings.TrimSpace(manufacturer); res.Vendor != "" && res.Vendor != "custom" && vendorForManufacturer[m] != "" && vendorForManufacturer[m] != res.Vendor {
+		rep.Notes = append(rep.Notes, fmt.Sprintf("TPM reports manufacturer %q but the EK chains to a %s root", m, res.Vendor))
+	}
+	return rep
+}
+
+// vendorForManufacturer maps TPM_PT_MANUFACTURER IDs to bundle vendors.
+var vendorForManufacturer = map[string]string{"INTC": "intel", "AMD": "amd", "IFX": "infineon", "STM": "stmicro", "NTC": "nuvoton"}
+
+// fetchIssuers follows AIA URLs upward from leaf while no known issuer exists.
+func fetchIssuers(leaf *x509.Certificate, roots *ekroots.Bundle, have []*x509.Certificate, rep *EKReport) []*x509.Certificate {
+	var got []*x509.Certificate
+	known := func(c *x509.Certificate) bool {
+		if roots.HasIssuer(c) {
+			return true
+		}
+		for _, h := range append(have, got...) {
+			if bytes.Equal(h.RawSubject, c.RawIssuer) {
+				return true
+			}
+		}
+		return false
+	}
+	cur := leaf
+	for depth := 0; depth < 6 && !known(cur) && !bytes.Equal(cur.RawIssuer, cur.RawSubject); depth++ {
 		var parent *x509.Certificate
 		var lastErr error
 		for _, u := range cur.IssuingCertificateURL {
@@ -191,20 +248,11 @@ func CheckEK(ekPub *rsa.PublicKey, nvCerts [][]byte, manufacturer string, allowF
 			if lastErr == nil {
 				lastErr = errors.New("no AIA issuer URL")
 			}
-			rep.Notes = append(rep.Notes, "chain walk stopped: "+lastErr.Error())
+			rep.Notes = append(rep.Notes, "AIA fetch stopped: "+lastErr.Error())
 			break
 		}
-		// EK certs often carry critical TPM-specific extensions, so check signatures
-		// directly instead of using x509.Verify.
-		if err := parent.CheckSignature(cur.SignatureAlgorithm, cur.RawTBSCertificate, cur.Signature); err != nil {
-			rep.ChainSignatures = false
-			rep.Notes = append(rep.Notes, fmt.Sprintf("signature on %q does not verify under %q: %v", cur.Subject, parent.Subject, err))
-		}
-		rep.Chain = append(rep.Chain, info(parent, "aia"))
+		got = append(got, parent)
 		cur = parent
 	}
-	if !rep.ChainEndsAtRoot {
-		rep.ChainSignatures = false
-	}
-	return rep
+	return got
 }

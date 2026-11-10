@@ -22,6 +22,8 @@ import (
 	"time"
 
 	goattest "github.com/google/go-attestation/attest"
+
+	"sentinel/backend/internal/attest/ekroots"
 )
 
 const nonceTTL = 2 * time.Minute
@@ -147,13 +149,18 @@ type enrollment struct {
 
 type Verifier struct {
 	FetchEKCerts bool
+	Roots        *ekroots.Bundle
 
 	mu          sync.Mutex
 	enrollments map[string]*enrollment
 }
 
 func NewVerifier(fetchEKCerts bool) *Verifier {
-	return &Verifier{FetchEKCerts: fetchEKCerts, enrollments: map[string]*enrollment{}}
+	roots, err := ekroots.Default()
+	if err != nil {
+		panic(err)
+	}
+	return &Verifier{FetchEKCerts: fetchEKCerts, Roots: roots, enrollments: map[string]*enrollment{}}
 }
 
 // ClientError marks failures caused by the evidence rather than the verifier.
@@ -228,7 +235,7 @@ func (v *Verifier) Enroll(req EnrollRequest, manufacturer string) (*EnrollRespon
 	e := &enrollment{
 		req:       req,
 		ekPub:     ekPub,
-		ek:        CheckEK(ekPub, req.EKCerts, manufacturer, v.FetchEKCerts),
+		ek:        CheckEK(ekPub, req.EKCerts, manufacturer, v.FetchEKCerts, v.Roots, time.Now()),
 		akPub:     akPub,
 		devicePub: devicePub,
 		secret:    secret,

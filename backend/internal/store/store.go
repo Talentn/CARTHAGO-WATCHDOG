@@ -20,9 +20,13 @@ type Device struct {
 	AKPublic       []byte // TPMT_PUBLIC of the AK once bound to the EK; nil until then
 	EKPublicSHA256 string
 	EKCertMatches  bool
-	BoundVia       string // "ek-certify"
-	FirstSeen      time.Time
-	LastSeen       time.Time
+	// EKChain is the EK certificate chain status (ekroots.Status: verified, unknown_vendor,
+	// invalid, no_cert); empty for devices bound before chains were verified.
+	EKChain     string
+	EKChainRoot string // subject of the manufacturer root reached, when verified
+	BoundVia    string // "ek-certify"
+	FirstSeen   time.Time
+	LastSeen    time.Time
 }
 
 type SessionState string

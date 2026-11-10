@@ -5,3 +5,9 @@ import _ "embed"
 
 //go:embed sqlite/0001_init.sql
 var SQLiteInit string
+
+//go:embed sqlite/0002_ek_chain.sql
+var sqliteEKChain string
+
+// SQLite lists the migrations in order; migration i+1 sets PRAGMA user_version = i+1.
+var SQLite = []string{SQLiteInit, sqliteEKChain}

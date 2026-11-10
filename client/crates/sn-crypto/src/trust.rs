@@ -13,13 +13,15 @@ pub const BOOT_DEBUG_OFF: u64 = 1 << 8;
 pub const CODE_INTEGRITY: u64 = 1 << 9;
 pub const EK_CERT_MATCHES: u64 = 1 << 10;
 pub const EK_CHAIN_VERIFIED: u64 = 1 << 11;
+pub const EK_CHAIN_UNKNOWN_VENDOR: u64 = 1 << 12;
+pub const EK_CHAIN_INVALID: u64 = 1 << 13;
 
 pub const TRUST_SOFTWARE: u32 = 0;
 pub const TRUST_TPM_KEY: u32 = 1;
 pub const TRUST_ATTESTED: u32 = 2;
 pub const TRUST_RANKED_BOOT: u32 = 3;
 
-pub const FLAG_NAMES: [(u64, &str); 12] = [
+pub const FLAG_NAMES: [(u64, &str); 14] = [
     (TPM_DEVICE_KEY, "tpm_device_key"),
     (DEVICE_KEY_CERTIFIED, "device_key_certified"),
     (AK_BOUND_TO_EK, "ak_bound_to_ek"),
@@ -32,6 +34,8 @@ pub const FLAG_NAMES: [(u64, &str); 12] = [
     (CODE_INTEGRITY, "code_integrity"),
     (EK_CERT_MATCHES, "ek_cert_matches"),
     (EK_CHAIN_VERIFIED, "ek_chain_verified"),
+    (EK_CHAIN_UNKNOWN_VENDOR, "ek_chain_unknown_vendor"),
+    (EK_CHAIN_INVALID, "ek_chain_invalid"),
 ];
 
 pub fn flag_names(flags: u64) -> Vec<&'static str> {

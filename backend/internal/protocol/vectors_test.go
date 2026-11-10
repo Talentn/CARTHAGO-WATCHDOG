@@ -180,6 +180,13 @@ func TestTrustLevel(t *testing.T) {
 		{attestedMask, TrustAttested},
 		{attestedMask | FlagSecureBoot | FlagHVCI, TrustAttested},
 		{rankedMask, TrustRankedBoot},
+		// Without a verified EK chain, everything else verified still caps at 1.
+		{rankedMask &^ FlagEKChainVerified, TrustTPMKey},
+		{rankedMask&^FlagEKChainVerified | FlagEKChainUnknownVendor, TrustTPMKey},
+		{rankedMask &^ (FlagEKChainVerified | FlagEKCertMatches), TrustTPMKey},
+		{rankedMask | FlagEKChainInvalid, TrustTPMKey},
+		// A software key never rises above 0, whatever else is claimed.
+		{rankedMask &^ FlagTPMDeviceKey, TrustSoftware},
 	} {
 		if got := TrustLevel(c.flags); got != c.want {
 			t.Errorf("TrustLevel(%#x) = %d, want %d", c.flags, got, c.want)

@@ -81,10 +81,15 @@ leeway on `iat` and `exp`. The TTL is 15 minutes, and the gateway renews the tok
 | 3 `quote_verified` | the quote is bound to this handshake and the WBCL replays to it |
 | 4-9 | from the verified log: Secure Boot on, HVCI on, test-signing off, kernel debug off, boot debug off, code integrity on |
 | 10 `ek_cert_matches` | an EK certificate for this EK was found (NV or the manufacturer service) |
-| 11 `ek_chain_verified` | the EK certificate chains to a bundled manufacturer root (not implemented yet) |
+| 11 `ek_chain_verified` | the EK certificate chains to a bundled manufacturer root (Intel, AMD, Infineon, STMicro, Nuvoton) |
+| 12 `ek_chain_unknown_vendor` | an EK certificate exists, but no issuer path reaches a bundled root (unbundled vendor, self-issued, or missing intermediate) |
+| 13 `ek_chain_invalid` | the EK certificate does not certify this EK, or a signature or CA constraint on its chain fails |
 
-`trust_level`: 0 software key; 1 TPM key claimed, but attestation is missing or failed;
-2 attested (bits 0-3); 3 attested and the ranked boot policy holds (bits 0-9).
+No bit among 10-13 set means no EK certificate was available.
+
+`trust_level`: 0 software key; 1 TPM key claimed, but attestation is missing or failed, or the EK
+chain is not verified; 2 attested (bits 0-3 plus 10 and 11); 3 attested and the ranked boot policy
+holds (bits 0-11). Bit 13 caps the level at 1 whatever else is set. A software key is always 0.
 
 ## Game-server channel
 

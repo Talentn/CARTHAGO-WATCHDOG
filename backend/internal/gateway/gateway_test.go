@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "sentinel/backend/gen/sentinel/v1"
+	"sentinel/backend/internal/attest/ekroots"
 	"sentinel/backend/internal/protocol"
 	"sentinel/backend/internal/store"
 )
@@ -306,5 +307,31 @@ func TestGameServerAuth(t *testing.T) {
 	_, resp, err := websocket.Dial(context.Background(), e.url("/v1/gs"), &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer wrong"}}})
 	if err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %v %v", resp, err)
+	}
+}
+
+// Everything else verified, the EK chain outcome alone decides whether trust reaches 2/3.
+func TestEKChainStatusCapsTrustLevel(t *testing.T) {
+	verified := protocol.FlagTPMDeviceKey | protocol.FlagDeviceKeyCertified | protocol.FlagAKBoundToEK | protocol.FlagQuoteVerified |
+		protocol.FlagSecureBoot | protocol.FlagHVCI | protocol.FlagTestSigningOff | protocol.FlagKernelDebugOff | protocol.FlagBootDebugOff | protocol.FlagCodeIntegrity
+	for _, c := range []struct {
+		dev  store.Device
+		want uint32
+	}{
+		{store.Device{EKCertMatches: true, EKChain: string(ekroots.StatusVerified)}, protocol.TrustRankedBoot},
+		{store.Device{EKCertMatches: true, EKChain: string(ekroots.StatusUnknownVendor)}, protocol.TrustTPMKey},
+		{store.Device{EKCertMatches: true, EKChain: string(ekroots.StatusInvalid)}, protocol.TrustTPMKey},
+		{store.Device{EKChain: string(ekroots.StatusInvalid)}, protocol.TrustTPMKey},
+		{store.Device{EKChain: string(ekroots.StatusNoCert)}, protocol.TrustTPMKey},
+		{store.Device{EKCertMatches: true}, protocol.TrustTPMKey}, // bound before chains were checked
+		{store.Device{EKChain: string(ekroots.StatusVerified)}, protocol.TrustTPMKey},
+	} {
+		d := c.dev
+		if got := protocol.TrustLevel(verified | ekChainFlags(&d)); got != c.want {
+			t.Errorf("%+v: trust %d, want %d", c.dev, got, c.want)
+		}
+		if got := protocol.TrustLevel((verified &^ protocol.FlagTPMDeviceKey) | ekChainFlags(&d)); got != protocol.TrustSoftware {
+			t.Errorf("software key with %+v: trust %d", c.dev, got)
+		}
 	}
 }

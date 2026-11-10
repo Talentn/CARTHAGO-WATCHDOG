@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"sentinel/backend/internal/attest/ekroots"
 	"sentinel/backend/internal/store"
 )
 
@@ -25,8 +26,11 @@ type Config struct {
 	// on first contact includes AK creation, which takes seconds).
 	HelloTimeout time.Duration
 	ProveTimeout time.Duration
-	// FetchEKCerts allows contacting TPM manufacturer services for EK certificates not in NV.
+	// FetchEKCerts allows contacting TPM manufacturer services for EK certificates not in NV
+	// and following AIA URLs for missing EK chain intermediates.
 	FetchEKCerts bool
+	// EKRoots are the trusted TPM manufacturer CAs; nil means the embedded bundle.
+	EKRoots *ekroots.Bundle
 
 	Now func() time.Time
 }
@@ -52,6 +56,13 @@ func (c *Config) defaults() {
 	}
 	if c.Now == nil {
 		c.Now = time.Now
+	}
+	if c.EKRoots == nil {
+		b, err := ekroots.Default()
+		if err != nil {
+			panic(err) // the embedded bundle is checked by ekroots tests
+		}
+		c.EKRoots = b
 	}
 }
 

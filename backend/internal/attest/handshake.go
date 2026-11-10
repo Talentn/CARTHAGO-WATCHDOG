@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"time"
 
 	goattest "github.com/google/go-attestation/attest"
 	"github.com/google/go-tpm/legacy/tpm2"
+
+	"sentinel/backend/internal/attest/ekroots"
 )
 
 // Handshake-oriented verification used by the gateway: no HTTP enrollment state, every
@@ -26,7 +29,7 @@ type Enrollment struct {
 
 // PrepareEnrollment validates the AK creation evidence (restricted, fixedTPM,
 // TPM-generated) and creates a decryption-EK challenge only this TPM's EK can answer.
-func PrepareEnrollment(ekPublicBlob []byte, ekCerts [][]byte, ak AKParams, manufacturer string, fetchEK bool) (*Enrollment, error) {
+func PrepareEnrollment(ekPublicBlob []byte, ekCerts [][]byte, ak AKParams, manufacturer string, fetchEK bool, roots *ekroots.Bundle, now time.Time) (*Enrollment, error) {
 	ekPub, err := DecodeBCryptRSAPublic(ekPublicBlob)
 	if err != nil {
 		return nil, clientErr("EK public: %v", err)
@@ -45,7 +48,7 @@ func PrepareEnrollment(ekPublicBlob []byte, ekCerts [][]byte, ak AKParams, manuf
 	if err != nil {
 		return nil, fmt.Errorf("EK challenge: %w", err)
 	}
-	rep := CheckEK(ekPub, ekCerts, manufacturer, fetchEK)
+	rep := CheckEK(ekPub, ekCerts, manufacturer, fetchEK, roots, now)
 	return &Enrollment{
 		EKPublicSHA256: rep.PublicSHA256,
 		EK:             rep,
@@ -53,6 +56,21 @@ func PrepareEnrollment(ekPublicBlob []byte, ekCerts [][]byte, ak AKParams, manuf
 		hmacKey:        hmacKey,
 		Challenge:      EKChallenge{ObjectPublic: ch.ObjectPublic, Duplicate: ch.Duplicate, InSymSeed: ch.InSymSeed},
 	}, nil
+}
+
+// RecheckEK re-verifies the EK certificate chain of a device whose AK is already bound, so
+// bundle updates apply to returning devices. It fails if the presented EK is not the one the
+// AK was bound to (boundEKSHA256).
+func RecheckEK(ekPublicBlob []byte, ekCerts [][]byte, manufacturer string, fetchEK bool, roots *ekroots.Bundle, now time.Time, boundEKSHA256 string) (EKReport, error) {
+	ekPub, err := DecodeBCryptRSAPublic(ekPublicBlob)
+	if err != nil {
+		return EKReport{}, clientErr("EK public: %v", err)
+	}
+	rep := CheckEK(ekPub, ekCerts, manufacturer, fetchEK, roots, now)
+	if subtle.ConstantTimeCompare([]byte(rep.PublicSHA256), []byte(boundEKSHA256)) != 1 {
+		return EKReport{}, clientErr("presented EK is not the EK this AK is bound to")
+	}
+	return rep, nil
 }
 
 // VerifyEKCertify checks the solved EK challenge: the AK was certified by an HMAC key that

@@ -20,6 +20,7 @@ import (
 
 	pb "sentinel/backend/gen/sentinel/v1"
 	"sentinel/backend/internal/attest"
+	"sentinel/backend/internal/attest/ekroots"
 	"sentinel/backend/internal/protocol"
 	"sentinel/backend/internal/store"
 )
@@ -215,10 +216,17 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 		enr := hello.TpmEnrollment
 		switch {
 		case enr != nil && len(dev.AKPublic) > 0 && bytes.Equal(enr.AkPublic, dev.AKPublic):
+			if rep, err := attest.RecheckEK(enr.EkPublic, enr.EkCerts, enr.TpmManufacturer, g.cfg.FetchEKCerts, g.cfg.EKRoots, now, dev.EKPublicSHA256); err != nil {
+				notes = append(notes, "EK recheck: "+err.Error())
+				dev.EKChain, dev.EKChainRoot = string(ekroots.StatusInvalid), ""
+			} else {
+				dev.EKCertMatches, dev.EKChain, dev.EKChainRoot = rep.CertMatchesEK, string(rep.ChainStatus), rep.Root
+				notes = append(notes, rep.Notes...)
+			}
 		case enr != nil:
 			pending, err = attest.PrepareEnrollment(enr.EkPublic, enr.EkCerts, attest.AKParams{
 				Public: enr.AkPublic, CreateData: enr.AkCreateData, CreateAttestation: enr.AkCreateAttestation, CreateSignature: enr.AkCreateSignature,
-			}, enr.TpmManufacturer, g.cfg.FetchEKCerts)
+			}, enr.TpmManufacturer, g.cfg.FetchEKCerts, g.cfg.EKRoots, now)
 			if err != nil {
 				notes = append(notes, "AK enrollment rejected: "+err.Error())
 				attestReq = nil
@@ -354,16 +362,24 @@ func (g *Gateway) verifyAttestation(ctx context.Context, dev *store.Device, pend
 		}
 		akPub = pending.AKPublic
 		dev.AKPublic, dev.BoundVia, dev.EKPublicSHA256, dev.EKCertMatches = pending.AKPublic, "ek-certify", pending.EKPublicSHA256, pending.EK.CertMatchesEK
-		if !pending.EK.CertMatchesEK {
-			notes = append(notes, "no EK certificate matching the EK")
-		}
+		dev.EKChain, dev.EKChainRoot = string(pending.EK.ChainStatus), pending.EK.Root
+		notes = append(notes, pending.EK.Notes...)
 	}
 	if len(akPub) == 0 {
 		return 0, nil, append(notes, "no bound AK")
 	}
-	flags := protocol.FlagAKBoundToEK
-	if dev.EKCertMatches {
-		flags |= protocol.FlagEKCertMatches
+	flags := protocol.FlagAKBoundToEK | ekChainFlags(dev)
+	switch ekroots.Status(dev.EKChain) {
+	case ekroots.StatusVerified:
+		notes = append(notes, "EK certificate chain verified to "+dev.EKChainRoot)
+	case ekroots.StatusUnknownVendor:
+		notes = append(notes, "EK certificate does not chain to a bundled manufacturer root; trust capped at 1")
+	case ekroots.StatusInvalid:
+		notes = append(notes, "EK certificate chain invalid; trust capped at 1")
+	case ekroots.StatusNoCert:
+		notes = append(notes, "no EK certificate for this EK; trust capped at 1")
+	default:
+		notes = append(notes, "EK certificate chain not checked for this device yet; trust capped at 1")
 	}
 	if err := attest.VerifyDeviceKeyCertify(akPub, ev.DeviceKeyPublicArea, deviceSEC1, ev.DeviceKeyCertifyAttest, ev.DeviceKeyCertifySignature, nonce[:]); err != nil {
 		notes = append(notes, "device key not certified: "+err.Error())
@@ -397,8 +413,26 @@ func (g *Gateway) verifyAttestation(ctx context.Context, dev *store.Device, pend
 		}
 	}
 	notes = append(notes, boot.Policy.RankedFailures...)
-	notes = append(notes, "EK certificate chain to a manufacturer root not verified (no bundled roots yet)")
 	return flags, boot, notes
+}
+
+// ekChainFlags maps a device's stored EK chain status to attest_flags.
+func ekChainFlags(dev *store.Device) uint64 {
+	var f uint64
+	if dev.EKCertMatches {
+		f |= protocol.FlagEKCertMatches
+	}
+	switch ekroots.Status(dev.EKChain) {
+	case ekroots.StatusVerified:
+		if dev.EKCertMatches {
+			f |= protocol.FlagEKChainVerified
+		}
+	case ekroots.StatusUnknownVendor:
+		f |= protocol.FlagEKChainUnknownVendor
+	case ekroots.StatusInvalid:
+		f |= protocol.FlagEKChainInvalid
+	}
+	return f
 }
 
 // serve handles heartbeats until the client leaves or the session is kicked.

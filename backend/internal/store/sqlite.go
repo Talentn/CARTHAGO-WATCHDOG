@@ -23,11 +23,41 @@ func OpenSQLite(path string) (*SQLite, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(migrations.SQLiteInit); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 	return &SQLite{db: db}, nil
+}
+
+// migrate applies the migrations newer than PRAGMA user_version. Databases created before
+// versioning have user_version 0 and the idempotent 0001 schema.
+func migrate(db *sql.DB) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	for i, m := range migrations.SQLite {
+		if i < v {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(m); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d: %w", i+1, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ms(t time.Time) int64 { return t.UnixMilli() }
@@ -37,9 +67,9 @@ func fromMS(v int64) time.Time { return time.UnixMilli(v).UTC() }
 func (s *SQLite) GetDevice(ctx context.Context, id string) (*Device, error) {
 	d := Device{DeviceID: id}
 	var first, last int64
-	err := s.db.QueryRowContext(ctx, `SELECT tenant_id, key_alg, public_key, ak_public, ek_public_sha256, ek_cert_matches, bound_via, first_seen_ms, last_seen_ms
+	err := s.db.QueryRowContext(ctx, `SELECT tenant_id, key_alg, public_key, ak_public, ek_public_sha256, ek_cert_matches, ek_chain, ek_chain_root, bound_via, first_seen_ms, last_seen_ms
 		FROM devices WHERE device_id = ?`, id).
-		Scan(&d.TenantID, &d.KeyAlg, &d.PublicKey, &d.AKPublic, &d.EKPublicSHA256, &d.EKCertMatches, &d.BoundVia, &first, &last)
+		Scan(&d.TenantID, &d.KeyAlg, &d.PublicKey, &d.AKPublic, &d.EKPublicSHA256, &d.EKCertMatches, &d.EKChain, &d.EKChainRoot, &d.BoundVia, &first, &last)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -51,11 +81,12 @@ func (s *SQLite) GetDevice(ctx context.Context, id string) (*Device, error) {
 }
 
 func (s *SQLite) UpsertDevice(ctx context.Context, d *Device) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO devices (device_id, tenant_id, key_alg, public_key, ak_public, ek_public_sha256, ek_cert_matches, bound_via, first_seen_ms, last_seen_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO devices (device_id, tenant_id, key_alg, public_key, ak_public, ek_public_sha256, ek_cert_matches, ek_chain, ek_chain_root, bound_via, first_seen_ms, last_seen_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (device_id) DO UPDATE SET ak_public = excluded.ak_public, ek_public_sha256 = excluded.ek_public_sha256,
-			ek_cert_matches = excluded.ek_cert_matches, bound_via = excluded.bound_via, last_seen_ms = excluded.last_seen_ms`,
-		d.DeviceID, d.TenantID, d.KeyAlg, d.PublicKey, d.AKPublic, d.EKPublicSHA256, d.EKCertMatches, d.BoundVia, ms(d.FirstSeen), ms(d.LastSeen))
+			ek_cert_matches = excluded.ek_cert_matches, ek_chain = excluded.ek_chain, ek_chain_root = excluded.ek_chain_root,
+			bound_via = excluded.bound_via, last_seen_ms = excluded.last_seen_ms`,
+		d.DeviceID, d.TenantID, d.KeyAlg, d.PublicKey, d.AKPublic, d.EKPublicSHA256, d.EKCertMatches, d.EKChain, d.EKChainRoot, d.BoundVia, ms(d.FirstSeen), ms(d.LastSeen))
 	return err
 }
 

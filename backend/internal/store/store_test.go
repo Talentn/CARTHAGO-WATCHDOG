@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"sentinel/backend/migrations"
 )
 
 func exercise(t *testing.T, s Store) {
@@ -21,11 +24,12 @@ func exercise(t *testing.T, s Store) {
 	later := now.Add(time.Minute)
 	bound := *d
 	bound.AKPublic, bound.BoundVia, bound.EKCertMatches, bound.LastSeen, bound.FirstSeen = []byte{9, 9}, "ek-certify", true, later, later
+	bound.EKChain, bound.EKChainRoot = "verified", "CN=Test Root"
 	if err := s.UpsertDevice(ctx, &bound); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetDevice(ctx, "dev1")
-	if err != nil || string(got.AKPublic) != "\x09\x09" || !got.EKCertMatches || !got.FirstSeen.Equal(now) || !got.LastSeen.Equal(later) {
+	if err != nil || string(got.AKPublic) != "\x09\x09" || !got.EKCertMatches || got.EKChain != "verified" || got.EKChainRoot != "CN=Test Root" || !got.FirstSeen.Equal(now) || !got.LastSeen.Equal(later) {
 		t.Fatalf("device after upsert: %+v %v", got, err)
 	}
 
@@ -64,5 +68,33 @@ func TestSQLite(t *testing.T) {
 	defer s.Close()
 	if _, err := s.GetDevice(context.Background(), "dev1"); err != nil {
 		t.Fatalf("not persisted: %v", err)
+	}
+}
+
+// A database created by the Phase 0 gateway (schema 0001, user_version 0) upgrades in place.
+func TestSQLiteMigratesPhase0Database(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(migrations.SQLiteInit); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO devices (device_id, tenant_id, key_alg, public_key, ak_public, ek_public_sha256, ek_cert_matches, bound_via, first_seen_ms, last_seen_ms)
+		VALUES ('old', 't', 2, x'04', x'0909', 'abc', 1, 'ek-certify', 1, 2)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	for range 2 {
+		s, err := OpenSQLite(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := s.GetDevice(context.Background(), "old")
+		if err != nil || d.EKChain != "" || d.EKPublicSHA256 != "abc" || string(d.AKPublic) != "\x09\x09" {
+			t.Fatalf("migrated device %+v %v", d, err)
+		}
+		s.Close()
 	}
 }
