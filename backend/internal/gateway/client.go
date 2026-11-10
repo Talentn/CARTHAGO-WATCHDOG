@@ -216,7 +216,7 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 		enr := hello.TpmEnrollment
 		switch {
 		case enr != nil && len(dev.AKPublic) > 0 && bytes.Equal(enr.AkPublic, dev.AKPublic):
-			if rep, err := attest.RecheckEK(enr.EkPublic, enr.EkCerts, enr.TpmManufacturer, g.cfg.FetchEKCerts, g.cfg.EKRoots, now, dev.EKPublicSHA256); err != nil {
+			if rep, err := attest.RecheckEK(enr.EkPublic, enr.EkCerts, enr.EkChainCerts, enr.TpmManufacturer, g.cfg.FetchEKCerts, g.cfg.EKRoots, now, dev.EKPublicSHA256); err != nil {
 				notes = append(notes, "EK recheck: "+err.Error())
 				dev.EKChain, dev.EKChainRoot = string(ekroots.StatusInvalid), ""
 			} else {
@@ -224,7 +224,7 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 				notes = append(notes, rep.Notes...)
 			}
 		case enr != nil:
-			pending, err = attest.PrepareEnrollment(enr.EkPublic, enr.EkCerts, attest.AKParams{
+			pending, err = attest.PrepareEnrollment(enr.EkPublic, enr.EkCerts, enr.EkChainCerts, attest.AKParams{
 				Public: enr.AkPublic, CreateData: enr.AkCreateData, CreateAttestation: enr.AkCreateAttestation, CreateSignature: enr.AkCreateSignature,
 			}, enr.TpmManufacturer, g.cfg.FetchEKCerts, g.cfg.EKRoots, now)
 			if err != nil {

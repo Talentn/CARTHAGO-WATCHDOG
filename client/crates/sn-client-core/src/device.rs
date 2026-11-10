@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use sha2::{Digest, Sha256};
-use sn_attest::{AttestationKey, Key, SigningAlg, Tpm, ALG_SHA256};
+use sn_attest::{ek_chain, AttestationKey, Key, SigningAlg, Tpm, ALG_SHA256};
 use sn_crypto::SigningKey;
 use sn_proto::v1 as pb;
 
@@ -67,9 +67,19 @@ impl TpmDevice {
                 }
             }
         }
+        // Failures here only cost the chain: the gateway then reports the EK as unverified.
+        let mut ek_chain_certs = Vec::new();
+        for (_, certs) in tpm.ek_chain_certificates().unwrap_or_default() {
+            for c in certs.unwrap_or_default() {
+                if ek_chain_certs.len() < ek_chain::MAX_CERTS && !ek_certs.contains(&c) && !ek_chain_certs.contains(&c) {
+                    ek_chain_certs.push(c);
+                }
+            }
+        }
         let enrollment = pb::TpmEnrollment {
             ek_public: tpm.ek_public().map_err(|e| format!("EK public: {e}"))?,
             ek_certs,
+            ek_chain_certs,
             ak_public: ak.params.public.clone(),
             ak_create_data: ak.params.create_data.clone(),
             ak_create_attestation: ak.params.create_attestation.clone(),

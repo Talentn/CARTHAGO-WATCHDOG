@@ -297,6 +297,25 @@ fn main() -> Result<()> {
             }
         }
     }
+    // The spike server treats certificates that do not match the EK as intermediates.
+    if let Ok(indices) = steps.run("EK chain NV indices (0x01C00100..)", || tpm.ek_chain_certificates(), |r| {
+        r.iter()
+            .map(|(i, c)| match c {
+                Ok(c) => format!("0x{i:08X}: {} cert(s)", c.len()),
+                Err(e) => format!("0x{i:08X}: {e}"),
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    }) {
+        for (index, certs) in indices {
+            for (n, c) in certs.into_iter().flatten().enumerate() {
+                write(&args.out, &format!("ek-chain-{index:08x}-{n}.der"), &c)?;
+                if !ek_certs.contains(&c) {
+                    ek_certs.push(c);
+                }
+            }
+        }
+    }
 
     let cache = ak_cache_path(&args.ak_name);
     let cached = std::fs::read(&cache).ok();

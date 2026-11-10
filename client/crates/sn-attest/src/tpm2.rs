@@ -392,3 +392,98 @@ pub(crate) fn quote(ch: Channel, key: u32, nonce: &[u8], hash: u16, pcrs: &[u32]
     let signature = params[p.pos..].to_vec();
     Ok(RawQuote { attest, signature })
 }
+
+const CC_NV_READ: u32 = 0x0000_014E;
+const CC_NV_READ_PUBLIC: u32 = 0x0000_0169;
+const CAP_HANDLES: u32 = 1;
+const RH_OWNER: u32 = 0x4000_0001;
+pub(crate) const PT_NV_BUFFER_MAX: u32 = PT_FIXED + 44;
+const TPMA_NV_OWNERREAD: u32 = 1 << 17;
+const TPMA_NV_AUTHREAD: u32 = 1 << 18;
+const TPMA_NV_READLOCKED: u32 = 1 << 28;
+const TPMA_NV_WRITTEN: u32 = 1 << 29;
+
+/// Defined handles in `first..=last` (TPM2_GetCapability(TPM_CAP_HANDLES)).
+pub(crate) fn handles(ch: Channel, first: u32, last: u32) -> Result<Vec<u32>> {
+    let mut out = Vec::new();
+    let mut next = first;
+    loop {
+        let mut body = Vec::new();
+        body.extend_from_slice(&CAP_HANDLES.to_be_bytes());
+        body.extend_from_slice(&next.to_be_bytes());
+        body.extend_from_slice(&64u32.to_be_bytes());
+        let resp = ch.submit("TPM2_GetCapability(handles)", &command(ST_NO_SESSIONS, CC_GET_CAPABILITY, &body))?;
+        let mut r = Reader::new(&resp[10..], "TPM2_GetCapability(handles)");
+        let more = r.u8()? != 0;
+        let _cap = r.u32()?;
+        let count = r.u32()?;
+        for _ in 0..count {
+            let h = r.u32()?;
+            if h > last {
+                return Ok(out);
+            }
+            if h >= next {
+                out.push(h);
+                next = h + 1;
+            }
+        }
+        if !more || count == 0 || next > last {
+            return Ok(out);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NvPublic {
+    pub attributes: u32,
+    pub size: u16,
+}
+
+/// `TPMS_NV_PUBLIC` attributes and data size of an NV index.
+pub(crate) fn nv_read_public(ch: Channel, index: u32) -> Result<NvPublic> {
+    let resp = ch.submit("TPM2_NV_ReadPublic", &command(ST_NO_SESSIONS, CC_NV_READ_PUBLIC, &index.to_be_bytes()))?;
+    let mut r = Reader::new(&resp[10..], "TPM2_NV_ReadPublic");
+    let mut p = Reader::new(r.tpm2b()?, "TPMS_NV_PUBLIC");
+    if p.u32()? != index {
+        return Err(Error::Parse(format!("TPM2_NV_ReadPublic: index 0x{index:08X} mismatch")));
+    }
+    let _name_alg = p.u16()?;
+    let attributes = p.u32()?;
+    let _policy = p.tpm2b()?;
+    Ok(NvPublic { attributes, size: p.u16()? })
+}
+
+/// Reads a whole NV index in chunks of at most `chunk` bytes with an empty password,
+/// authorizing with the index itself (TPMA_NV_AUTHREAD) or, failing that, the owner
+/// hierarchy (TPMA_NV_OWNERREAD).
+pub(crate) fn nv_read(ch: Channel, index: u32, public: NvPublic, chunk: u16) -> Result<Vec<u8>> {
+    let auth_handle = match public.attributes {
+        a if a & TPMA_NV_WRITTEN == 0 => return Ok(Vec::new()),
+        a if a & TPMA_NV_READLOCKED != 0 => return Err(Error::Parse(format!("NV 0x{index:08X} is read-locked"))),
+        a if a & TPMA_NV_AUTHREAD != 0 => index,
+        a if a & TPMA_NV_OWNERREAD != 0 => RH_OWNER,
+        _ => return Err(Error::Parse(format!("NV 0x{index:08X} needs platform or policy authorization to read"))),
+    };
+    let chunk = chunk.max(1);
+    let mut out = Vec::with_capacity(public.size as usize);
+    while out.len() < public.size as usize {
+        let n = chunk.min(public.size - out.len() as u16);
+        let mut body = Vec::new();
+        body.extend_from_slice(&auth_handle.to_be_bytes());
+        body.extend_from_slice(&index.to_be_bytes());
+        let auth = pw_session();
+        body.extend_from_slice(&(auth.len() as u32).to_be_bytes());
+        body.extend_from_slice(&auth);
+        body.extend_from_slice(&n.to_be_bytes());
+        body.extend_from_slice(&(out.len() as u16).to_be_bytes());
+        let resp = ch.submit("TPM2_NV_Read", &command(ST_SESSIONS, CC_NV_READ, &body))?;
+        let mut r = Reader::new(&resp[10..], "TPM2_NV_Read");
+        let _param_size = r.u32()?;
+        let data = r.tpm2b()?;
+        if data.is_empty() || data.len() > n as usize {
+            return Err(Error::Parse(format!("TPM2_NV_Read: {} bytes for a {n}-byte read", data.len())));
+        }
+        out.extend_from_slice(data);
+    }
+    Ok(out)
+}

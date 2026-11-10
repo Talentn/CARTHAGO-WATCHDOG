@@ -206,6 +206,16 @@ func (b *Bundle) issuers(c *x509.Certificate) []*entry {
 // Counts returns the number of anchors and intermediates in the bundle.
 func (b *Bundle) Counts() (anchors, intermediates int) { return b.anchors, b.inter }
 
+// Contains reports whether c itself is in the bundle.
+func (b *Bundle) Contains(c *x509.Certificate) bool {
+	for _, e := range b.bySubject[string(c.RawSubject)] {
+		if bytes.Equal(e.cert.Raw, c.Raw) {
+			return true
+		}
+	}
+	return false
+}
+
 // HasIssuer reports whether the bundle holds a candidate issuer for c.
 func (b *Bundle) HasIssuer(c *x509.Certificate) bool { return len(b.issuers(c)) > 0 }
 

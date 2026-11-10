@@ -73,6 +73,7 @@ fn hello_from(h: &Value) -> pb::Hello {
             ak_create_signature: hx(&h["enroll_ak_create_signature"]),
             tpm_manufacturer: s(&h["enroll_tpm_manufacturer"]),
             tpm_firmware: s(&h["enroll_tpm_firmware"]),
+            ek_chain_certs: h["enroll_ek_chain_certs"].as_array().unwrap().iter().map(hx).collect(),
         }),
         tpm_attestation_available: h["tpm_attestation_available"].as_bool().unwrap(),
         client_ts_ms: h["client_ts_ms"].as_u64().unwrap(),

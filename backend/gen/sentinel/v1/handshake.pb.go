@@ -147,8 +147,12 @@ type TpmEnrollment struct {
 	AkCreateSignature   []byte                 `protobuf:"bytes,6,opt,name=ak_create_signature,json=akCreateSignature,proto3" json:"ak_create_signature,omitempty"`
 	TpmManufacturer     string                 `protobuf:"bytes,7,opt,name=tpm_manufacturer,json=tpmManufacturer,proto3" json:"tpm_manufacturer,omitempty"`
 	TpmFirmware         string                 `protobuf:"bytes,8,opt,name=tpm_firmware,json=tpmFirmware,proto3" json:"tpm_firmware,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// DER certificates from the TPM's EK certificate chain NV indices (0x01C00100-0x01C001FF,
+	// TCG EK Credential Profile 2.2.1.5.2), e.g. Intel PTT's per-device CSME PTT, Kernel and
+	// ROM CAs. The gateway uses them only as untrusted intermediates, never as the EK leaf.
+	EkChainCerts  [][]byte `protobuf:"bytes,9,rep,name=ek_chain_certs,json=ekChainCerts,proto3" json:"ek_chain_certs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TpmEnrollment) Reset() {
@@ -235,6 +239,13 @@ func (x *TpmEnrollment) GetTpmFirmware() string {
 		return x.TpmFirmware
 	}
 	return ""
+}
+
+func (x *TpmEnrollment) GetEkChainCerts() [][]byte {
+	if x != nil {
+		return x.EkChainCerts
+	}
+	return nil
 }
 
 type EnvReport struct {
@@ -1613,7 +1624,7 @@ const file_sentinel_v1_handshake_proto_rawDesc = "" +
 	"\tDeviceKey\x12+\n" +
 	"\x03alg\x18\x01 \x01(\x0e2\x19.sentinel.v1.DeviceKeyAlgR\x03alg\x12\x1d\n" +
 	"\n" +
-	"public_key\x18\x02 \x01(\fR\tpublicKey\"\xbc\x02\n" +
+	"public_key\x18\x02 \x01(\fR\tpublicKey\"\xe2\x02\n" +
 	"\rTpmEnrollment\x12\x1b\n" +
 	"\tek_public\x18\x01 \x01(\fR\bekPublic\x12\x19\n" +
 	"\bek_certs\x18\x02 \x03(\fR\aekCerts\x12\x1b\n" +
@@ -1622,7 +1633,8 @@ const file_sentinel_v1_handshake_proto_rawDesc = "" +
 	"\x15ak_create_attestation\x18\x05 \x01(\fR\x13akCreateAttestation\x12.\n" +
 	"\x13ak_create_signature\x18\x06 \x01(\fR\x11akCreateSignature\x12)\n" +
 	"\x10tpm_manufacturer\x18\a \x01(\tR\x0ftpmManufacturer\x12!\n" +
-	"\ftpm_firmware\x18\b \x01(\tR\vtpmFirmware\"\x8e\x01\n" +
+	"\ftpm_firmware\x18\b \x01(\tR\vtpmFirmware\x12$\n" +
+	"\x0eek_chain_certs\x18\t \x03(\fR\fekChainCerts\"\x8e\x01\n" +
 	"\tEnvReport\x12\x19\n" +
 	"\bos_build\x18\x01 \x01(\tR\aosBuild\x12\x1a\n" +
 	"\belevated\x18\x02 \x01(\bR\belevated\x12\x1f\n" +

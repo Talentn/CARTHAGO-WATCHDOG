@@ -38,6 +38,10 @@ message TpmEnrollment {
   bytes ak_create_signature = 6;
   string tpm_manufacturer = 7;
   string tpm_firmware = 8;
+  // DER certificates from the TPM's EK certificate chain NV indices (0x01C00100-0x01C001FF,
+  // TCG EK Credential Profile 2.2.1.5.2), e.g. Intel PTT's per-device CSME PTT, Kernel and
+  // ROM CAs. The gateway uses them only as untrusted intermediates, never as the EK leaf.
+  repeated bytes ek_chain_certs = 9;
 }
 
 message EnvReport {

@@ -132,12 +132,15 @@ func parseSuppliedCert(der []byte) (*x509.Certificate, error) {
 	return ekroots.ParseCertificate(der)
 }
 
+// MaxEKChainCerts bounds the EK chain certificates taken from one handshake.
+const MaxEKChainCerts = 16
+
 // CheckEK finds an EK certificate (NV first, then the manufacturer service when allowed),
 // confirms it certifies the EK used for the AK binding, and verifies its chain against the
-// bundled manufacturer roots. Other supplied certificates (for example ECC EK certificates
-// or chain certificates from NV) are used as untrusted intermediates; with allowFetch,
-// missing issuers are also fetched from AIA URLs.
-func CheckEK(ekPub *rsa.PublicKey, nvCerts [][]byte, manufacturer string, allowFetch bool, roots *ekroots.Bundle, now time.Time) EKReport {
+// bundled manufacturer roots. chainCerts (from the TPM's EK certificate chain NV indices)
+// and the other EK certificates (for example ECC EK certificates) are used only as
+// untrusted intermediates; with allowFetch, missing issuers are also fetched from AIA URLs.
+func CheckEK(ekPub *rsa.PublicKey, nvCerts, chainCerts [][]byte, manufacturer string, allowFetch bool, roots *ekroots.Bundle, now time.Time) EKReport {
 	sum := sha256.Sum256(x509.MarshalPKCS1PublicKey(ekPub))
 	rep := EKReport{PublicSHA256: fmt.Sprintf("%x", sum), CertSource: "none", ChainStatus: ekroots.StatusNoCert}
 
@@ -151,6 +154,18 @@ func CheckEK(ekPub *rsa.PublicKey, nvCerts [][]byte, manufacturer string, allowF
 		}
 		if k, ok := c.PublicKey.(*rsa.PublicKey); ok && k.Equal(ekPub) && leaf == nil {
 			leaf, rep.CertSource = c, "tpm-nv"
+			continue
+		}
+		extra = append(extra, c)
+	}
+	if len(chainCerts) > MaxEKChainCerts {
+		rep.Notes = append(rep.Notes, fmt.Sprintf("EK chain: %d certificates supplied, using the first %d", len(chainCerts), MaxEKChainCerts))
+		chainCerts = chainCerts[:MaxEKChainCerts]
+	}
+	for i, der := range chainCerts {
+		c, err := parseSuppliedCert(der)
+		if err != nil {
+			rep.Notes = append(rep.Notes, fmt.Sprintf("EK chain cert %d unparseable: %v", i, err))
 			continue
 		}
 		extra = append(extra, c)
@@ -199,8 +214,11 @@ func CheckEK(ekPub *rsa.PublicKey, nvCerts [][]byte, manufacturer string, allowF
 		rep.Chain = rep.Chain[:0]
 		for i, c := range res.Chain {
 			src := "bundle"
-			if i == 0 {
+			switch {
+			case i == 0:
 				src = rep.CertSource
+			case !roots.Contains(c):
+				src = "supplied"
 			}
 			rep.Chain = append(rep.Chain, info(c, src))
 		}

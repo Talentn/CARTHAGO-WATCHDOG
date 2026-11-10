@@ -65,6 +65,7 @@ type HelloJSON struct {
 	EnvTPMMfr       string `json:"env_tpm_manufacturer"`
 	EKPublic        Hex    `json:"enroll_ek_public"`
 	EKCerts         []Hex  `json:"enroll_ek_certs"`
+	EKChainCerts    []Hex  `json:"enroll_ek_chain_certs"`
 	AKPublic        Hex    `json:"enroll_ak_public"`
 	AKCreateData    Hex    `json:"enroll_ak_create_data"`
 	AKCreateAttest  Hex    `json:"enroll_ak_create_attestation"`
@@ -215,6 +216,10 @@ func HelloFromJSON(h *HelloJSON) *pb.Hello {
 	for i, c := range h.EKCerts {
 		certs[i] = c
 	}
+	chain := make([][]byte, len(h.EKChainCerts))
+	for i, c := range h.EKChainCerts {
+		chain[i] = c
+	}
 	return &pb.Hello{
 		ProtocolVersion: h.ProtocolVersion, SdkVersion: h.SdkVersion, TenantId: h.TenantID, BuildId: h.BuildID,
 		ClientEphPub: h.ClientEphPub,
@@ -224,6 +229,7 @@ func HelloFromJSON(h *HelloJSON) *pb.Hello {
 		TpmEnrollment: &pb.TpmEnrollment{
 			EkPublic: h.EKPublic, EkCerts: certs, AkPublic: h.AKPublic, AkCreateData: h.AKCreateData,
 			AkCreateAttestation: h.AKCreateAttest, AkCreateSignature: h.AKCreateSig, TpmManufacturer: h.TPMMfr, TpmFirmware: h.TPMFirmware,
+			EkChainCerts: chain,
 		},
 		TpmAttestationAvailable: h.TPMAvailable, ClientTsMs: h.ClientTsMs,
 	}
@@ -267,7 +273,8 @@ func BuildHandshakeVectors() (*HandshakeVectors, error) {
 		ProtocolVersion: ProtocolVersion, SdkVersion: "0.1.0", TenantID: "tenant-demo", BuildID: "build-2026.11.09",
 		ClientEphPub: v.ClientEphPub, DeviceKeyAlg: int32(pb.DeviceKeyAlg_DEVICE_KEY_ALG_ED25519_SOFTWARE), DeviceKeyPublic: v.DevicePub,
 		PlayerIDHash: "9f2c1e7a55d04b3c", EnvOSBuild: "26200", EnvElevated: false, EnvTPMPresent: true, EnvTPMMfr: "INTC",
-		EKPublic: seed("ek")[:12], EKCerts: []Hex{seed("cert1")[:5], seed("cert2")[:9]}, AKPublic: seed("ak")[:10],
+		EKPublic: seed("ek")[:12], EKCerts: []Hex{seed("cert1")[:5], seed("cert2")[:9]},
+		EKChainCerts: []Hex{seed("chain1")[:7], seed("chain2")[:11], seed("chain3")[:3]}, AKPublic: seed("ak")[:10],
 		AKCreateData: seed("cd")[:4], AKCreateAttest: seed("ca")[:6], AKCreateSig: seed("cs")[:8],
 		TPMMfr: "INTC", TPMFirmware: "600.7.42.2235", TPMAvailable: true, ClientTsMs: uint64(vectorEpoch.UnixMilli()),
 	}

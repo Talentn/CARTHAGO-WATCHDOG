@@ -91,7 +91,7 @@ func TestCheckEKChainOutcomes(t *testing.T) {
 		{"no certificate", nil, trusted, ekroots.StatusNoCert, false},
 		{"certificate for another key only", [][]byte{ekCert(t, inter, &other.PublicKey)}, trusted, ekroots.StatusNoCert, false},
 	} {
-		rep := CheckEK(ek, c.certs, "INTC", false, c.roots, now)
+		rep := CheckEK(ek, c.certs, nil, "INTC", false, c.roots, now)
 		if rep.ChainStatus != c.want || rep.CertMatchesEK != c.matches {
 			t.Errorf("%s: status %s matches %v, want %s %v (notes %v)", c.name, rep.ChainStatus, rep.CertMatchesEK, c.want, c.matches, rep.Notes)
 		}
@@ -102,12 +102,12 @@ func TestCheckEKChainOutcomes(t *testing.T) {
 
 	// An impostor CA with the vendor CA's name has a different key id: no known issuer.
 	impostor := ekCert(t, newCA(t, "Test TPM Vendor EK CA", nil), ek)
-	if rep := CheckEK(ek, [][]byte{impostor, inter.cert.Raw}, "INTC", false, trusted, now); rep.ChainStatus != ekroots.StatusUnknownVendor {
+	if rep := CheckEK(ek, [][]byte{impostor, inter.cert.Raw}, nil, "INTC", false, trusted, now); rep.ChainStatus != ekroots.StatusUnknownVendor {
 		t.Errorf("impostor issuer: %s %v", rep.ChainStatus, rep.Notes)
 	}
 	tampered := append([]byte(nil), leaf...)
 	tampered[len(tampered)-2] ^= 0x01 // inside the signature value
-	if rep := CheckEK(ek, [][]byte{tampered, inter.cert.Raw}, "INTC", false, trusted, now); rep.ChainStatus != ekroots.StatusInvalid {
+	if rep := CheckEK(ek, [][]byte{tampered, inter.cert.Raw}, nil, "INTC", false, trusted, now); rep.ChainStatus != ekroots.StatusInvalid {
 		t.Errorf("tampered signature: %s %v", rep.ChainStatus, rep.Notes)
 	}
 }
@@ -116,11 +116,65 @@ func TestRecheckEKRejectsADifferentEK(t *testing.T) {
 	a, _ := rsa.GenerateKey(rand.Reader, 2048)
 	b, _ := rsa.GenerateKey(rand.Reader, 2048)
 	roots, _ := ekroots.Default()
-	bound := CheckEK(&a.PublicKey, nil, "", false, roots, time.Now()).PublicSHA256
-	if _, err := RecheckEK(bcryptRSABlob(&a.PublicKey), nil, "", false, roots, time.Now(), bound); err != nil {
+	bound := CheckEK(&a.PublicKey, nil, nil, "", false, roots, time.Now()).PublicSHA256
+	if _, err := RecheckEK(bcryptRSABlob(&a.PublicKey), nil, nil, "", false, roots, time.Now(), bound); err != nil {
 		t.Errorf("same EK: %v", err)
 	}
-	if _, err := RecheckEK(bcryptRSABlob(&b.PublicKey), nil, "", false, roots, time.Now(), bound); err == nil {
+	if _, err := RecheckEK(bcryptRSABlob(&b.PublicKey), nil, nil, "", false, roots, time.Now(), bound); err == nil {
 		t.Error("a different EK was accepted for a bound AK")
+	}
+}
+
+// Intel PTT (11th gen Core and later): EK -> per-device "CSME <p> PTT 01SVN" -> "CSME <p>
+// SVN01 Kernel CA" -> "CSME <p> ROM CA" -> public On-Die issuing CA -> On-Die root. The
+// three device CAs come only from the TPM's EK certificate chain NV indices.
+func TestCheckEKIntelPTTChainFromNV(t *testing.T) {
+	ekKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	ek := &ekKey.PublicKey
+	root := newCA(t, "Test OnDie CA Root", nil)
+	issuing := newCA(t, "Test On Die CSME P_TGL Issuing CA", root)
+	rom := newCA(t, "CSME TGL ROM CA", issuing)
+	kernel := newCA(t, "CSME TGL SVN01 Kernel CA", rom)
+	ptt := newCA(t, "CSME TGL PTT 01SVN", kernel)
+	leaf := ekCert(t, ptt, ek)
+	base, _ := ekroots.Default()
+	roots, err := base.WithExtraRoots(map[string][]byte{"root.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: root.cert.Raw})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	chain := [][]byte{ptt.cert.Raw, kernel.cert.Raw, rom.cert.Raw, issuing.cert.Raw}
+
+	rep := CheckEK(ek, [][]byte{leaf}, chain, "INTC", false, roots, now)
+	if rep.ChainStatus != ekroots.StatusVerified || len(rep.Chain) != 6 {
+		t.Fatalf("PTT chain from NV: %s chain %d %v", rep.ChainStatus, len(rep.Chain), rep.Notes)
+	}
+	if rep.Chain[0].Source != "tpm-nv" || rep.Chain[1].Source != "supplied" || rep.Chain[5].Source != "bundle" {
+		t.Errorf("sources: %+v", rep.Chain)
+	}
+	if rep := CheckEK(ek, [][]byte{leaf}, nil, "INTC", false, roots, now); rep.ChainStatus != ekroots.StatusUnknownVendor {
+		t.Errorf("without the NV chain: %s", rep.ChainStatus)
+	}
+	if rep := CheckEK(ek, [][]byte{leaf}, [][]byte{issuing.cert.Raw, rom.cert.Raw, ptt.cert.Raw}, "INTC", false, roots, now); rep.ChainStatus != ekroots.StatusUnknownVendor {
+		t.Errorf("Kernel CA missing: %s", rep.ChainStatus)
+	}
+	// Chain certificates never stand in for the EK certificate itself.
+	if rep := CheckEK(ek, nil, append([][]byte{leaf}, chain...), "INTC", false, roots, now); rep.ChainStatus != ekroots.StatusNoCert || rep.CertMatchesEK {
+		t.Errorf("EK certificate only in the chain indices: %s matches %v", rep.ChainStatus, rep.CertMatchesEK)
+	}
+	// Supplied chain certificates cannot become anchors: without the bundled root the
+	// path stops at the supplied self-signed root.
+	if rep := CheckEK(ek, [][]byte{leaf}, append(chain, root.cert.Raw), "INTC", false, base, now); rep.ChainStatus != ekroots.StatusUnknownVendor {
+		t.Errorf("self-signed root supplied in the chain: %s", rep.ChainStatus)
+	}
+	if rep := CheckEK(ek, [][]byte{leaf}, chain, "INTC", false, roots, ptt.cert.NotAfter.Add(time.Minute)); rep.ChainStatus != ekroots.StatusInvalid {
+		t.Errorf("after the device CAs expired: %s %v", rep.ChainStatus, rep.Notes)
+	}
+	junk := make([][]byte, MaxEKChainCerts+4)
+	for i := range junk {
+		junk[i] = []byte{0x30, 0x03, 0x02, 0x01, byte(i)}
+	}
+	if rep := CheckEK(ek, [][]byte{leaf}, append(junk, chain...), "INTC", false, roots, now); rep.ChainStatus != ekroots.StatusUnknownVendor {
+		t.Errorf("chain beyond MaxEKChainCerts was used: %s", rep.ChainStatus)
 	}
 }

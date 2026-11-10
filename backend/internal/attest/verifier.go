@@ -235,7 +235,7 @@ func (v *Verifier) Enroll(req EnrollRequest, manufacturer string) (*EnrollRespon
 	e := &enrollment{
 		req:       req,
 		ekPub:     ekPub,
-		ek:        CheckEK(ekPub, req.EKCerts, manufacturer, v.FetchEKCerts, v.Roots, time.Now()),
+		ek:        CheckEK(ekPub, req.EKCerts, nil, manufacturer, v.FetchEKCerts, v.Roots, time.Now()),
 		akPub:     akPub,
 		devicePub: devicePub,
 		secret:    secret,

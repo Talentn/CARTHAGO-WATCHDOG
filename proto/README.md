@@ -57,10 +57,14 @@ timestamp, and the gateway checks that they match.
 ## Attestation in the handshake
 
 - **First contact (no AK on record for this device key):** the Hello carries `TpmEnrollment`
-  (EK public, EK certs, AK creation evidence). The Challenge asks for the go-attestation
+  (EK public, EK certs, EK chain certs, AK creation evidence). The Challenge asks for the go-attestation
   decryption-EK challenge (`ek_challenge`), a quote over PCRs 0,2,4,7,11,12,13,14 and a device-key
   certify. This takes no elevation; see `tpm-spike-findings.md`.
 - **Later sessions:** the gateway already has the bound AK and skips `ek_challenge`.
+- `ek_chain_certs` holds the certificates from the TPM's EK certificate chain NV indices
+  (0x01C00100-0x01C001FF, TCG EK Credential Profile 2.2.1.5.2). Intel PTT on 11th gen Core and
+  later keeps its per-device PTT, Kernel and ROM CAs there. The gateway uses them, at most 16,
+  only as untrusted intermediates towards the bundled roots, never as the EK certificate.
 - Every certificate on the EK chain must be within its validity period at the gateway's clock.
 - Prove carries the EK-challenge certify, the quote and PCRs, the WBCL, and
   TPM2_Certify(device key) signed by the AK. All three are bound to `quote_nonce(th)`.

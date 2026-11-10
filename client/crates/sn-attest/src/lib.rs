@@ -3,6 +3,7 @@
 //! Everything goes through the Microsoft Platform Crypto Provider (PCP) and TPM Base
 //! Services, so no driver is needed. Keys are per-user PCP keys (no `NCRYPT_MACHINE_KEY_FLAG`).
 
+pub mod ek_chain;
 mod error;
 mod pcp;
 mod process;
@@ -182,6 +183,15 @@ impl Tpm {
             .into_iter()
             .map(|name| (name, self.prov.cert_store_property(name)))
             .collect()
+    }
+
+    /// Certificates in the TPM's EK certificate chain NV indices (`0x01C00100..=0x01C001FF`),
+    /// per index. Intel PTT keeps the issuers of its EK certificate there. These are
+    /// untrusted until the gateway chains them to a bundled manufacturer root.
+    pub fn ek_chain_certificates(&self) -> Result<ek_chain::IndexCerts> {
+        let ch = self.channel()?;
+        let buffer_max = tpm2::fixed_properties(ch).ok().and_then(|p| p.get(&tpm2::PT_NV_BUFFER_MAX).copied());
+        ek_chain::read(ch, buffer_max)
     }
 
     /// Opens the named per-user AK or creates it. Returns `true` if it was created.
