@@ -1289,6 +1289,8 @@ dependencies = [
 name = "sn-client-core"
 version = "0.0.1"
 dependencies = [
+ "carthago-harden",
+ "carthago-scan",
  "ed25519-dalek",
  "hex",
  "prost",

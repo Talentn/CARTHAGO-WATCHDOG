@@ -3,7 +3,6 @@
 //! on its own worker, and the game thread only calls [`Runtime::tick`].
 
 pub mod device;
-pub mod jobs;
 pub mod session;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::Relaxed};
@@ -19,6 +18,8 @@ use tungstenite::Message as WsMessage;
 
 use device::DeviceIdentity;
 
+pub use carthago_harden::Profile as MitigationProfile;
+
 pub type LogFn = Arc<dyn Fn(u8, &str) + Send + Sync>;
 
 pub const LOG_DEBUG: u8 = 0;
@@ -33,6 +34,10 @@ pub struct Config {
     pub server_identity: VerifyingKey,
     pub allow_tpm: bool,
     pub log: Option<LogFn>,
+    /// Process mitigation profile applied at init (plan §6.3).
+    pub mitigations: MitigationProfile,
+    /// Low-level mouse hook for injected-input statistics (plan §6.1).
+    pub input_monitor: bool,
 }
 
 #[repr(u32)]
@@ -76,6 +81,10 @@ struct Inner {
     stop: AtomicBool,
     activity: AtomicU8,
     kick_cb: Mutex<Option<KickFn>>,
+    /// Findings produced outside the scheduler (mitigation outcome), sent with the next heartbeat.
+    startup_findings: Mutex<Vec<pb::Finding>>,
+    #[cfg(windows)]
+    input: Mutex<Option<carthago_scan::input::InputMonitor>>,
 }
 
 impl Inner {
@@ -129,6 +138,9 @@ impl Runtime {
             stop: AtomicBool::new(false),
             activity: AtomicU8::new(Activity::Menu as u8),
             kick_cb: Mutex::new(None),
+            startup_findings: Mutex::new(Vec::new()),
+            #[cfg(windows)]
+            input: Mutex::new(None),
         });
         let (tx, rx) = channel();
         let i = inner.clone();
@@ -206,6 +218,10 @@ impl Runtime {
         if let Some(s) = self.inner.sched.lock().unwrap().take() {
             let _ = s.stop();
         }
+        #[cfg(windows)]
+        if let Some(mut m) = self.inner.input.lock().unwrap().take() {
+            m.stop();
+        }
     }
 }
 
@@ -221,19 +237,54 @@ fn sched_config() -> sn_sched::Config {
         // Scheduler spike: 2 ms slices cost up to one slice of frame time on 1-2 core
         // machines; 0.5 ms slices cut that at the same CPU.
         slice_target: if cores <= 2 { Duration::from_micros(500) } else { Duration::from_millis(2) },
+        // Room for a first heartbeat's module inventory; findings are ~90 bytes each.
+        findings_capacity: 256,
         ..Default::default()
+    }
+}
+
+fn harden(inner: &Inner) {
+    let profile = inner.cfg.mitigations;
+    if profile == MitigationProfile::Off {
+        return;
+    }
+    let o = carthago_harden::apply(profile);
+    if o.failed != 0 {
+        inner.log(LOG_WARN, &format!("mitigation profile {profile:?}: applied {:#x}, refused {:#x}", o.applied, o.failed));
+    }
+    inner.startup_findings.lock().unwrap().push(pb::Finding {
+        job: "mitigations".into(),
+        code: pb::FindingCode::Mitigations as u32,
+        a: o.applied,
+        b: o.failed,
+        detail: String::new(),
+    });
+}
+
+#[cfg(windows)]
+fn start_input_monitor(inner: &Inner) {
+    if !inner.cfg.input_monitor {
+        return;
+    }
+    match carthago_scan::input::InputMonitor::start() {
+        Ok(m) => *inner.input.lock().unwrap() = Some(m),
+        Err(e) => inner.log(LOG_WARN, &format!("input monitor not started: {e}")),
     }
 }
 
 fn sdk_thread(inner: Arc<Inner>, rx: Receiver<Cmd>) {
     let t0 = Instant::now();
-    match Scheduler::start(sched_config(), vec![Box::new(jobs::ModuleInventory::new()), Box::new(jobs::MemoryWalk::new())]) {
+    harden(&inner);
+    let dirs = Arc::new(carthago_scan::detect_dirs());
+    match Scheduler::start(sched_config(), carthago_scan::phase1_jobs(dirs)) {
         Ok(s) => {
             s.set_activity(Activity::from_u8(inner.activity.load(Relaxed)));
             *inner.sched.lock().unwrap() = Some(s);
         }
         Err(e) => inner.log(LOG_ERROR, &format!("scheduler start failed: {e}")),
     }
+    #[cfg(windows)]
+    start_input_monitor(&inner);
     let t_sched = t0.elapsed();
     let device = match DeviceIdentity::open(&inner.cfg.tenant_id, inner.cfg.allow_tpm) {
         Ok((d, why)) => {
@@ -271,14 +322,35 @@ fn jitter(base: Duration, rng: &mut u64) -> Duration {
     base.mul_f64(f)
 }
 
+/// Findings per heartbeat; the rest wait for the next one (network budget, plan G2).
+const HEARTBEAT_FINDINGS: usize = 96;
+
 fn heartbeat(inner: &Inner) -> pb::Heartbeat {
-    let mut hb = pb::Heartbeat { activity: inner.activity.load(Relaxed) as u32, ..Default::default() };
+    let t = carthago_scan::time::sample();
+    let mut hb = pb::Heartbeat {
+        activity: inner.activity.load(Relaxed) as u32,
+        time: Some(pb::TimeSample { qpc_ns: t.qpc_ns, tick_count_ms: t.tick_count_ms, interrupt_time_100ns: t.interrupt_time_100ns }),
+        ..Default::default()
+    };
+    hb.findings.append(&mut inner.startup_findings.lock().unwrap());
+    let mut input_cpu_ns = 0;
+    #[cfg(windows)]
+    if inner.cfg.input_monitor {
+        let c = carthago_scan::input::counters();
+        hb.input = Some(pb::InputStats { mouse_events: c.mouse_events, injected: c.injected, lower_il_injected: c.lower_il_injected, focused_ms: c.focused_ms });
+        input_cpu_ns = carthago_scan::input::thread_cpu_ns();
+    }
     if let Some(s) = inner.sched.lock().unwrap().as_mut() {
-        hb.findings = s
-            .take_findings()
-            .take(64)
-            .map(|f| pb::Finding { job: f.job.into(), code: f.code, a: f.a, b: f.b })
-            .collect();
+        let room = HEARTBEAT_FINDINGS.saturating_sub(hb.findings.len());
+        let mut taken = s.take_findings();
+        hb.findings.extend(
+            taken
+                .by_ref()
+                .take(room)
+                .map(|f| pb::Finding { job: f.job.into(), code: f.code, a: f.a, b: f.b, detail: f.detail.as_str().into() }),
+        );
+        let rest: Vec<sn_sched::Finding> = taken.collect();
+        s.requeue_findings(rest);
         let st = s.stats();
         hb.sched = Some(pb::SchedSummary {
             worker_cpu_ns: st.worker_cpu_ns,
@@ -287,7 +359,14 @@ fn heartbeat(inner: &Inner) -> pb::Heartbeat {
             frames: inner.frames.load(Relaxed),
             jobs_quarantined: st.jobs.iter().filter(|j| j.quarantined).count() as u32,
             findings_dropped: st.findings_dropped,
+            slice_overruns: st.slice_wall.count_above(3_000_000),
+            input_thread_cpu_ns: input_cpu_ns,
         });
+        hb.coverage = st
+            .jobs
+            .iter()
+            .map(|j| pb::JobCoverage { job: j.name.into(), runs_completed: j.runs_completed, overruns: j.overruns, quarantined: j.quarantined })
+            .collect();
     }
     hb
 }

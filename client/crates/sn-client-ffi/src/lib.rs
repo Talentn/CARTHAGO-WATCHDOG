@@ -23,6 +23,20 @@ pub const SN_ERR_SESSION_FAILED: i32 = 7;
 pub const SN_ERR_INTERNAL: i32 = 99;
 
 pub const SN_FLAG_NO_TPM: u32 = 1;
+pub const CARTHAGO_FLAG_NO_MITIGATIONS: u32 = 2;
+pub const CARTHAGO_FLAG_STRICT_MITIGATIONS: u32 = 4;
+pub const CARTHAGO_FLAG_NO_INPUT_MONITOR: u32 = 8;
+
+fn mitigation_profile(flags: u32) -> sn_client_core::MitigationProfile {
+    use sn_client_core::MitigationProfile as P;
+    if flags & CARTHAGO_FLAG_NO_MITIGATIONS != 0 {
+        P::Off
+    } else if flags & CARTHAGO_FLAG_STRICT_MITIGATIONS != 0 {
+        P::Strict
+    } else {
+        P::Basic
+    }
+}
 
 pub type SnLogFn = unsafe extern "C" fn(level: i32, msg: *const c_char, user: *mut c_void);
 pub type SnSessionCb = unsafe extern "C" fn(result: i32, trust_level: u32, attest_flags: u64, user: *mut c_void);
@@ -115,7 +129,16 @@ pub unsafe extern "C" fn sn_init(cfg: *const SnConfig) -> i32 {
                 }
             }) as sn_client_core::LogFn
         });
-        let config = Config { tenant_id, build_id, gateway_url, server_identity, allow_tpm: cfg.flags & SN_FLAG_NO_TPM == 0, log };
+        let config = Config {
+            tenant_id,
+            build_id,
+            gateway_url,
+            server_identity,
+            allow_tpm: cfg.flags & SN_FLAG_NO_TPM == 0,
+            log,
+            mitigations: mitigation_profile(cfg.flags),
+            input_monitor: cfg.flags & CARTHAGO_FLAG_NO_INPUT_MONITOR == 0,
+        };
         match Runtime::start(config) {
             Ok(rt) => {
                 *slot = Some(Arc::new(rt));

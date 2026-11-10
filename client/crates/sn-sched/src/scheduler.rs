@@ -95,6 +95,7 @@ pub struct Scheduler {
 impl Scheduler {
     pub fn start(cfg: Config, jobs: Vec<Box<dyn Job>>) -> std::io::Result<Self> {
         let (tx, rx) = sync_channel(cfg.findings_capacity);
+        let tick_capacity = cfg.findings_capacity;
         let stats = SchedStats {
             jobs: jobs.iter().map(|j| JobStats { name: j.name(), ..Default::default() }).collect(),
             ..Default::default()
@@ -121,7 +122,7 @@ impl Scheduler {
             last_tick_ns: 0,
             frame_ema_ns: 0.0,
             hitch_guard_ns,
-            findings: Vec::with_capacity(64),
+            findings: Vec::with_capacity(tick_capacity),
         })
     }
 
@@ -170,6 +171,15 @@ impl Scheduler {
     /// Findings collected by `tick()` since the last call (heartbeat batching).
     pub fn take_findings(&mut self) -> std::vec::Drain<'_, Finding> {
         self.findings.drain(..)
+    }
+
+    /// Puts findings a heartbeat had no room for back in front of the queue (bounded by its
+    /// capacity, so `tick()` never reallocates).
+    pub fn requeue_findings(&mut self, rest: Vec<Finding>) {
+        let room = self.findings.capacity() - self.findings.len();
+        let keep = rest.len().min(room);
+        self.shared.dropped.fetch_add((rest.len() - keep) as u64, Relaxed);
+        self.findings.splice(0..0, rest.into_iter().take(keep));
     }
 
     pub fn stats(&self) -> SchedStats {
