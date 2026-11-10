@@ -333,6 +333,7 @@ fn heartbeat(inner: &Inner) -> pb::Heartbeat {
         ..Default::default()
     };
     hb.findings.append(&mut inner.startup_findings.lock().unwrap());
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut input_cpu_ns = 0;
     #[cfg(windows)]
     if inner.cfg.input_monitor {
