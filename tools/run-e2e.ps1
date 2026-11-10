@@ -8,17 +8,23 @@
        stub admits it after offline verification;
     2. the stub rejects a tampered token and an expired one (clock moved past exp + leeway);
     3. the sample stops heartbeating while staying connected; the gateway's deadline kicks the
-       session and the stub disconnects the player.
+       session and the stub disconnects the player;
+    4. (TLS) a client pinning the wrong gateway key is refused before any handshake data flows.
   Gateway heartbeats are shortened to 2 s interval / 6 s timeout for the demo.
+  The gateway serves wss:// (TLS 1.3) with a self-signed development certificate kept in the run
+  directory; the sample and the stub pin its SPKI hash from public-keys.json (tls_spki_sha256).
+  -Plaintext runs the Phase 0 ws:// loopback setup instead.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\run-e2e.ps1
   powershell -ExecutionPolicy Bypass -File tools\run-e2e.ps1 -NoTpm -SkipBuild
+  powershell -ExecutionPolicy Bypass -File tools\run-e2e.ps1 -Plaintext
 #>
 param(
     [string]$Scratch = $(if (Test-Path E:\) { "E:\sentinel-spike-scratch" } else { Join-Path $env:TEMP "sentinel-e2e" }),
     [switch]$NoTpm,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$Plaintext
 )
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
@@ -60,23 +66,34 @@ $gsExe = Join-Path $rel "gs-stub.exe"
 $sampleExe = Join-Path $sampleBuild "Release\sentinel-sample.exe"
 foreach ($f in $gatewayExe, $gsExe, $sampleExe) { if (-not (Test-Path $f)) { Die "missing $f (run without -SkipBuild)" } }
 
-Step "start gateway (127.0.0.1:8750, heartbeat 2s / timeout 6s, sqlite store in $run)"
+$scheme = if ($Plaintext) { "ws" } else { "wss" }
+Step "start gateway ($($scheme)://127.0.0.1:8750, heartbeat 2s / timeout 6s, sqlite store in $run)"
 $gwLog = Join-Path $run "gateway.log"
-$procs += Start-Process $gatewayExe -ArgumentList "-data", "`"$run\gateway-data`"", "-hb-interval", "2s", "-hb-timeout", "6s" `
+$gwArgs = @("-data", "`"$run\gateway-data`"", "-hb-interval", "2s", "-hb-timeout", "6s")
+if (-not $Plaintext) { $gwArgs += "-tls-dev-cert" }
+$procs += Start-Process $gatewayExe -ArgumentList $gwArgs `
     -RedirectStandardError $gwLog -RedirectStandardOutput (Join-Path $run "gateway.out") -NoNewWindow -PassThru
 $keys = Join-Path $run "gateway-data\public-keys.json"
 for ($i = 0; $i -lt 100 -and -not (Test-Path $keys); $i++) { Start-Sleep -Milliseconds 100 }
 if (-not (Test-Path $keys)) { Die "gateway did not start; see $gwLog" }
-$identity = (Get-Content $keys -Raw | ConvertFrom-Json).server_identity.public_key
+$published = Get-Content $keys -Raw | ConvertFrom-Json
+$identity = $published.server_identity.public_key
 Write-Host "gateway identity key (pinned in the sample): $identity"
+$pinArgs = @()
+if (-not $Plaintext) {
+    $pins = @($published.tls_spki_sha256) -join ","
+    if (-not $pins) { Die "gateway published no tls_spki_sha256 pins; see $gwLog" }
+    Write-Host "gateway TLS key pin(s) (SHA-256 of the SPKI): $pins"
+    $pinArgs = @("--gateway-pin", $pins)
+}
 
 Step "start game-server stub (127.0.0.1:8760)"
 $gsLog = Join-Path $run "gs-stub.log"
-$procs += Start-Process $gsExe -ArgumentList "serve", "--keys", "`"$keys`"" -RedirectStandardOutput $gsLog `
+$procs += Start-Process $gsExe -ArgumentList (@("serve", "--keys", "`"$keys`"", "--gateway", "$($scheme)://127.0.0.1:8750/v1/gs") + $pinArgs) -RedirectStandardOutput $gsLog `
     -RedirectStandardError (Join-Path $run "gs-stub.err") -NoNewWindow -PassThru
 for ($i = 0; $i -lt 50 -and -not (Select-String -Path $gsLog -Pattern "kick channel connected" -Quiet -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 }
 
-$common = @("--server-key-hex", $identity)
+$common = @("--server-key-hex", $identity, "--gateway", "$($scheme)://127.0.0.1:8750/v1/client") + $pinArgs
 if ($NoTpm) { $common += "--no-tpm" }
 $results = [ordered]@{}
 
@@ -103,6 +120,22 @@ $results["3. heartbeat timeout triggers a server-side kick"] =
     ($kickExit -eq 10) -and (Select-String -Path $gsLog -Pattern "gateway KICK .*e2e-player-kick.*heartbeat_timeout" -Quiet) `
     -and (Select-String -Path $gwLog -Pattern 'session kicked.*reason=heartbeat_timeout player=e2e-player-kick game_servers_notified=1' -Quiet)
 Write-Host ("kick observed {0:N1} s after scenario start" -f ((Get-Date) - $t3).TotalSeconds)
+
+if (-not $Plaintext) {
+    Step "scenario 4: a client pinning the wrong gateway TLS key is refused"
+    $wrongPin = "00" * 32
+    $wrong = @("--server-key-hex", $identity, "--gateway", "wss://127.0.0.1:8750/v1/client", "--gateway-pin", $wrongPin)
+    if ($NoTpm) { $wrong += "--no-tpm" }
+    & $sampleExe @wrong --player "e2e-player-wrong-pin" --run-secs 5
+    $wrongExit = $LASTEXITCODE
+    Start-Sleep -Milliseconds 300
+    $results["4. wrong TLS pin: handshake refused, no session issued"] =
+        ($wrongExit -eq 1) -and -not (Select-String -Path $gwLog -Pattern "session issued.*player=e2e-player-wrong-pin" -Quiet) `
+        -and -not (Select-String -Path $gsLog -Pattern "ADMIT player e2e-player-wrong-pin" -Quiet)
+}
+
+$issued = Select-String -Path $gwLog -Pattern "session issued.*player=e2e-player-1 .*trust_level=(\d+) attest_flags=(\S+)" | Select-Object -First 1
+if ($issued) { Write-Host ("scenario 1 session: trust_level {0}, attest_flags {1}" -f $issued.Matches[0].Groups[1].Value, $issued.Matches[0].Groups[2].Value) }
 
 Cleanup
 Step "game-server stub log"
