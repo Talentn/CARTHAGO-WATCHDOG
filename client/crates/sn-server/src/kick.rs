@@ -2,11 +2,11 @@
 //! kicks (heartbeat timeout, protocol violation). Reconnects with backoff and re-watches.
 
 use std::collections::HashSet;
-use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use carthago_net::{Pin, Stream};
 use prost::Message as _;
 use sn_proto::v1 as pb;
 use tungstenite::client::IntoClientRequest;
@@ -31,14 +31,16 @@ pub struct KickListener {
 }
 
 impl KickListener {
-    /// `url` is e.g. `ws://127.0.0.1:8750/v1/gs`; `server_key` is the tenant's server API key.
-    pub fn start(url: &str, server_key: &str) -> (Self, Receiver<GsEvent>) {
+    /// `url` is e.g. `wss://gateway.example:8750/v1/gs` (or `ws://` on loopback);
+    /// `server_key` is the tenant's server API key; `tls_pins` are the gateway's pinned TLS
+    /// keys (SHA-256 of the SPKI), required for `wss://`.
+    pub fn start(url: &str, server_key: &str, tls_pins: &[Pin]) -> (Self, Receiver<GsEvent>) {
         let (cmd_tx, cmd_rx) = channel();
         let (ev_tx, ev_rx) = channel();
-        let (url, key) = (url.to_owned(), server_key.to_owned());
+        let (url, key, pins) = (url.to_owned(), server_key.to_owned(), tls_pins.to_vec());
         let thread = std::thread::Builder::new()
             .name("sn-gs-kick".into())
-            .spawn(move || run(&url, &key, cmd_rx, ev_tx))
+            .spawn(move || run(&url, &key, &pins, cmd_rx, ev_tx))
             .expect("spawn kick listener");
         (Self { cmd: Some(cmd_tx), thread: Some(thread) }, ev_rx)
     }
@@ -65,31 +67,23 @@ impl Drop for KickListener {
     }
 }
 
-fn connect(url: &str, key: &str) -> Result<WebSocket<TcpStream>, String> {
+fn connect(url: &str, key: &str, pins: &[Pin]) -> Result<WebSocket<Stream>, String> {
     let mut req = url.into_client_request().map_err(|e| e.to_string())?;
-    if req.uri().scheme_str() != Some("ws") {
-        return Err("Phase 0 supports ws:// on loopback only".into());
-    }
     req.headers_mut().insert("Authorization", format!("Bearer {key}").parse().map_err(|_| "bad server key")?);
-    let host = req.uri().host().ok_or("url has no host")?.to_owned();
-    let port = req.uri().port_u16().unwrap_or(80);
-    let addr = (host.as_str(), port).to_socket_addrs().map_err(|e| e.to_string())?.next().ok_or("unresolvable host")?;
-    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).map_err(|e| e.to_string())?;
-    tcp.set_nodelay(true).ok();
-    let (ws, _) = tungstenite::client(req, tcp).map_err(|e| e.to_string())?;
+    let ws = carthago_net::connect(req, pins, Duration::from_secs(5)).map_err(|e| e.to_string())?;
     ws.get_ref().set_read_timeout(Some(Duration::from_millis(50))).ok();
     Ok(ws)
 }
 
-fn send(ws: &mut WebSocket<TcpStream>, body: pb::gs_client_msg::Body) -> tungstenite::Result<()> {
+fn send(ws: &mut WebSocket<Stream>, body: pb::gs_client_msg::Body) -> tungstenite::Result<()> {
     ws.send(WsMessage::Binary(pb::GsClientMsg { body: Some(body) }.encode_to_vec().into()))
 }
 
-fn run(url: &str, key: &str, cmd: Receiver<Cmd>, ev: Sender<GsEvent>) {
+fn run(url: &str, key: &str, pins: &[Pin], cmd: Receiver<Cmd>, ev: Sender<GsEvent>) {
     let mut watched: HashSet<String> = HashSet::new();
     let mut backoff = Duration::from_millis(250);
     loop {
-        let mut ws = match connect(url, key) {
+        let mut ws = match connect(url, key, pins) {
             Ok(ws) => ws,
             Err(e) => {
                 let _ = ev.send(GsEvent::Disconnected(e));

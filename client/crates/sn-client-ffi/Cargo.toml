@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 dev-hooks = []
 
 [dependencies]
+carthago-net = { path = "../carthago-net" }
 hex = "0.4.3"
 sn-client-core = { path = "../sn-client-core" }
 sn-crypto = { path = "../sn-crypto" }

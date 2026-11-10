@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+carthago-net = { path = "../../crates/carthago-net" }
 sn-crypto = { version = "0.0.1", path = "../../crates/sn-crypto" }
 sn-server = { version = "0.0.1", path = "../../crates/sn-server" }
 

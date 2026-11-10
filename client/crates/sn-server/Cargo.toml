@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+carthago-net = { path = "../carthago-net" }
 hex = "0.4.3"
 prost = "0.14.4"
 serde = { version = "1.0.229", features = ["derive"] }

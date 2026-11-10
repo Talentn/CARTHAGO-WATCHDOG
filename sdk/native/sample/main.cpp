@@ -2,7 +2,7 @@
 // token to the game server (gs-stub), and react to a kick.
 //
 //   sentinel-sample --server-key-hex HEX [--gateway ws://127.0.0.1:8750/v1/client]
-//                   [--gs 127.0.0.1:8760] [--tenant demo] [--player HASH] [--no-tpm]
+//                   [--gateway-pin HEX[,HEX]] [--gs 127.0.0.1:8760] [--tenant demo] [--player HASH] [--no-tpm]
 //                   [--run-secs 10] [--suppress-heartbeats-after SECS] [--token-out FILE]
 //
 // Exit codes: 0 ran to completion, 10 kicked by the game server, 1 setup/handshake failure,
@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
     cfg.server_identity_key_hex = key_hex;
     cfg.log = on_log;
     cfg.flags = flag(argc, argv, "--no-tpm") ? SN_FLAG_NO_TPM : 0;
+    cfg.tls_pins_hex = arg(argc, argv, "--gateway-pin", nullptr); // required with a wss:// --gateway
 
     auto t0 = Clock::now();
     SnResult r = sn_init(&cfg);

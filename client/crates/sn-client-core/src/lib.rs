@@ -31,6 +31,8 @@ pub struct Config {
     pub build_id: String,
     pub gateway_url: String,
     pub server_identity: VerifyingKey,
+    /// Pinned gateway TLS keys (SHA-256 of the SPKI); required for a wss:// gateway_url.
+    pub tls_pins: Vec<carthago_net::Pin>,
     pub allow_tpm: bool,
     pub log: Option<LogFn>,
 }
@@ -300,6 +302,7 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
         build_id: inner.cfg.build_id.clone(),
         player_id_hash,
         server_identity: inner.cfg.server_identity,
+        tls_pins: inner.cfg.tls_pins.clone(),
     };
     let log = |l: u8, m: &str| inner.log(l, m);
     let mut est = match session::handshake(&params, device, &log) {
@@ -324,7 +327,7 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
     }
     on_ready(Ok(SessionReady { trust_level: est.session.trust_level, attest_flags: est.session.attest_flags, notes: est.session.notes.clone() }));
 
-    est.ws.get_mut().set_read_timeout(Some(Duration::from_millis(50))).ok();
+    est.ws.get_ref().set_read_timeout(Some(Duration::from_millis(50))).ok();
     let mut rng = (Instant::now().elapsed().as_nanos() as u64) ^ 0x9e37_79b9_7f4a_7c15 ^ std::process::id() as u64;
     let mut next_hb = Instant::now() + jitter(est.heartbeat_interval, &mut rng);
     let mut suppressed_logged = false;

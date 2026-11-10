@@ -1,9 +1,8 @@
 //! Client side of the Hello/Challenge/Prove handshake and the sealed session channel.
 
-use std::io::ErrorKind;
-use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+use carthago_net::{Pin, Stream};
 use ed25519_dalek::Verifier;
 use prost::Message;
 use sn_crypto::{Channel, VerifyingKey};
@@ -37,10 +36,12 @@ pub struct Params {
     pub player_id_hash: String,
     /// Pinned server identity key (plan §5.1: embedded and obfuscated in production builds).
     pub server_identity: VerifyingKey,
+    /// Pinned gateway TLS keys (SHA-256 of the SPKI), current plus backup; required for wss://.
+    pub tls_pins: Vec<Pin>,
 }
 
 pub struct Established {
-    pub ws: WebSocket<TcpStream>,
+    pub ws: WebSocket<Stream>,
     pub chan: Channel,
     pub session: pb::Session,
     pub heartbeat_interval: Duration,
@@ -54,26 +55,11 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-fn connect(url: &str) -> Result<WebSocket<TcpStream>, SessionError> {
-    let uri: tungstenite::http::Uri = url.parse().map_err(|e| SessionError::Connect(format!("{url}: {e}")))?;
-    if uri.scheme_str() != Some("ws") {
-        return Err(SessionError::Connect("Phase 0 supports ws:// on loopback only; TLS comes with pinning in Phase 1".into()));
-    }
-    let host = uri.host().ok_or_else(|| SessionError::Connect("URL has no host".into()))?;
-    let port = uri.port_u16().unwrap_or(80);
-    let addr = (host, port)
-        .to_socket_addrs()
-        .map_err(|e| SessionError::Connect(e.to_string()))?
-        .next()
-        .ok_or_else(|| SessionError::Connect("host did not resolve".into()))?;
-    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).map_err(|e| SessionError::Connect(format!("{addr}: {e}")))?;
-    tcp.set_nodelay(true).ok();
-    tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
-    let (ws, _) = tungstenite::client(url, tcp).map_err(|e| SessionError::Connect(e.to_string()))?;
-    Ok(ws)
+fn connect(url: &str, pins: &[Pin]) -> Result<WebSocket<Stream>, SessionError> {
+    carthago_net::connect(url, pins, Duration::from_secs(5)).map_err(|e| SessionError::Connect(e.to_string()))
 }
 
-fn read_binary(ws: &mut WebSocket<TcpStream>) -> Result<Vec<u8>, SessionError> {
+fn read_binary(ws: &mut WebSocket<Stream>) -> Result<Vec<u8>, SessionError> {
     loop {
         match ws.read() {
             Ok(WsMessage::Binary(b)) => return Ok(b.to_vec()),
@@ -86,7 +72,7 @@ fn read_binary(ws: &mut WebSocket<TcpStream>) -> Result<Vec<u8>, SessionError> {
     }
 }
 
-fn send_sealed(ws: &mut WebSocket<TcpStream>, chan: &mut Channel, mut m: pb::ClientMsg) -> Result<(), SessionError> {
+fn send_sealed(ws: &mut WebSocket<Stream>, chan: &mut Channel, mut m: pb::ClientMsg) -> Result<(), SessionError> {
     m.seq = chan.next_send_seq();
     m.session_id = chan.session_id().to_vec();
     m.client_ts_ms = now_ms();
@@ -104,13 +90,13 @@ pub fn open_server_msg(chan: &mut Channel, frame: &[u8]) -> Result<pb::ServerMsg
     Ok(m)
 }
 
-pub fn send_heartbeat(ws: &mut WebSocket<TcpStream>, chan: &mut Channel, hb: pb::Heartbeat) -> Result<(), SessionError> {
+pub fn send_heartbeat(ws: &mut WebSocket<Stream>, chan: &mut Channel, hb: pb::Heartbeat) -> Result<(), SessionError> {
     send_sealed(ws, chan, pb::ClientMsg { body: Some(pb::client_msg::Body::Heartbeat(hb)), ..Default::default() })
 }
 
 pub fn handshake(p: &Params, device: &DeviceIdentity, log: &dyn Fn(u8, &str)) -> Result<Established, SessionError> {
     let t0 = std::time::Instant::now();
-    let mut ws = connect(&p.gateway_url)?;
+    let mut ws = connect(&p.gateway_url, &p.tls_pins)?;
 
     let mut eph = [0u8; 32];
     crate::device::getrandom(&mut eph).map_err(SessionError::Device)?;
@@ -187,5 +173,5 @@ pub fn handshake(p: &Params, device: &DeviceIdentity, log: &dyn Fn(u8, &str)) ->
 
 /// True for the read-timeout errors that just mean "no frame yet".
 pub fn is_timeout(e: &tungstenite::Error) -> bool {
-    matches!(e, tungstenite::Error::Io(io) if matches!(io.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut))
+    carthago_net::is_timeout(e)
 }

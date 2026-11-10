@@ -40,7 +40,14 @@ pub struct SnConfig {
     pub log: Option<SnLogFn>,
     pub log_user: *mut c_void,
     pub flags: u32,
+    /// Comma-separated hex SHA-256 SPKI pins of the gateway TLS key (current, backup);
+    /// required for a wss:// `gateway_url`. Callers built before this field existed pass a
+    /// smaller `struct_size` and are limited to ws:// on loopback.
+    pub tls_pins_hex: *const c_char,
 }
+
+/// The smallest `SnConfig` accepted: the layout before `tls_pins_hex` was added.
+const SN_CONFIG_MIN_SIZE: usize = std::mem::offset_of!(SnConfig, tls_pins_hex);
 
 #[repr(C)]
 #[derive(Default)]
@@ -87,9 +94,11 @@ fn runtime() -> Option<Arc<Runtime>> {
 pub unsafe extern "C" fn sn_init(cfg: *const SnConfig) -> i32 {
     guard(SN_ERR_INTERNAL, || {
         let Some(cfg) = (unsafe { cfg.as_ref() }) else { return SN_ERR_INVALID_ARG };
-        if cfg.abi_version != SN_ABI_VERSION || (cfg.struct_size as usize) < size_of::<SnConfig>() {
+        if cfg.abi_version != SN_ABI_VERSION || (cfg.struct_size as usize) < SN_CONFIG_MIN_SIZE {
             return SN_ERR_ABI_MISMATCH;
         }
+        let pins_hex = if (cfg.struct_size as usize) >= size_of::<SnConfig>() { unsafe { str_arg(cfg.tls_pins_hex) } } else { None };
+        let Ok(tls_pins) = carthago_net::parse_pins(pins_hex.as_deref().unwrap_or("")) else { return SN_ERR_INVALID_ARG };
         let (Some(tenant_id), Some(build_id), Some(gateway_url), Some(key_hex)) = (unsafe {
             (str_arg(cfg.tenant_id), str_arg(cfg.build_id), str_arg(cfg.gateway_url), str_arg(cfg.server_identity_key_hex))
         }) else {
@@ -115,7 +124,7 @@ pub unsafe extern "C" fn sn_init(cfg: *const SnConfig) -> i32 {
                 }
             }) as sn_client_core::LogFn
         });
-        let config = Config { tenant_id, build_id, gateway_url, server_identity, allow_tpm: cfg.flags & SN_FLAG_NO_TPM == 0, log };
+        let config = Config { tenant_id, build_id, gateway_url, server_identity, tls_pins, allow_tpm: cfg.flags & SN_FLAG_NO_TPM == 0, log };
         match Runtime::start(config) {
             Ok(rt) => {
                 *slot = Some(Arc::new(rt));
@@ -301,6 +310,7 @@ mod tests {
             log: None,
             log_user: std::ptr::null_mut(),
             flags: SN_FLAG_NO_TPM,
+            tls_pins_hex: std::ptr::null(),
         }
     }
 
@@ -315,6 +325,9 @@ mod tests {
             let mut c = cfg(good_key);
             c.struct_size = 8;
             assert_eq!(sn_init(&c), SN_ERR_ABI_MISMATCH);
+            let mut c = cfg(good_key);
+            c.tls_pins_hex = c"not-hex".as_ptr();
+            assert_eq!(sn_init(&c), SN_ERR_INVALID_ARG);
             assert_eq!(sn_init(&cfg(c"zz")), SN_ERR_INVALID_ARG);
             let mut c = cfg(good_key);
             c.tenant_id = std::ptr::null();
@@ -339,6 +352,19 @@ mod tests {
             }
             sn_shutdown();
             assert_eq!(sn_get_session_token(std::ptr::null_mut(), &mut len), SN_ERR_NOT_INITIALIZED);
+
+            // A caller built against the header without tls_pins_hex is still accepted;
+            // the garbage past its struct_size is never read.
+            let mut c = cfg(good_key);
+            c.struct_size = SN_CONFIG_MIN_SIZE as u32;
+            c.tls_pins_hex = c"not-hex".as_ptr();
+            assert_eq!(sn_init(&c), SN_OK);
+            sn_shutdown();
+            let mut c = cfg(good_key);
+            let pins = CString::new(format!("{},{}", "ab".repeat(32), "cd".repeat(32))).unwrap();
+            c.tls_pins_hex = pins.as_ptr();
+            assert_eq!(sn_init(&c), SN_OK);
+            sn_shutdown();
         }
     }
 }

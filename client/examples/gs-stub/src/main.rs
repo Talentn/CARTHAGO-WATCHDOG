@@ -1,7 +1,8 @@
 //! Game-server stub for the Phase 0 end-to-end demo.
 //!
 //!   gs-stub serve  --keys public-keys.json [--tenant demo] [--listen 127.0.0.1:8760]
-//!                  [--gateway ws://127.0.0.1:8750/v1/gs] [--server-key demo-server-key] [--min-trust 0]
+//!                  [--gateway ws://127.0.0.1:8750/v1/gs] [--gateway-pin HEX[,HEX]]
+//!                  [--server-key demo-server-key] [--min-trust 0]
 //!       Players connect over TCP and send `TOKEN <token>\n`. The stub verifies it offline and
 //!       answers `OK <session_id> trust=<n> flags=<hex>` or `REJECT <reason>`. Admitted sessions
 //!       are watched on the gateway; a gateway kick is forwarded as `KICK <reason>` and the
@@ -120,7 +121,14 @@ fn serve(a: &Args) -> i32 {
             return 1;
         }
     };
-    let (kick, events) = KickListener::start(&a.get_or("--gateway", "ws://127.0.0.1:8750/v1/gs"), &a.get_or("--server-key", "demo-server-key"));
+    let pins = match carthago_net::parse_pins(&a.get_or("--gateway-pin", "")) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("gs-stub: --gateway-pin: {e}");
+            return 1;
+        }
+    };
+    let (kick, events) = KickListener::start(&a.get_or("--gateway", "ws://127.0.0.1:8750/v1/gs"), &a.get_or("--server-key", "demo-server-key"), &pins);
     let kick = Arc::new(kick);
     let players: Players = Arc::default();
     println!("[gs] listening on {listen}");

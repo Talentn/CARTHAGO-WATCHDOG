@@ -68,11 +68,14 @@ typedef struct SnConfig {
     uint32_t struct_size;  /* sizeof(SnConfig) */
     const char* tenant_id;
     const char* build_id;
-    const char* gateway_url;             /* Phase 0: ws://127.0.0.1:8750/v1/client */
+    const char* gateway_url;             /* wss://host:port/v1/client, or ws:// on loopback only */
     const char* server_identity_key_hex; /* pinned gateway identity key (64 hex chars) */
     SnLogFn log;                         /* optional */
     void* log_user;
     uint32_t flags;
+    /* Pinned gateway TLS keys: comma-separated hex SHA-256 of the certificate's
+     * SubjectPublicKeyInfo (current, then backup). Required for wss://; NULL for ws://. */
+    const char* tls_pins_hex;
 } SnConfig;
 
 typedef struct SnStatus {

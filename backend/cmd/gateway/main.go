@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -43,6 +45,10 @@ func main() {
 	ttl := flag.Duration("token-ttl", 15*time.Minute, "session token lifetime")
 	fetchEK := flag.Bool("fetch-ek", false, "fetch EK certificates from TPM manufacturer services when not in NV, and missing EK chain intermediates via AIA")
 	ekRootsDir := flag.String("ek-roots-dir", "", "directory of extra trusted EK root CA certificates (PEM or DER), e.g. a development swtpm CA")
+	tlsCert := flag.String("tls-cert", "", "TLS certificate chain (PEM); with -tls-key serves wss://")
+	tlsKey := flag.String("tls-key", "", "TLS private key (PEM)")
+	tlsDev := flag.Bool("tls-dev-cert", false, "serve wss:// with a self-signed certificate kept in -data (created on first use)")
+	tlsBackup := flag.String("tls-backup-pin", "", "comma-separated hex SPKI SHA-256 pins of the next TLS keys, published for rotation")
 	verbose := flag.Bool("v", false, "debug logging (per-heartbeat lines)")
 	flag.Parse()
 	if len(tenants) == 0 {
@@ -57,6 +63,27 @@ func main() {
 	keys, err := gateway.LoadOrCreateKeys(*dataDir)
 	if err != nil {
 		log.Error("keys", "err", err)
+		os.Exit(1)
+	}
+	tlsCfg, err := loadTLS(*tlsCert, *tlsKey, *tlsDev, *dataDir)
+	if err != nil {
+		log.Error("tls", "err", err)
+		os.Exit(1)
+	}
+	if tlsCfg != nil {
+		pin, err := gateway.SPKIPin(tlsCfg.Certificates[0])
+		if err != nil {
+			log.Error("tls pin", "err", err)
+			os.Exit(1)
+		}
+		backups, err := splitPins(*tlsBackup)
+		if err != nil {
+			log.Error("tls-backup-pin", "err", err)
+			os.Exit(1)
+		}
+		keys.TLSPins = append([]string{pin}, backups...)
+	} else if !gateway.IsLoopbackListen(*listen) {
+		log.Error("refusing plaintext on a non-loopback address; use -tls-cert/-tls-key or -tls-dev-cert", "addr", *listen)
 		os.Exit(1)
 	}
 	pubPath := filepath.Join(*dataDir, "public-keys.json")
@@ -84,7 +111,7 @@ func main() {
 	gw := gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
 	}, keys, st, log)
-	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	go func() {
@@ -105,9 +132,18 @@ func main() {
 		defer cancel()
 		_ = srv.Shutdown(sctx)
 	}()
-	log.Info("gateway listening", "addr", *listen, "store", *storeKind, "public_keys", pubPath,
+	scheme := "ws"
+	if tlsCfg != nil {
+		scheme = "wss"
+	}
+	log.Info("Carthago Gateway listening", "addr", *listen, "scheme", scheme, "tls_spki_sha256", strings.Join(keys.TLSPins, ","), "store", *storeKind, "public_keys", pubPath,
 		"identity_kid", keys.IdentityKID, "token_kid", keys.TokenKID, "tenants", len(tenants), "hb_interval", *hbInterval, "hb_timeout", *hbTimeout)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if tlsCfg != nil {
+		err = srv.ListenAndServeTLS("", "")
+	} else {
+		err = srv.ListenAndServe()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("listen", "err", err)
 		os.Exit(1)
 	}
@@ -134,4 +170,36 @@ func loadEKRoots(dir string) (*ekroots.Bundle, error) {
 		files[e.Name()] = data
 	}
 	return b.WithExtraRoots(files)
+}
+
+func loadTLS(certFile, keyFile string, dev bool, dataDir string) (*tls.Config, error) {
+	switch {
+	case certFile != "" || keyFile != "":
+		if certFile == "" || keyFile == "" || dev {
+			return nil, errors.New("use -tls-cert with -tls-key, or -tls-dev-cert alone")
+		}
+		c, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return nil, err
+		}
+		return gateway.TLSConfig(c), nil
+	case dev:
+		c, err := gateway.LoadOrCreateDevCert(dataDir)
+		if err != nil {
+			return nil, err
+		}
+		return gateway.TLSConfig(c), nil
+	}
+	return nil, nil
+}
+
+func splitPins(s string) ([]string, error) {
+	var out []string
+	for _, p := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if b, err := hex.DecodeString(p); err != nil || len(b) != 32 {
+			return nil, fmt.Errorf("pin %q: want 64 hex characters (SHA-256 of the SPKI)", p)
+		}
+		out = append(out, strings.ToLower(p))
+	}
+	return out, nil
 }

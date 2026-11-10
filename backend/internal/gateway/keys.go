@@ -20,6 +20,9 @@ type Keys struct {
 	IdentityKID string
 	Token       ed25519.PrivateKey // signs session tokens; game servers verify offline
 	TokenKID    string
+	// TLSPins are the hex SHA-256 SPKI pins of the gateway TLS keys (current, then
+	// backups) that clients and game servers pin; empty when serving plaintext.
+	TLSPins []string
 }
 
 type PublishedKey struct {
@@ -31,6 +34,7 @@ type PublishedKey struct {
 type PublicKeys struct {
 	ServerIdentity PublishedKey   `json:"server_identity"`
 	TokenKeys      []PublishedKey `json:"token_keys"`
+	TLSPins        []string       `json:"tls_spki_sha256,omitempty"`
 }
 
 func loadOrCreateSeed(path string) (ed25519.PrivateKey, error) {
@@ -75,7 +79,7 @@ func (k *Keys) Public() PublicKeys {
 	pub := func(p ed25519.PrivateKey, kid string) PublishedKey {
 		return PublishedKey{KID: kid, PublicKey: hex.EncodeToString(p.Public().(ed25519.PublicKey))}
 	}
-	return PublicKeys{ServerIdentity: pub(k.Identity, k.IdentityKID), TokenKeys: []PublishedKey{pub(k.Token, k.TokenKID)}}
+	return PublicKeys{ServerIdentity: pub(k.Identity, k.IdentityKID), TokenKeys: []PublishedKey{pub(k.Token, k.TokenKID)}, TLSPins: k.TLSPins}
 }
 
 func (k *Keys) WritePublic(path string) error {

@@ -30,6 +30,7 @@ type env struct {
 	srv  *httptest.Server
 	keys *Keys
 	st   *store.Memory
+	dial *websocket.DialOptions
 }
 
 func newEnv(t *testing.T) *env {
@@ -87,7 +88,7 @@ func p256Key() deviceKey {
 
 func handshake(t *testing.T, e *env, dk deviceKey, corruptSig bool) (*testClient, error) {
 	ctx := context.Background()
-	ws, _, err := websocket.Dial(ctx, e.url("/v1/client"), nil)
+	ws, _, err := websocket.Dial(ctx, e.url("/v1/client"), e.dial)
 	if err != nil {
 		t.Fatal(err)
 	}
