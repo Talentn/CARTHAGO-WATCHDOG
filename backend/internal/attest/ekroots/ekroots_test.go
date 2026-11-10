@@ -52,7 +52,12 @@ func TestBundledIntermediatesChainToVendorRoots(t *testing.T) {
 			if e.anchor {
 				continue
 			}
-			r := b.Verify(e.cert, nil, now)
+			// TPM 1.2-era CAs that have since expired are checked just before they expired.
+			at := now
+			if now.After(e.cert.NotAfter) {
+				at = e.cert.NotAfter.Add(-24 * time.Hour)
+			}
+			r := b.Verify(e.cert, nil, at)
 			if r.Status == StatusVerified && r.Vendor == e.vendor {
 				ok[e.vendor]++
 			} else {
@@ -92,11 +97,16 @@ type testCA struct {
 
 func issue(t *testing.T, parent *testCA, cn string, isCA bool) *testCA {
 	t.Helper()
+	return issueAt(t, parent, cn, isCA, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+}
+
+func issueAt(t *testing.T, parent *testCA, cn string, isCA bool, notBefore, notAfter time.Time) *testCA {
+	t.Helper()
 	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	serial, _ := rand.Int(rand.Reader, big.NewInt(1<<62))
 	tmpl := &x509.Certificate{
 		SerialNumber: serial, Subject: pkix.Name{CommonName: cn, Organization: []string{"Carthago Watchdog test"}},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		NotBefore: notBefore, NotAfter: notAfter,
 		BasicConstraintsValid: true, IsCA: isCA,
 	}
 	if isCA {
@@ -157,6 +167,56 @@ func TestVerifyOutcomes(t *testing.T) {
 	leaf2 := issue(t, notCA, "Test EK 2", false)
 	if r := b.Verify(leaf2.cert, []*x509.Certificate{notCA.cert}, now); r.Status != StatusInvalid || !strings.Contains(r.Detail, "not a CA") {
 		t.Errorf("non-CA intermediate: %+v", r)
+	}
+}
+
+func TestVerifyEnforcesValidity(t *testing.T) {
+	base, _ := Default()
+	now := time.Now()
+	past, future := now.Add(-48*time.Hour), now.Add(48*time.Hour)
+	root := issueAt(t, nil, "Validity Root", true, past, future)
+	b, err := base.WithExtraRoots(map[string][]byte{"root.pem": pemOf(root.cert)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expiredCA := issueAt(t, root, "Validity Intermediate", true, past, now.Add(-time.Hour))
+	leaf := issueAt(t, expiredCA, "Validity EK", false, past, future)
+	if r := b.Verify(leaf.cert, []*x509.Certificate{expiredCA.cert}, now); r.Status != StatusInvalid || !strings.Contains(r.Detail, "expired") {
+		t.Errorf("expired intermediate: %+v", r)
+	}
+	if r := b.Verify(leaf.cert, []*x509.Certificate{expiredCA.cert}, now.Add(-2*time.Hour)); r.Status != StatusVerified {
+		t.Errorf("same chain while the intermediate was valid: %+v", r)
+	}
+
+	// A re-issued intermediate with the same key and name lets the path through.
+	renewed := *expiredCA.cert
+	renewedDER, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(2), Subject: expiredCA.cert.Subject, NotBefore: past, NotAfter: future,
+		BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageCertSign, SubjectKeyId: expiredCA.cert.SubjectKeyId,
+	}, root.cert, &expiredCA.key.PublicKey, root.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := x509.ParseCertificate(renewedDER); err == nil {
+		renewed = *c
+	}
+	if r := b.Verify(leaf.cert, []*x509.Certificate{expiredCA.cert, &renewed}, now); r.Status != StatusVerified {
+		t.Errorf("expired and current issuer supplied: %+v", r)
+	}
+
+	inter := issueAt(t, root, "Validity Intermediate 2", true, past, future)
+	expiredLeaf := issueAt(t, inter, "Expired EK", false, past, now.Add(-time.Minute))
+	if r := b.Verify(expiredLeaf.cert, []*x509.Certificate{inter.cert}, now); r.Status != StatusInvalid || !strings.Contains(r.Detail, "EK certificate") {
+		t.Errorf("expired EK certificate: %+v", r)
+	}
+	earlyLeaf := issueAt(t, inter, "Future EK", false, now.Add(time.Hour), future)
+	if r := b.Verify(earlyLeaf.cert, []*x509.Certificate{inter.cert}, now); r.Status != StatusInvalid || !strings.Contains(r.Detail, "not valid before") {
+		t.Errorf("not yet valid EK certificate: %+v", r)
+	}
+	noExpiry := issueAt(t, inter, "No-expiry EK", false, past, time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
+	if r := b.Verify(noExpiry.cert, []*x509.Certificate{inter.cert}, now); r.Status != StatusVerified {
+		t.Errorf("99991231235959Z EK certificate: %+v", r)
 	}
 }
 

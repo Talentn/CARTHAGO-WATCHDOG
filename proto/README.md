@@ -61,6 +61,7 @@ timestamp, and the gateway checks that they match.
   decryption-EK challenge (`ek_challenge`), a quote over PCRs 0,2,4,7,11,12,13,14 and a device-key
   certify. This takes no elevation; see `tpm-spike-findings.md`.
 - **Later sessions:** the gateway already has the bound AK and skips `ek_challenge`.
+- Every certificate on the EK chain must be within its validity period at the gateway's clock.
 - Prove carries the EK-challenge certify, the quote and PCRs, the WBCL, and
   TPM2_Certify(device key) signed by the AK. All three are bound to `quote_nonce(th)`.
 
@@ -83,7 +84,7 @@ leeway on `iat` and `exp`. The TTL is 15 minutes, and the gateway renews the tok
 | 10 `ek_cert_matches` | an EK certificate for this EK was found (NV or the manufacturer service) |
 | 11 `ek_chain_verified` | the EK certificate chains to a bundled manufacturer root (Intel, AMD, Infineon, STMicro, Nuvoton) |
 | 12 `ek_chain_unknown_vendor` | an EK certificate exists, but no issuer path reaches a bundled root (unbundled vendor, self-issued, or missing intermediate) |
-| 13 `ek_chain_invalid` | the EK certificate does not certify this EK, or a signature or CA constraint on its chain fails |
+| 13 `ek_chain_invalid` | the EK certificate does not certify this EK, or a signature, CA constraint or validity period on its chain fails |
 
 No bit among 10-13 set means no EK certificate was available.
 

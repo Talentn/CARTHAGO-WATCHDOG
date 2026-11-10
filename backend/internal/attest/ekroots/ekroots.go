@@ -302,9 +302,15 @@ type Result struct {
 }
 
 // Verify builds a path from leaf to a bundled anchor. extra holds untrusted candidate
-// intermediates (from the TPM's NV, the client, or AIA fetches). Validity periods are not
-// enforced: EK certificates attest manufacturing provenance and many in the field outlive
-// their issuers' NotAfter; expired certificates on the path are reported in Notes.
+// intermediates (from the TPM's NV, the client, or AIA fetches).
+//
+// Every certificate on the path, the EK certificate and the anchor included, must be
+// within its validity period at now; when several issuers match, an out-of-date one is
+// skipped in favour of a current one. EK certificates and vendor CAs are issued with long
+// lifetimes (Intel On-Die CAs and PTT EKs run to 2049; RFC 5280's 99991231235959Z means no
+// expiry and is honoured as such), so an expired certificate means the vendor no longer
+// vouches for the path. A path that fails only on dates is StatusInvalid, which caps
+// trust like an unknown vendor does.
 func (b *Bundle) Verify(leaf *x509.Certificate, extra []*x509.Certificate, now time.Time) Result {
 	if leaf == nil {
 		return Result{Status: StatusNoCert}
@@ -315,7 +321,7 @@ func (b *Bundle) Verify(leaf *x509.Certificate, extra []*x509.Certificate, now t
 			extras.index(&entry{cert: c, name: "supplied"})
 		}
 	}
-	v := &verifier{b: b, extras: extras, seen: map[[32]byte]bool{}}
+	v := &verifier{b: b, extras: extras, now: now, seen: map[[32]byte]bool{}}
 	path, anchor := v.walk(leaf, 0)
 	if anchor == nil {
 		if v.failure != "" {
@@ -323,18 +329,27 @@ func (b *Bundle) Verify(leaf *x509.Certificate, extra []*x509.Certificate, now t
 		}
 		return Result{Status: StatusUnknownVendor, Detail: fmt.Sprintf("no bundled issuer path for %q", leaf.Issuer.String())}
 	}
-	r := Result{Status: StatusVerified, Vendor: anchor.vendor, Root: anchor.cert.Subject.String(), Chain: append([]*x509.Certificate{leaf}, path...)}
-	for _, c := range r.Chain {
-		if now.After(c.NotAfter) {
-			r.Notes = append(r.Notes, fmt.Sprintf("expired %s: %s (not enforced)", c.NotAfter.Format("2006-01-02"), c.Subject.String()))
-		}
+	if msg := outsideValidity(leaf, now); msg != "" {
+		return Result{Status: StatusInvalid, Detail: "EK certificate " + msg}
 	}
-	return r
+	return Result{Status: StatusVerified, Vendor: anchor.vendor, Root: anchor.cert.Subject.String(), Chain: append([]*x509.Certificate{leaf}, path...)}
+}
+
+// outsideValidity describes why c is not valid at now, or returns "".
+func outsideValidity(c *x509.Certificate, now time.Time) string {
+	switch {
+	case now.Before(c.NotBefore):
+		return fmt.Sprintf("%q is not valid before %s", c.Subject.String(), c.NotBefore.UTC().Format(time.RFC3339))
+	case now.After(c.NotAfter):
+		return fmt.Sprintf("%q expired %s", c.Subject.String(), c.NotAfter.UTC().Format(time.RFC3339))
+	}
+	return ""
 }
 
 type verifier struct {
 	b       *Bundle
 	extras  *Bundle
+	now     time.Time
 	seen    map[[32]byte]bool
 	failure string
 }
@@ -368,6 +383,10 @@ func (v *verifier) walk(child *x509.Certificate, depth int) ([]*x509.Certificate
 		}
 		if pc.KeyUsage != 0 && pc.KeyUsage&x509.KeyUsageCertSign == 0 {
 			v.fail(fmt.Sprintf("issuer %q lacks keyCertSign", pc.Subject.String()))
+			continue
+		}
+		if msg := outsideValidity(pc, v.now); msg != "" {
+			v.fail("issuer " + msg)
 			continue
 		}
 		if p.anchor {
