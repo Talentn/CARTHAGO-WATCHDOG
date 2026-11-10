@@ -39,3 +39,78 @@ message GsServerMsg {
     WatchAck watch_ack = 2;
   }
 }
+
+// Authoritative gameplay telemetry (plan §2 data path 2 and §6.1). A game server streams
+// GameplayBatch frames over a second WebSocket, /v1/ingest, authenticated with the same
+// server API key; the gateway answers each with an IngestAck. Players are addressed by a
+// per-match slot so per-tick samples stay small.
+
+message MatchPlayer {
+  uint32 slot = 1;
+  string session_id = 2; // hex, from the verified session token ("" for unprotected bots)
+  string player_hash = 3;
+  int32 mmr = 4; // the studio's skill rating; 0 = unknown
+}
+
+// View angles in degrees for consecutive ticks starting at first_tick.
+message AimTrack {
+  uint32 slot = 1;
+  uint32 first_tick = 2;
+  repeated float yaw = 3;
+  repeated float pitch = 4;
+}
+
+message ShotEvent {
+  uint32 slot = 1;
+  uint32 tick = 2;
+  int32 target_slot = 3; // -1 = no player hit
+  bool hit = 4;
+  bool headshot = 5;
+  bool kill = 6;
+  string weapon = 7;
+  float distance_m = 8;
+}
+
+// Server visibility-trace transitions: target became visible (or hidden) to observer.
+message VisibilityEvent {
+  uint32 observer_slot = 1;
+  uint32 target_slot = 2;
+  uint32 tick = 3;
+  bool visible = 4;
+}
+
+// User commands the server received from a player over [tick_from, tick_to).
+message CommandWindow {
+  uint32 slot = 1;
+  uint32 tick_from = 2;
+  uint32 tick_to = 3;
+  uint32 commands = 4;
+}
+
+// Client-side timestamps of trigger presses of semi-automatic fire, as carried in the
+// player's user commands (microseconds, any epoch). Full-auto weapons are excluded because
+// their cadence is set by the weapon, not the player.
+message TriggerPresses {
+  uint32 slot = 1;
+  repeated uint64 client_time_us = 2;
+}
+
+message GameplayBatch {
+  string match_id = 1;
+  uint64 batch_seq = 2; // strictly increasing per match
+  uint32 tick_rate = 3;
+  repeated MatchPlayer players = 4;
+  repeated AimTrack aim = 5;
+  repeated ShotEvent shots = 6;
+  repeated VisibilityEvent visibility = 7;
+  repeated CommandWindow commands = 8;
+  repeated TriggerPresses triggers = 9;
+  bool match_over = 10;
+}
+
+message IngestAck {
+  string match_id = 1;
+  uint64 batch_seq = 2;
+  bool accepted = 3;
+  string error = 4;
+}

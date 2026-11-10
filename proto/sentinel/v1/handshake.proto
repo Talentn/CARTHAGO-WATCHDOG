@@ -123,11 +123,99 @@ message Session {
   repeated string notes = 5;
 }
 
+// Client scan finding codes (Finding.code). The client only observes and reports; every
+// threshold, allowlist and verdict lives on the server (plan §8.6). Meaning of a, b and
+// detail per code below. Codes 1 and 3 predate this enum and keep their values.
+enum FindingCode {
+  FINDING_CODE_UNSPECIFIED = 0;
+  // Loader-list module whose base is not an image mapping. a = module base.
+  FINDING_CODE_MODULE_NOT_IMAGE = 1;
+  // Image mapping whose allocation base is missing from the loader list (unlinked module).
+  // a = allocation base, b = region size, detail = mapped file base name.
+  FINDING_CODE_IMAGE_NOT_IN_LOADER = 2;
+  // Committed executable memory that is not image-backed. a = base, b = size in the low
+  // 48 bits plus UnbackedFlags << 48, detail empty.
+  FINDING_CODE_UNBACKED_EXEC = 3;
+  // Thread whose start address is outside every image mapping. a = start, b = thread id.
+  FINDING_CODE_THREAD_START_UNBACKED = 4;
+  // Thread starting at a loader entry point (LoadLibrary*/LdrLoadDll): the classic remote
+  // injection thread. a = start, b = thread id, detail = WatchedApi name of the target.
+  FINDING_CODE_THREAD_START_LOADER = 5;
+  // Exported API whose first bytes differ from the on-disk image. a = hook target address
+  // (0 if not a recognised jump), b = WatchedApi, detail = target module ("" = not image-backed).
+  FINDING_CODE_API_HOOK = 6;
+  // Code page of a graphics module (dxgi/d3d11/d3d12, which hold the Present path) that
+  // differs from disk. a = patched address, b = jump target (0 if not decoded),
+  // detail = "patched_module>target_module" (target "?" = not image-backed).
+  FINDING_CODE_CODE_PATCH = 7;
+  // Another process holds a handle to the game with memory or thread access.
+  // a = holder pid, b = granted access mask, detail = holder image base name.
+  FINDING_CODE_EXTERNAL_HANDLE = 8;
+  // Layered, transparent, topmost window of another process over the game window.
+  // a = owner pid, b = extended window style, detail = owner image base name. Never titles.
+  FINDING_CODE_OVERLAY_WINDOW = 9;
+  // Debugger signals. a = DebugSignal bit mask.
+  FINDING_CODE_DEBUGGER = 10;
+  // Loaded kernel driver matching the known-vulnerable driver list. detail = file name.
+  FINDING_CODE_VULNERABLE_DRIVER = 11;
+  // Module loaded into the game process outside the system directory.
+  // a = base, b = ModulePathClass, detail = base name.
+  FINDING_CODE_MODULE_LOADED = 12;
+  // Process mitigation profile outcome (informational). a = applied bits, b = failed bits.
+  FINDING_CODE_MITIGATIONS = 13;
+}
+
+// Bits in FINDING_CODE_UNBACKED_EXEC b >> 48.
+enum UnbackedFlags {
+  UNBACKED_FLAGS_NONE = 0;
+  UNBACKED_FLAGS_MZ_HEADER = 1;
+  UNBACKED_FLAGS_PE_SIGNATURE = 2;
+  UNBACKED_FLAGS_PRIVATE = 4; // MEM_PRIVATE (otherwise MEM_MAPPED)
+  UNBACKED_FLAGS_WRITABLE = 8; // executable and writable
+}
+
+// Bits in FINDING_CODE_DEBUGGER a.
+enum DebugSignal {
+  DEBUG_SIGNAL_NONE = 0;
+  DEBUG_SIGNAL_PEB_BEING_DEBUGGED = 1;
+  DEBUG_SIGNAL_DEBUG_PORT = 2;
+  DEBUG_SIGNAL_DEBUG_OBJECT = 4;
+  DEBUG_SIGNAL_NO_INHERIT_FLAG = 8; // ProcessDebugFlags == 0
+  DEBUG_SIGNAL_HARDWARE_BREAKPOINT = 16; // DR0-DR3 set on the scanning thread
+  DEBUG_SIGNAL_KERNEL_DEBUGGER = 32; // KUSER_SHARED_DATA.KdDebuggerEnabled
+}
+
+enum ModulePathClass {
+  MODULE_PATH_CLASS_OTHER = 0;
+  MODULE_PATH_CLASS_GAME_DIR = 1; // under the game executable's directory
+  MODULE_PATH_CLASS_PROGRAM_FILES = 2;
+}
+
+// Curated exports checked for inline hooks (timing APIs for speedhacks, loader and query
+// APIs that injectors and hiders patch). FINDING_CODE_API_HOOK b and THREAD_START_LOADER.
+enum WatchedApi {
+  WATCHED_API_UNSPECIFIED = 0;
+  WATCHED_API_NTDLL_NT_QUERY_PERFORMANCE_COUNTER = 1;
+  WATCHED_API_NTDLL_RTL_QUERY_PERFORMANCE_COUNTER = 2;
+  WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER = 3;
+  WATCHED_API_KERNELBASE_GET_TICK_COUNT64 = 4;
+  WATCHED_API_KERNELBASE_GET_TICK_COUNT = 5;
+  WATCHED_API_WINMM_TIME_GET_TIME = 6;
+  WATCHED_API_NTDLL_NT_QUERY_SYSTEM_INFORMATION = 7;
+  WATCHED_API_NTDLL_NT_QUERY_VIRTUAL_MEMORY = 8;
+  WATCHED_API_NTDLL_LDR_LOAD_DLL = 9;
+  WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W = 10;
+  WATCHED_API_KERNEL32_LOAD_LIBRARY_A = 11;
+  WATCHED_API_KERNEL32_LOAD_LIBRARY_W = 12;
+  WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A = 13;
+}
+
 message Finding {
   string job = 1;
-  uint32 code = 2;
+  uint32 code = 2; // FindingCode
   uint64 a = 3;
   uint64 b = 4;
+  string detail = 5; // ≤ 47 bytes; module or process base name, never paths or titles
 }
 
 message SchedSummary {
@@ -137,12 +225,43 @@ message SchedSummary {
   uint64 frames = 4;
   uint32 jobs_quarantined = 5;
   uint64 findings_dropped = 6;
+  uint64 slice_overruns = 7; // slices whose wall time exceeded the 3 ms hard cap
+  uint64 input_thread_cpu_ns = 8; // low-level mouse hook thread
+}
+
+// Raw clock readings taken together at heartbeat time. The server compares their rates
+// with each other and with its own clock (speedhack: hooked QPC/GetTickCount run fast,
+// KUSER_SHARED_DATA.InterruptTime cannot be hooked from user mode).
+message TimeSample {
+  uint64 qpc_ns = 1;
+  uint64 tick_count_ms = 2;
+  uint64 interrupt_time_100ns = 3;
+}
+
+// Low-level mouse hook counters, cumulative for the session, counted only while the game
+// window has focus (plan §6.1). Timing and counts only, never positions or keys.
+message InputStats {
+  uint64 mouse_events = 1;
+  uint64 injected = 2; // LLMHF_INJECTED
+  uint64 lower_il_injected = 3; // LLMHF_LOWER_IL_INJECTED
+  uint64 focused_ms = 4;
+}
+
+// Per scan family: completed passes so far (coverage accounting, plan §5.3).
+message JobCoverage {
+  string job = 1;
+  uint64 runs_completed = 2;
+  uint64 overruns = 3;
+  bool quarantined = 4;
 }
 
 message Heartbeat {
   uint32 activity = 1; // 0 gameplay, 1 menu, 2 loading
   SchedSummary sched = 2;
   repeated Finding findings = 3;
+  TimeSample time = 4;
+  InputStats input = 5;
+  repeated JobCoverage coverage = 6;
 }
 
 message HeartbeatAck {

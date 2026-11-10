@@ -396,6 +396,620 @@ func (*GsServerMsg_Kick) isGsServerMsg_Body() {}
 
 func (*GsServerMsg_WatchAck) isGsServerMsg_Body() {}
 
+type MatchPlayer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // hex, from the verified session token ("" for unprotected bots)
+	PlayerHash    string                 `protobuf:"bytes,3,opt,name=player_hash,json=playerHash,proto3" json:"player_hash,omitempty"`
+	Mmr           int32                  `protobuf:"varint,4,opt,name=mmr,proto3" json:"mmr,omitempty"` // the studio's skill rating; 0 = unknown
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MatchPlayer) Reset() {
+	*x = MatchPlayer{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MatchPlayer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MatchPlayer) ProtoMessage() {}
+
+func (x *MatchPlayer) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MatchPlayer.ProtoReflect.Descriptor instead.
+func (*MatchPlayer) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MatchPlayer) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *MatchPlayer) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *MatchPlayer) GetPlayerHash() string {
+	if x != nil {
+		return x.PlayerHash
+	}
+	return ""
+}
+
+func (x *MatchPlayer) GetMmr() int32 {
+	if x != nil {
+		return x.Mmr
+	}
+	return 0
+}
+
+// View angles in degrees for consecutive ticks starting at first_tick.
+type AimTrack struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	FirstTick     uint32                 `protobuf:"varint,2,opt,name=first_tick,json=firstTick,proto3" json:"first_tick,omitempty"`
+	Yaw           []float32              `protobuf:"fixed32,3,rep,packed,name=yaw,proto3" json:"yaw,omitempty"`
+	Pitch         []float32              `protobuf:"fixed32,4,rep,packed,name=pitch,proto3" json:"pitch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AimTrack) Reset() {
+	*x = AimTrack{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AimTrack) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AimTrack) ProtoMessage() {}
+
+func (x *AimTrack) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AimTrack.ProtoReflect.Descriptor instead.
+func (*AimTrack) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AimTrack) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *AimTrack) GetFirstTick() uint32 {
+	if x != nil {
+		return x.FirstTick
+	}
+	return 0
+}
+
+func (x *AimTrack) GetYaw() []float32 {
+	if x != nil {
+		return x.Yaw
+	}
+	return nil
+}
+
+func (x *AimTrack) GetPitch() []float32 {
+	if x != nil {
+		return x.Pitch
+	}
+	return nil
+}
+
+type ShotEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	Tick          uint32                 `protobuf:"varint,2,opt,name=tick,proto3" json:"tick,omitempty"`
+	TargetSlot    int32                  `protobuf:"varint,3,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"` // -1 = no player hit
+	Hit           bool                   `protobuf:"varint,4,opt,name=hit,proto3" json:"hit,omitempty"`
+	Headshot      bool                   `protobuf:"varint,5,opt,name=headshot,proto3" json:"headshot,omitempty"`
+	Kill          bool                   `protobuf:"varint,6,opt,name=kill,proto3" json:"kill,omitempty"`
+	Weapon        string                 `protobuf:"bytes,7,opt,name=weapon,proto3" json:"weapon,omitempty"`
+	DistanceM     float32                `protobuf:"fixed32,8,opt,name=distance_m,json=distanceM,proto3" json:"distance_m,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShotEvent) Reset() {
+	*x = ShotEvent{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShotEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShotEvent) ProtoMessage() {}
+
+func (x *ShotEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShotEvent.ProtoReflect.Descriptor instead.
+func (*ShotEvent) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ShotEvent) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *ShotEvent) GetTick() uint32 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
+func (x *ShotEvent) GetTargetSlot() int32 {
+	if x != nil {
+		return x.TargetSlot
+	}
+	return 0
+}
+
+func (x *ShotEvent) GetHit() bool {
+	if x != nil {
+		return x.Hit
+	}
+	return false
+}
+
+func (x *ShotEvent) GetHeadshot() bool {
+	if x != nil {
+		return x.Headshot
+	}
+	return false
+}
+
+func (x *ShotEvent) GetKill() bool {
+	if x != nil {
+		return x.Kill
+	}
+	return false
+}
+
+func (x *ShotEvent) GetWeapon() string {
+	if x != nil {
+		return x.Weapon
+	}
+	return ""
+}
+
+func (x *ShotEvent) GetDistanceM() float32 {
+	if x != nil {
+		return x.DistanceM
+	}
+	return 0
+}
+
+// Server visibility-trace transitions: target became visible (or hidden) to observer.
+type VisibilityEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ObserverSlot  uint32                 `protobuf:"varint,1,opt,name=observer_slot,json=observerSlot,proto3" json:"observer_slot,omitempty"`
+	TargetSlot    uint32                 `protobuf:"varint,2,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"`
+	Tick          uint32                 `protobuf:"varint,3,opt,name=tick,proto3" json:"tick,omitempty"`
+	Visible       bool                   `protobuf:"varint,4,opt,name=visible,proto3" json:"visible,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VisibilityEvent) Reset() {
+	*x = VisibilityEvent{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VisibilityEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VisibilityEvent) ProtoMessage() {}
+
+func (x *VisibilityEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VisibilityEvent.ProtoReflect.Descriptor instead.
+func (*VisibilityEvent) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *VisibilityEvent) GetObserverSlot() uint32 {
+	if x != nil {
+		return x.ObserverSlot
+	}
+	return 0
+}
+
+func (x *VisibilityEvent) GetTargetSlot() uint32 {
+	if x != nil {
+		return x.TargetSlot
+	}
+	return 0
+}
+
+func (x *VisibilityEvent) GetTick() uint32 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
+func (x *VisibilityEvent) GetVisible() bool {
+	if x != nil {
+		return x.Visible
+	}
+	return false
+}
+
+// User commands the server received from a player over [tick_from, tick_to).
+type CommandWindow struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	TickFrom      uint32                 `protobuf:"varint,2,opt,name=tick_from,json=tickFrom,proto3" json:"tick_from,omitempty"`
+	TickTo        uint32                 `protobuf:"varint,3,opt,name=tick_to,json=tickTo,proto3" json:"tick_to,omitempty"`
+	Commands      uint32                 `protobuf:"varint,4,opt,name=commands,proto3" json:"commands,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandWindow) Reset() {
+	*x = CommandWindow{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandWindow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandWindow) ProtoMessage() {}
+
+func (x *CommandWindow) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandWindow.ProtoReflect.Descriptor instead.
+func (*CommandWindow) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *CommandWindow) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *CommandWindow) GetTickFrom() uint32 {
+	if x != nil {
+		return x.TickFrom
+	}
+	return 0
+}
+
+func (x *CommandWindow) GetTickTo() uint32 {
+	if x != nil {
+		return x.TickTo
+	}
+	return 0
+}
+
+func (x *CommandWindow) GetCommands() uint32 {
+	if x != nil {
+		return x.Commands
+	}
+	return 0
+}
+
+// Client-side timestamps of trigger presses of semi-automatic fire, as carried in the
+// player's user commands (microseconds, any epoch). Full-auto weapons are excluded because
+// their cadence is set by the weapon, not the player.
+type TriggerPresses struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	ClientTimeUs  []uint64               `protobuf:"varint,2,rep,packed,name=client_time_us,json=clientTimeUs,proto3" json:"client_time_us,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TriggerPresses) Reset() {
+	*x = TriggerPresses{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TriggerPresses) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TriggerPresses) ProtoMessage() {}
+
+func (x *TriggerPresses) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TriggerPresses.ProtoReflect.Descriptor instead.
+func (*TriggerPresses) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *TriggerPresses) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *TriggerPresses) GetClientTimeUs() []uint64 {
+	if x != nil {
+		return x.ClientTimeUs
+	}
+	return nil
+}
+
+type GameplayBatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	BatchSeq      uint64                 `protobuf:"varint,2,opt,name=batch_seq,json=batchSeq,proto3" json:"batch_seq,omitempty"` // strictly increasing per match
+	TickRate      uint32                 `protobuf:"varint,3,opt,name=tick_rate,json=tickRate,proto3" json:"tick_rate,omitempty"`
+	Players       []*MatchPlayer         `protobuf:"bytes,4,rep,name=players,proto3" json:"players,omitempty"`
+	Aim           []*AimTrack            `protobuf:"bytes,5,rep,name=aim,proto3" json:"aim,omitempty"`
+	Shots         []*ShotEvent           `protobuf:"bytes,6,rep,name=shots,proto3" json:"shots,omitempty"`
+	Visibility    []*VisibilityEvent     `protobuf:"bytes,7,rep,name=visibility,proto3" json:"visibility,omitempty"`
+	Commands      []*CommandWindow       `protobuf:"bytes,8,rep,name=commands,proto3" json:"commands,omitempty"`
+	Triggers      []*TriggerPresses      `protobuf:"bytes,9,rep,name=triggers,proto3" json:"triggers,omitempty"`
+	MatchOver     bool                   `protobuf:"varint,10,opt,name=match_over,json=matchOver,proto3" json:"match_over,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GameplayBatch) Reset() {
+	*x = GameplayBatch{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GameplayBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GameplayBatch) ProtoMessage() {}
+
+func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GameplayBatch.ProtoReflect.Descriptor instead.
+func (*GameplayBatch) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GameplayBatch) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
+func (x *GameplayBatch) GetBatchSeq() uint64 {
+	if x != nil {
+		return x.BatchSeq
+	}
+	return 0
+}
+
+func (x *GameplayBatch) GetTickRate() uint32 {
+	if x != nil {
+		return x.TickRate
+	}
+	return 0
+}
+
+func (x *GameplayBatch) GetPlayers() []*MatchPlayer {
+	if x != nil {
+		return x.Players
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetAim() []*AimTrack {
+	if x != nil {
+		return x.Aim
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetShots() []*ShotEvent {
+	if x != nil {
+		return x.Shots
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetVisibility() []*VisibilityEvent {
+	if x != nil {
+		return x.Visibility
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetCommands() []*CommandWindow {
+	if x != nil {
+		return x.Commands
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetTriggers() []*TriggerPresses {
+	if x != nil {
+		return x.Triggers
+	}
+	return nil
+}
+
+func (x *GameplayBatch) GetMatchOver() bool {
+	if x != nil {
+		return x.MatchOver
+	}
+	return false
+}
+
+type IngestAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	BatchSeq      uint64                 `protobuf:"varint,2,opt,name=batch_seq,json=batchSeq,proto3" json:"batch_seq,omitempty"`
+	Accepted      bool                   `protobuf:"varint,3,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Error         string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IngestAck) Reset() {
+	*x = IngestAck{}
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IngestAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IngestAck) ProtoMessage() {}
+
+func (x *IngestAck) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_gameserver_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IngestAck.ProtoReflect.Descriptor instead.
+func (*IngestAck) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_gameserver_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *IngestAck) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
+func (x *IngestAck) GetBatchSeq() uint64 {
+	if x != nil {
+		return x.BatchSeq
+	}
+	return 0
+}
+
+func (x *IngestAck) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *IngestAck) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_sentinel_v1_gameserver_proto protoreflect.FileDescriptor
 
 const file_sentinel_v1_gameserver_proto_rawDesc = "" +
@@ -425,7 +1039,65 @@ const file_sentinel_v1_gameserver_proto_rawDesc = "" +
 	"\vGsServerMsg\x12'\n" +
 	"\x04kick\x18\x01 \x01(\v2\x11.sentinel.v1.KickH\x00R\x04kick\x124\n" +
 	"\twatch_ack\x18\x02 \x01(\v2\x15.sentinel.v1.WatchAckH\x00R\bwatchAckB\x06\n" +
-	"\x04bodyB-Z+sentinel/backend/gen/sentinel/v1;sentinelv1b\x06proto3"
+	"\x04body\"s\n" +
+	"\vMatchPlayer\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1f\n" +
+	"\vplayer_hash\x18\x03 \x01(\tR\n" +
+	"playerHash\x12\x10\n" +
+	"\x03mmr\x18\x04 \x01(\x05R\x03mmr\"e\n" +
+	"\bAimTrack\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1d\n" +
+	"\n" +
+	"first_tick\x18\x02 \x01(\rR\tfirstTick\x12\x10\n" +
+	"\x03yaw\x18\x03 \x03(\x02R\x03yaw\x12\x14\n" +
+	"\x05pitch\x18\x04 \x03(\x02R\x05pitch\"\xcd\x01\n" +
+	"\tShotEvent\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x12\n" +
+	"\x04tick\x18\x02 \x01(\rR\x04tick\x12\x1f\n" +
+	"\vtarget_slot\x18\x03 \x01(\x05R\n" +
+	"targetSlot\x12\x10\n" +
+	"\x03hit\x18\x04 \x01(\bR\x03hit\x12\x1a\n" +
+	"\bheadshot\x18\x05 \x01(\bR\bheadshot\x12\x12\n" +
+	"\x04kill\x18\x06 \x01(\bR\x04kill\x12\x16\n" +
+	"\x06weapon\x18\a \x01(\tR\x06weapon\x12\x1d\n" +
+	"\n" +
+	"distance_m\x18\b \x01(\x02R\tdistanceM\"\x85\x01\n" +
+	"\x0fVisibilityEvent\x12#\n" +
+	"\robserver_slot\x18\x01 \x01(\rR\fobserverSlot\x12\x1f\n" +
+	"\vtarget_slot\x18\x02 \x01(\rR\n" +
+	"targetSlot\x12\x12\n" +
+	"\x04tick\x18\x03 \x01(\rR\x04tick\x12\x18\n" +
+	"\avisible\x18\x04 \x01(\bR\avisible\"u\n" +
+	"\rCommandWindow\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1b\n" +
+	"\ttick_from\x18\x02 \x01(\rR\btickFrom\x12\x17\n" +
+	"\atick_to\x18\x03 \x01(\rR\x06tickTo\x12\x1a\n" +
+	"\bcommands\x18\x04 \x01(\rR\bcommands\"J\n" +
+	"\x0eTriggerPresses\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\rR\x04slot\x12$\n" +
+	"\x0eclient_time_us\x18\x02 \x03(\x04R\fclientTimeUs\"\xbd\x03\n" +
+	"\rGameplayBatch\x12\x19\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
+	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1b\n" +
+	"\ttick_rate\x18\x03 \x01(\rR\btickRate\x122\n" +
+	"\aplayers\x18\x04 \x03(\v2\x18.sentinel.v1.MatchPlayerR\aplayers\x12'\n" +
+	"\x03aim\x18\x05 \x03(\v2\x15.sentinel.v1.AimTrackR\x03aim\x12,\n" +
+	"\x05shots\x18\x06 \x03(\v2\x16.sentinel.v1.ShotEventR\x05shots\x12<\n" +
+	"\n" +
+	"visibility\x18\a \x03(\v2\x1c.sentinel.v1.VisibilityEventR\n" +
+	"visibility\x126\n" +
+	"\bcommands\x18\b \x03(\v2\x1a.sentinel.v1.CommandWindowR\bcommands\x127\n" +
+	"\btriggers\x18\t \x03(\v2\x1b.sentinel.v1.TriggerPressesR\btriggers\x12\x1d\n" +
+	"\n" +
+	"match_over\x18\n" +
+	" \x01(\bR\tmatchOver\"u\n" +
+	"\tIngestAck\x12\x19\n" +
+	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
+	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1a\n" +
+	"\baccepted\x18\x03 \x01(\bR\baccepted\x12\x14\n" +
+	"\x05error\x18\x04 \x01(\tR\x05errorB-Z+sentinel/backend/gen/sentinel/v1;sentinelv1b\x06proto3"
 
 var (
 	file_sentinel_v1_gameserver_proto_rawDescOnce sync.Once
@@ -439,25 +1111,39 @@ func file_sentinel_v1_gameserver_proto_rawDescGZIP() []byte {
 	return file_sentinel_v1_gameserver_proto_rawDescData
 }
 
-var file_sentinel_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_sentinel_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_sentinel_v1_gameserver_proto_goTypes = []any{
-	(*WatchSession)(nil),   // 0: sentinel.v1.WatchSession
-	(*UnwatchSession)(nil), // 1: sentinel.v1.UnwatchSession
-	(*GsClientMsg)(nil),    // 2: sentinel.v1.GsClientMsg
-	(*Kick)(nil),           // 3: sentinel.v1.Kick
-	(*WatchAck)(nil),       // 4: sentinel.v1.WatchAck
-	(*GsServerMsg)(nil),    // 5: sentinel.v1.GsServerMsg
+	(*WatchSession)(nil),    // 0: sentinel.v1.WatchSession
+	(*UnwatchSession)(nil),  // 1: sentinel.v1.UnwatchSession
+	(*GsClientMsg)(nil),     // 2: sentinel.v1.GsClientMsg
+	(*Kick)(nil),            // 3: sentinel.v1.Kick
+	(*WatchAck)(nil),        // 4: sentinel.v1.WatchAck
+	(*GsServerMsg)(nil),     // 5: sentinel.v1.GsServerMsg
+	(*MatchPlayer)(nil),     // 6: sentinel.v1.MatchPlayer
+	(*AimTrack)(nil),        // 7: sentinel.v1.AimTrack
+	(*ShotEvent)(nil),       // 8: sentinel.v1.ShotEvent
+	(*VisibilityEvent)(nil), // 9: sentinel.v1.VisibilityEvent
+	(*CommandWindow)(nil),   // 10: sentinel.v1.CommandWindow
+	(*TriggerPresses)(nil),  // 11: sentinel.v1.TriggerPresses
+	(*GameplayBatch)(nil),   // 12: sentinel.v1.GameplayBatch
+	(*IngestAck)(nil),       // 13: sentinel.v1.IngestAck
 }
 var file_sentinel_v1_gameserver_proto_depIdxs = []int32{
-	0, // 0: sentinel.v1.GsClientMsg.watch:type_name -> sentinel.v1.WatchSession
-	1, // 1: sentinel.v1.GsClientMsg.unwatch:type_name -> sentinel.v1.UnwatchSession
-	3, // 2: sentinel.v1.GsServerMsg.kick:type_name -> sentinel.v1.Kick
-	4, // 3: sentinel.v1.GsServerMsg.watch_ack:type_name -> sentinel.v1.WatchAck
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0,  // 0: sentinel.v1.GsClientMsg.watch:type_name -> sentinel.v1.WatchSession
+	1,  // 1: sentinel.v1.GsClientMsg.unwatch:type_name -> sentinel.v1.UnwatchSession
+	3,  // 2: sentinel.v1.GsServerMsg.kick:type_name -> sentinel.v1.Kick
+	4,  // 3: sentinel.v1.GsServerMsg.watch_ack:type_name -> sentinel.v1.WatchAck
+	6,  // 4: sentinel.v1.GameplayBatch.players:type_name -> sentinel.v1.MatchPlayer
+	7,  // 5: sentinel.v1.GameplayBatch.aim:type_name -> sentinel.v1.AimTrack
+	8,  // 6: sentinel.v1.GameplayBatch.shots:type_name -> sentinel.v1.ShotEvent
+	9,  // 7: sentinel.v1.GameplayBatch.visibility:type_name -> sentinel.v1.VisibilityEvent
+	10, // 8: sentinel.v1.GameplayBatch.commands:type_name -> sentinel.v1.CommandWindow
+	11, // 9: sentinel.v1.GameplayBatch.triggers:type_name -> sentinel.v1.TriggerPresses
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_sentinel_v1_gameserver_proto_init() }
@@ -479,7 +1165,7 @@ func file_sentinel_v1_gameserver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sentinel_v1_gameserver_proto_rawDesc), len(file_sentinel_v1_gameserver_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

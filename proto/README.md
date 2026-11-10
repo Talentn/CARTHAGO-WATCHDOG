@@ -91,3 +91,25 @@ leeway on `iat` and `exp`. The TTL is 15 minutes, and the gateway renews the tok
 `/v1/gs` WebSocket, authenticated with `Authorization: Bearer <tenant server key>`. It carries
 `GsClientMsg{Watch|Unwatch}` and `GsServerMsg{Kick|WatchAck}`, one protobuf message per binary
 frame. The gateway pushes `Kick` when a watched session misses its heartbeat deadline.
+
+## Heartbeat telemetry (Phase 1)
+
+A `Heartbeat` carries, besides the scheduler summary:
+
+- `findings`: client scan observations, `code` from `FindingCode`. The client reports what it
+  saw and nothing else; allowlists, thresholds and verdicts are server-side (plan §8.6).
+  `detail` holds at most 47 bytes: a module or process base name, never a path or a window
+  title (plan §10).
+- `time`: QPC, `GetTickCount64` and `KUSER_SHARED_DATA.InterruptTime` read together. The
+  server compares their rates with each other and with its own clock.
+- `input`: cumulative low-level mouse hook counters (events, `LLMHF_INJECTED`,
+  `LLMHF_LOWER_IL_INJECTED`, focused time).
+- `coverage`: completed passes per scan job, so the server can tell a client that never scans.
+
+## Gameplay ingest
+
+`/v1/ingest` WebSocket, same `Authorization: Bearer <tenant server key>` as `/v1/gs`. The game
+server sends one `GameplayBatch` per binary frame (per-match slots, view-angle tracks, shots,
+visibility transitions, command counts, semi-auto trigger timestamps) and the gateway answers
+each with an `IngestAck`. `batch_seq` must increase per match; a duplicate or older batch is
+acknowledged with `accepted=false` and dropped.

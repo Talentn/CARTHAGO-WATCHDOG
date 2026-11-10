@@ -83,6 +83,364 @@ func (DeviceKeyAlg) EnumDescriptor() ([]byte, []int) {
 	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{0}
 }
 
+// Client scan finding codes (Finding.code). The client only observes and reports; every
+// threshold, allowlist and verdict lives on the server (plan §8.6). Meaning of a, b and
+// detail per code below. Codes 1 and 3 predate this enum and keep their values.
+type FindingCode int32
+
+const (
+	FindingCode_FINDING_CODE_UNSPECIFIED FindingCode = 0
+	// Loader-list module whose base is not an image mapping. a = module base.
+	FindingCode_FINDING_CODE_MODULE_NOT_IMAGE FindingCode = 1
+	// Image mapping whose allocation base is missing from the loader list (unlinked module).
+	// a = allocation base, b = region size, detail = mapped file base name.
+	FindingCode_FINDING_CODE_IMAGE_NOT_IN_LOADER FindingCode = 2
+	// Committed executable memory that is not image-backed. a = base, b = size in the low
+	// 48 bits plus UnbackedFlags << 48, detail empty.
+	FindingCode_FINDING_CODE_UNBACKED_EXEC FindingCode = 3
+	// Thread whose start address is outside every image mapping. a = start, b = thread id.
+	FindingCode_FINDING_CODE_THREAD_START_UNBACKED FindingCode = 4
+	// Thread starting at a loader entry point (LoadLibrary*/LdrLoadDll): the classic remote
+	// injection thread. a = start, b = thread id, detail = WatchedApi name of the target.
+	FindingCode_FINDING_CODE_THREAD_START_LOADER FindingCode = 5
+	// Exported API whose first bytes differ from the on-disk image. a = hook target address
+	// (0 if not a recognised jump), b = WatchedApi, detail = target module ("" = not image-backed).
+	FindingCode_FINDING_CODE_API_HOOK FindingCode = 6
+	// Code page of a graphics module (dxgi/d3d11/d3d12, which hold the Present path) that
+	// differs from disk. a = patched address, b = jump target (0 if not decoded),
+	// detail = "patched_module>target_module" (target "?" = not image-backed).
+	FindingCode_FINDING_CODE_CODE_PATCH FindingCode = 7
+	// Another process holds a handle to the game with memory or thread access.
+	// a = holder pid, b = granted access mask, detail = holder image base name.
+	FindingCode_FINDING_CODE_EXTERNAL_HANDLE FindingCode = 8
+	// Layered, transparent, topmost window of another process over the game window.
+	// a = owner pid, b = extended window style, detail = owner image base name. Never titles.
+	FindingCode_FINDING_CODE_OVERLAY_WINDOW FindingCode = 9
+	// Debugger signals. a = DebugSignal bit mask.
+	FindingCode_FINDING_CODE_DEBUGGER FindingCode = 10
+	// Loaded kernel driver matching the known-vulnerable driver list. detail = file name.
+	FindingCode_FINDING_CODE_VULNERABLE_DRIVER FindingCode = 11
+	// Module loaded into the game process outside the system directory.
+	// a = base, b = ModulePathClass, detail = base name.
+	FindingCode_FINDING_CODE_MODULE_LOADED FindingCode = 12
+	// Process mitigation profile outcome (informational). a = applied bits, b = failed bits.
+	FindingCode_FINDING_CODE_MITIGATIONS FindingCode = 13
+)
+
+// Enum value maps for FindingCode.
+var (
+	FindingCode_name = map[int32]string{
+		0:  "FINDING_CODE_UNSPECIFIED",
+		1:  "FINDING_CODE_MODULE_NOT_IMAGE",
+		2:  "FINDING_CODE_IMAGE_NOT_IN_LOADER",
+		3:  "FINDING_CODE_UNBACKED_EXEC",
+		4:  "FINDING_CODE_THREAD_START_UNBACKED",
+		5:  "FINDING_CODE_THREAD_START_LOADER",
+		6:  "FINDING_CODE_API_HOOK",
+		7:  "FINDING_CODE_CODE_PATCH",
+		8:  "FINDING_CODE_EXTERNAL_HANDLE",
+		9:  "FINDING_CODE_OVERLAY_WINDOW",
+		10: "FINDING_CODE_DEBUGGER",
+		11: "FINDING_CODE_VULNERABLE_DRIVER",
+		12: "FINDING_CODE_MODULE_LOADED",
+		13: "FINDING_CODE_MITIGATIONS",
+	}
+	FindingCode_value = map[string]int32{
+		"FINDING_CODE_UNSPECIFIED":           0,
+		"FINDING_CODE_MODULE_NOT_IMAGE":      1,
+		"FINDING_CODE_IMAGE_NOT_IN_LOADER":   2,
+		"FINDING_CODE_UNBACKED_EXEC":         3,
+		"FINDING_CODE_THREAD_START_UNBACKED": 4,
+		"FINDING_CODE_THREAD_START_LOADER":   5,
+		"FINDING_CODE_API_HOOK":              6,
+		"FINDING_CODE_CODE_PATCH":            7,
+		"FINDING_CODE_EXTERNAL_HANDLE":       8,
+		"FINDING_CODE_OVERLAY_WINDOW":        9,
+		"FINDING_CODE_DEBUGGER":              10,
+		"FINDING_CODE_VULNERABLE_DRIVER":     11,
+		"FINDING_CODE_MODULE_LOADED":         12,
+		"FINDING_CODE_MITIGATIONS":           13,
+	}
+)
+
+func (x FindingCode) Enum() *FindingCode {
+	p := new(FindingCode)
+	*p = x
+	return p
+}
+
+func (x FindingCode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FindingCode) Descriptor() protoreflect.EnumDescriptor {
+	return file_sentinel_v1_handshake_proto_enumTypes[1].Descriptor()
+}
+
+func (FindingCode) Type() protoreflect.EnumType {
+	return &file_sentinel_v1_handshake_proto_enumTypes[1]
+}
+
+func (x FindingCode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FindingCode.Descriptor instead.
+func (FindingCode) EnumDescriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{1}
+}
+
+// Bits in FINDING_CODE_UNBACKED_EXEC b >> 48.
+type UnbackedFlags int32
+
+const (
+	UnbackedFlags_UNBACKED_FLAGS_NONE         UnbackedFlags = 0
+	UnbackedFlags_UNBACKED_FLAGS_MZ_HEADER    UnbackedFlags = 1
+	UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE UnbackedFlags = 2
+	UnbackedFlags_UNBACKED_FLAGS_PRIVATE      UnbackedFlags = 4 // MEM_PRIVATE (otherwise MEM_MAPPED)
+	UnbackedFlags_UNBACKED_FLAGS_WRITABLE     UnbackedFlags = 8 // executable and writable
+)
+
+// Enum value maps for UnbackedFlags.
+var (
+	UnbackedFlags_name = map[int32]string{
+		0: "UNBACKED_FLAGS_NONE",
+		1: "UNBACKED_FLAGS_MZ_HEADER",
+		2: "UNBACKED_FLAGS_PE_SIGNATURE",
+		4: "UNBACKED_FLAGS_PRIVATE",
+		8: "UNBACKED_FLAGS_WRITABLE",
+	}
+	UnbackedFlags_value = map[string]int32{
+		"UNBACKED_FLAGS_NONE":         0,
+		"UNBACKED_FLAGS_MZ_HEADER":    1,
+		"UNBACKED_FLAGS_PE_SIGNATURE": 2,
+		"UNBACKED_FLAGS_PRIVATE":      4,
+		"UNBACKED_FLAGS_WRITABLE":     8,
+	}
+)
+
+func (x UnbackedFlags) Enum() *UnbackedFlags {
+	p := new(UnbackedFlags)
+	*p = x
+	return p
+}
+
+func (x UnbackedFlags) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UnbackedFlags) Descriptor() protoreflect.EnumDescriptor {
+	return file_sentinel_v1_handshake_proto_enumTypes[2].Descriptor()
+}
+
+func (UnbackedFlags) Type() protoreflect.EnumType {
+	return &file_sentinel_v1_handshake_proto_enumTypes[2]
+}
+
+func (x UnbackedFlags) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UnbackedFlags.Descriptor instead.
+func (UnbackedFlags) EnumDescriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{2}
+}
+
+// Bits in FINDING_CODE_DEBUGGER a.
+type DebugSignal int32
+
+const (
+	DebugSignal_DEBUG_SIGNAL_NONE                DebugSignal = 0
+	DebugSignal_DEBUG_SIGNAL_PEB_BEING_DEBUGGED  DebugSignal = 1
+	DebugSignal_DEBUG_SIGNAL_DEBUG_PORT          DebugSignal = 2
+	DebugSignal_DEBUG_SIGNAL_DEBUG_OBJECT        DebugSignal = 4
+	DebugSignal_DEBUG_SIGNAL_NO_INHERIT_FLAG     DebugSignal = 8  // ProcessDebugFlags == 0
+	DebugSignal_DEBUG_SIGNAL_HARDWARE_BREAKPOINT DebugSignal = 16 // DR0-DR3 set on the scanning thread
+	DebugSignal_DEBUG_SIGNAL_KERNEL_DEBUGGER     DebugSignal = 32 // KUSER_SHARED_DATA.KdDebuggerEnabled
+)
+
+// Enum value maps for DebugSignal.
+var (
+	DebugSignal_name = map[int32]string{
+		0:  "DEBUG_SIGNAL_NONE",
+		1:  "DEBUG_SIGNAL_PEB_BEING_DEBUGGED",
+		2:  "DEBUG_SIGNAL_DEBUG_PORT",
+		4:  "DEBUG_SIGNAL_DEBUG_OBJECT",
+		8:  "DEBUG_SIGNAL_NO_INHERIT_FLAG",
+		16: "DEBUG_SIGNAL_HARDWARE_BREAKPOINT",
+		32: "DEBUG_SIGNAL_KERNEL_DEBUGGER",
+	}
+	DebugSignal_value = map[string]int32{
+		"DEBUG_SIGNAL_NONE":                0,
+		"DEBUG_SIGNAL_PEB_BEING_DEBUGGED":  1,
+		"DEBUG_SIGNAL_DEBUG_PORT":          2,
+		"DEBUG_SIGNAL_DEBUG_OBJECT":        4,
+		"DEBUG_SIGNAL_NO_INHERIT_FLAG":     8,
+		"DEBUG_SIGNAL_HARDWARE_BREAKPOINT": 16,
+		"DEBUG_SIGNAL_KERNEL_DEBUGGER":     32,
+	}
+)
+
+func (x DebugSignal) Enum() *DebugSignal {
+	p := new(DebugSignal)
+	*p = x
+	return p
+}
+
+func (x DebugSignal) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DebugSignal) Descriptor() protoreflect.EnumDescriptor {
+	return file_sentinel_v1_handshake_proto_enumTypes[3].Descriptor()
+}
+
+func (DebugSignal) Type() protoreflect.EnumType {
+	return &file_sentinel_v1_handshake_proto_enumTypes[3]
+}
+
+func (x DebugSignal) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DebugSignal.Descriptor instead.
+func (DebugSignal) EnumDescriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{3}
+}
+
+type ModulePathClass int32
+
+const (
+	ModulePathClass_MODULE_PATH_CLASS_OTHER         ModulePathClass = 0
+	ModulePathClass_MODULE_PATH_CLASS_GAME_DIR      ModulePathClass = 1 // under the game executable's directory
+	ModulePathClass_MODULE_PATH_CLASS_PROGRAM_FILES ModulePathClass = 2
+)
+
+// Enum value maps for ModulePathClass.
+var (
+	ModulePathClass_name = map[int32]string{
+		0: "MODULE_PATH_CLASS_OTHER",
+		1: "MODULE_PATH_CLASS_GAME_DIR",
+		2: "MODULE_PATH_CLASS_PROGRAM_FILES",
+	}
+	ModulePathClass_value = map[string]int32{
+		"MODULE_PATH_CLASS_OTHER":         0,
+		"MODULE_PATH_CLASS_GAME_DIR":      1,
+		"MODULE_PATH_CLASS_PROGRAM_FILES": 2,
+	}
+)
+
+func (x ModulePathClass) Enum() *ModulePathClass {
+	p := new(ModulePathClass)
+	*p = x
+	return p
+}
+
+func (x ModulePathClass) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ModulePathClass) Descriptor() protoreflect.EnumDescriptor {
+	return file_sentinel_v1_handshake_proto_enumTypes[4].Descriptor()
+}
+
+func (ModulePathClass) Type() protoreflect.EnumType {
+	return &file_sentinel_v1_handshake_proto_enumTypes[4]
+}
+
+func (x ModulePathClass) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ModulePathClass.Descriptor instead.
+func (ModulePathClass) EnumDescriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{4}
+}
+
+// Curated exports checked for inline hooks (timing APIs for speedhacks, loader and query
+// APIs that injectors and hiders patch). FINDING_CODE_API_HOOK b and THREAD_START_LOADER.
+type WatchedApi int32
+
+const (
+	WatchedApi_WATCHED_API_UNSPECIFIED                         WatchedApi = 0
+	WatchedApi_WATCHED_API_NTDLL_NT_QUERY_PERFORMANCE_COUNTER  WatchedApi = 1
+	WatchedApi_WATCHED_API_NTDLL_RTL_QUERY_PERFORMANCE_COUNTER WatchedApi = 2
+	WatchedApi_WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER  WatchedApi = 3
+	WatchedApi_WATCHED_API_KERNELBASE_GET_TICK_COUNT64         WatchedApi = 4
+	WatchedApi_WATCHED_API_KERNELBASE_GET_TICK_COUNT           WatchedApi = 5
+	WatchedApi_WATCHED_API_WINMM_TIME_GET_TIME                 WatchedApi = 6
+	WatchedApi_WATCHED_API_NTDLL_NT_QUERY_SYSTEM_INFORMATION   WatchedApi = 7
+	WatchedApi_WATCHED_API_NTDLL_NT_QUERY_VIRTUAL_MEMORY       WatchedApi = 8
+	WatchedApi_WATCHED_API_NTDLL_LDR_LOAD_DLL                  WatchedApi = 9
+	WatchedApi_WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W        WatchedApi = 10
+	WatchedApi_WATCHED_API_KERNEL32_LOAD_LIBRARY_A             WatchedApi = 11
+	WatchedApi_WATCHED_API_KERNEL32_LOAD_LIBRARY_W             WatchedApi = 12
+	WatchedApi_WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A        WatchedApi = 13
+)
+
+// Enum value maps for WatchedApi.
+var (
+	WatchedApi_name = map[int32]string{
+		0:  "WATCHED_API_UNSPECIFIED",
+		1:  "WATCHED_API_NTDLL_NT_QUERY_PERFORMANCE_COUNTER",
+		2:  "WATCHED_API_NTDLL_RTL_QUERY_PERFORMANCE_COUNTER",
+		3:  "WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER",
+		4:  "WATCHED_API_KERNELBASE_GET_TICK_COUNT64",
+		5:  "WATCHED_API_KERNELBASE_GET_TICK_COUNT",
+		6:  "WATCHED_API_WINMM_TIME_GET_TIME",
+		7:  "WATCHED_API_NTDLL_NT_QUERY_SYSTEM_INFORMATION",
+		8:  "WATCHED_API_NTDLL_NT_QUERY_VIRTUAL_MEMORY",
+		9:  "WATCHED_API_NTDLL_LDR_LOAD_DLL",
+		10: "WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W",
+		11: "WATCHED_API_KERNEL32_LOAD_LIBRARY_A",
+		12: "WATCHED_API_KERNEL32_LOAD_LIBRARY_W",
+		13: "WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A",
+	}
+	WatchedApi_value = map[string]int32{
+		"WATCHED_API_UNSPECIFIED":                         0,
+		"WATCHED_API_NTDLL_NT_QUERY_PERFORMANCE_COUNTER":  1,
+		"WATCHED_API_NTDLL_RTL_QUERY_PERFORMANCE_COUNTER": 2,
+		"WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER":  3,
+		"WATCHED_API_KERNELBASE_GET_TICK_COUNT64":         4,
+		"WATCHED_API_KERNELBASE_GET_TICK_COUNT":           5,
+		"WATCHED_API_WINMM_TIME_GET_TIME":                 6,
+		"WATCHED_API_NTDLL_NT_QUERY_SYSTEM_INFORMATION":   7,
+		"WATCHED_API_NTDLL_NT_QUERY_VIRTUAL_MEMORY":       8,
+		"WATCHED_API_NTDLL_LDR_LOAD_DLL":                  9,
+		"WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W":        10,
+		"WATCHED_API_KERNEL32_LOAD_LIBRARY_A":             11,
+		"WATCHED_API_KERNEL32_LOAD_LIBRARY_W":             12,
+		"WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A":        13,
+	}
+)
+
+func (x WatchedApi) Enum() *WatchedApi {
+	p := new(WatchedApi)
+	*p = x
+	return p
+}
+
+func (x WatchedApi) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WatchedApi) Descriptor() protoreflect.EnumDescriptor {
+	return file_sentinel_v1_handshake_proto_enumTypes[5].Descriptor()
+}
+
+func (WatchedApi) Type() protoreflect.EnumType {
+	return &file_sentinel_v1_handshake_proto_enumTypes[5]
+}
+
+func (x WatchedApi) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WatchedApi.Descriptor instead.
+func (WatchedApi) EnumDescriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{5}
+}
+
 type DeviceKey struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Alg           DeviceKeyAlg           `protobuf:"varint,1,opt,name=alg,proto3,enum=sentinel.v1.DeviceKeyAlg" json:"alg,omitempty"`
@@ -1003,9 +1361,10 @@ func (x *Session) GetNotes() []string {
 type Finding struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Job           string                 `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
-	Code          uint32                 `protobuf:"varint,2,opt,name=code,proto3" json:"code,omitempty"`
+	Code          uint32                 `protobuf:"varint,2,opt,name=code,proto3" json:"code,omitempty"` // FindingCode
 	A             uint64                 `protobuf:"varint,3,opt,name=a,proto3" json:"a,omitempty"`
 	B             uint64                 `protobuf:"varint,4,opt,name=b,proto3" json:"b,omitempty"`
+	Detail        string                 `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"` // ≤ 47 bytes; module or process base name, never paths or titles
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1068,16 +1427,25 @@ func (x *Finding) GetB() uint64 {
 	return 0
 }
 
+func (x *Finding) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 type SchedSummary struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	WorkerCpuNs     uint64                 `protobuf:"varint,1,opt,name=worker_cpu_ns,json=workerCpuNs,proto3" json:"worker_cpu_ns,omitempty"`
-	Slices          uint64                 `protobuf:"varint,2,opt,name=slices,proto3" json:"slices,omitempty"`
-	SliceCpuMaxNs   uint64                 `protobuf:"varint,3,opt,name=slice_cpu_max_ns,json=sliceCpuMaxNs,proto3" json:"slice_cpu_max_ns,omitempty"`
-	Frames          uint64                 `protobuf:"varint,4,opt,name=frames,proto3" json:"frames,omitempty"`
-	JobsQuarantined uint32                 `protobuf:"varint,5,opt,name=jobs_quarantined,json=jobsQuarantined,proto3" json:"jobs_quarantined,omitempty"`
-	FindingsDropped uint64                 `protobuf:"varint,6,opt,name=findings_dropped,json=findingsDropped,proto3" json:"findings_dropped,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	WorkerCpuNs      uint64                 `protobuf:"varint,1,opt,name=worker_cpu_ns,json=workerCpuNs,proto3" json:"worker_cpu_ns,omitempty"`
+	Slices           uint64                 `protobuf:"varint,2,opt,name=slices,proto3" json:"slices,omitempty"`
+	SliceCpuMaxNs    uint64                 `protobuf:"varint,3,opt,name=slice_cpu_max_ns,json=sliceCpuMaxNs,proto3" json:"slice_cpu_max_ns,omitempty"`
+	Frames           uint64                 `protobuf:"varint,4,opt,name=frames,proto3" json:"frames,omitempty"`
+	JobsQuarantined  uint32                 `protobuf:"varint,5,opt,name=jobs_quarantined,json=jobsQuarantined,proto3" json:"jobs_quarantined,omitempty"`
+	FindingsDropped  uint64                 `protobuf:"varint,6,opt,name=findings_dropped,json=findingsDropped,proto3" json:"findings_dropped,omitempty"`
+	SliceOverruns    uint64                 `protobuf:"varint,7,opt,name=slice_overruns,json=sliceOverruns,proto3" json:"slice_overruns,omitempty"`              // slices whose wall time exceeded the 3 ms hard cap
+	InputThreadCpuNs uint64                 `protobuf:"varint,8,opt,name=input_thread_cpu_ns,json=inputThreadCpuNs,proto3" json:"input_thread_cpu_ns,omitempty"` // low-level mouse hook thread
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SchedSummary) Reset() {
@@ -1152,18 +1520,237 @@ func (x *SchedSummary) GetFindingsDropped() uint64 {
 	return 0
 }
 
+func (x *SchedSummary) GetSliceOverruns() uint64 {
+	if x != nil {
+		return x.SliceOverruns
+	}
+	return 0
+}
+
+func (x *SchedSummary) GetInputThreadCpuNs() uint64 {
+	if x != nil {
+		return x.InputThreadCpuNs
+	}
+	return 0
+}
+
+// Raw clock readings taken together at heartbeat time. The server compares their rates
+// with each other and with its own clock (speedhack: hooked QPC/GetTickCount run fast,
+// KUSER_SHARED_DATA.InterruptTime cannot be hooked from user mode).
+type TimeSample struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	QpcNs               uint64                 `protobuf:"varint,1,opt,name=qpc_ns,json=qpcNs,proto3" json:"qpc_ns,omitempty"`
+	TickCountMs         uint64                 `protobuf:"varint,2,opt,name=tick_count_ms,json=tickCountMs,proto3" json:"tick_count_ms,omitempty"`
+	InterruptTime_100Ns uint64                 `protobuf:"varint,3,opt,name=interrupt_time_100ns,json=interruptTime100ns,proto3" json:"interrupt_time_100ns,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *TimeSample) Reset() {
+	*x = TimeSample{}
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TimeSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TimeSample) ProtoMessage() {}
+
+func (x *TimeSample) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TimeSample.ProtoReflect.Descriptor instead.
+func (*TimeSample) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *TimeSample) GetQpcNs() uint64 {
+	if x != nil {
+		return x.QpcNs
+	}
+	return 0
+}
+
+func (x *TimeSample) GetTickCountMs() uint64 {
+	if x != nil {
+		return x.TickCountMs
+	}
+	return 0
+}
+
+func (x *TimeSample) GetInterruptTime_100Ns() uint64 {
+	if x != nil {
+		return x.InterruptTime_100Ns
+	}
+	return 0
+}
+
+// Low-level mouse hook counters, cumulative for the session, counted only while the game
+// window has focus (plan §6.1). Timing and counts only, never positions or keys.
+type InputStats struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	MouseEvents     uint64                 `protobuf:"varint,1,opt,name=mouse_events,json=mouseEvents,proto3" json:"mouse_events,omitempty"`
+	Injected        uint64                 `protobuf:"varint,2,opt,name=injected,proto3" json:"injected,omitempty"`                                        // LLMHF_INJECTED
+	LowerIlInjected uint64                 `protobuf:"varint,3,opt,name=lower_il_injected,json=lowerIlInjected,proto3" json:"lower_il_injected,omitempty"` // LLMHF_LOWER_IL_INJECTED
+	FocusedMs       uint64                 `protobuf:"varint,4,opt,name=focused_ms,json=focusedMs,proto3" json:"focused_ms,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *InputStats) Reset() {
+	*x = InputStats{}
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InputStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InputStats) ProtoMessage() {}
+
+func (x *InputStats) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InputStats.ProtoReflect.Descriptor instead.
+func (*InputStats) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *InputStats) GetMouseEvents() uint64 {
+	if x != nil {
+		return x.MouseEvents
+	}
+	return 0
+}
+
+func (x *InputStats) GetInjected() uint64 {
+	if x != nil {
+		return x.Injected
+	}
+	return 0
+}
+
+func (x *InputStats) GetLowerIlInjected() uint64 {
+	if x != nil {
+		return x.LowerIlInjected
+	}
+	return 0
+}
+
+func (x *InputStats) GetFocusedMs() uint64 {
+	if x != nil {
+		return x.FocusedMs
+	}
+	return 0
+}
+
+// Per scan family: completed passes so far (coverage accounting, plan §5.3).
+type JobCoverage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           string                 `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	RunsCompleted uint64                 `protobuf:"varint,2,opt,name=runs_completed,json=runsCompleted,proto3" json:"runs_completed,omitempty"`
+	Overruns      uint64                 `protobuf:"varint,3,opt,name=overruns,proto3" json:"overruns,omitempty"`
+	Quarantined   bool                   `protobuf:"varint,4,opt,name=quarantined,proto3" json:"quarantined,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JobCoverage) Reset() {
+	*x = JobCoverage{}
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobCoverage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobCoverage) ProtoMessage() {}
+
+func (x *JobCoverage) ProtoReflect() protoreflect.Message {
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobCoverage.ProtoReflect.Descriptor instead.
+func (*JobCoverage) Descriptor() ([]byte, []int) {
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *JobCoverage) GetJob() string {
+	if x != nil {
+		return x.Job
+	}
+	return ""
+}
+
+func (x *JobCoverage) GetRunsCompleted() uint64 {
+	if x != nil {
+		return x.RunsCompleted
+	}
+	return 0
+}
+
+func (x *JobCoverage) GetOverruns() uint64 {
+	if x != nil {
+		return x.Overruns
+	}
+	return 0
+}
+
+func (x *JobCoverage) GetQuarantined() bool {
+	if x != nil {
+		return x.Quarantined
+	}
+	return false
+}
+
 type Heartbeat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Activity      uint32                 `protobuf:"varint,1,opt,name=activity,proto3" json:"activity,omitempty"` // 0 gameplay, 1 menu, 2 loading
 	Sched         *SchedSummary          `protobuf:"bytes,2,opt,name=sched,proto3" json:"sched,omitempty"`
 	Findings      []*Finding             `protobuf:"bytes,3,rep,name=findings,proto3" json:"findings,omitempty"`
+	Time          *TimeSample            `protobuf:"bytes,4,opt,name=time,proto3" json:"time,omitempty"`
+	Input         *InputStats            `protobuf:"bytes,5,opt,name=input,proto3" json:"input,omitempty"`
+	Coverage      []*JobCoverage         `protobuf:"bytes,6,rep,name=coverage,proto3" json:"coverage,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[14]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1175,7 +1762,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[14]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1188,7 +1775,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{14}
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Heartbeat) GetActivity() uint32 {
@@ -1212,6 +1799,27 @@ func (x *Heartbeat) GetFindings() []*Finding {
 	return nil
 }
 
+func (x *Heartbeat) GetTime() *TimeSample {
+	if x != nil {
+		return x.Time
+	}
+	return nil
+}
+
+func (x *Heartbeat) GetInput() *InputStats {
+	if x != nil {
+		return x.Input
+	}
+	return nil
+}
+
+func (x *Heartbeat) GetCoverage() []*JobCoverage {
+	if x != nil {
+		return x.Coverage
+	}
+	return nil
+}
+
 type HeartbeatAck struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	RenewedToken       string                 `protobuf:"bytes,1,opt,name=renewed_token,json=renewedToken,proto3" json:"renewed_token,omitempty"` // set when the current token is close to expiry
@@ -1222,7 +1830,7 @@ type HeartbeatAck struct {
 
 func (x *HeartbeatAck) Reset() {
 	*x = HeartbeatAck{}
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[15]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1234,7 +1842,7 @@ func (x *HeartbeatAck) String() string {
 func (*HeartbeatAck) ProtoMessage() {}
 
 func (x *HeartbeatAck) ProtoReflect() protoreflect.Message {
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[15]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1247,7 +1855,7 @@ func (x *HeartbeatAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatAck.ProtoReflect.Descriptor instead.
 func (*HeartbeatAck) Descriptor() ([]byte, []int) {
-	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{15}
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *HeartbeatAck) GetRenewedToken() string {
@@ -1273,7 +1881,7 @@ type Kicked struct {
 
 func (x *Kicked) Reset() {
 	*x = Kicked{}
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[16]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1285,7 +1893,7 @@ func (x *Kicked) String() string {
 func (*Kicked) ProtoMessage() {}
 
 func (x *Kicked) ProtoReflect() protoreflect.Message {
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[16]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1298,7 +1906,7 @@ func (x *Kicked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Kicked.ProtoReflect.Descriptor instead.
 func (*Kicked) Descriptor() ([]byte, []int) {
-	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{16}
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Kicked) GetReason() string {
@@ -1318,7 +1926,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[17]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1330,7 +1938,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[17]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1343,7 +1951,7 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{17}
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Error) GetCode() string {
@@ -1377,7 +1985,7 @@ type ClientMsg struct {
 
 func (x *ClientMsg) Reset() {
 	*x = ClientMsg{}
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[18]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1997,7 @@ func (x *ClientMsg) String() string {
 func (*ClientMsg) ProtoMessage() {}
 
 func (x *ClientMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[18]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +2010,7 @@ func (x *ClientMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientMsg.ProtoReflect.Descriptor instead.
 func (*ClientMsg) Descriptor() ([]byte, []int) {
-	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{18}
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ClientMsg) GetSeq() uint64 {
@@ -1485,7 +2093,7 @@ type ServerMsg struct {
 
 func (x *ServerMsg) Reset() {
 	*x = ServerMsg{}
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[19]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1497,7 +2105,7 @@ func (x *ServerMsg) String() string {
 func (*ServerMsg) ProtoMessage() {}
 
 func (x *ServerMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_sentinel_v1_handshake_proto_msgTypes[19]
+	mi := &file_sentinel_v1_handshake_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1510,7 +2118,7 @@ func (x *ServerMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMsg.ProtoReflect.Descriptor instead.
 func (*ServerMsg) Descriptor() ([]byte, []int) {
-	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{19}
+	return file_sentinel_v1_handshake_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ServerMsg) GetSeq() uint64 {
@@ -1693,23 +2301,46 @@ const file_sentinel_v1_handshake_proto_rawDesc = "" +
 	"trustLevel\x12!\n" +
 	"\fattest_flags\x18\x03 \x01(\x04R\vattestFlags\x12\"\n" +
 	"\rexpires_at_ms\x18\x04 \x01(\x04R\vexpiresAtMs\x12\x14\n" +
-	"\x05notes\x18\x05 \x03(\tR\x05notes\"K\n" +
+	"\x05notes\x18\x05 \x03(\tR\x05notes\"c\n" +
 	"\aFinding\x12\x10\n" +
 	"\x03job\x18\x01 \x01(\tR\x03job\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\rR\x04code\x12\f\n" +
 	"\x01a\x18\x03 \x01(\x04R\x01a\x12\f\n" +
-	"\x01b\x18\x04 \x01(\x04R\x01b\"\xe1\x01\n" +
+	"\x01b\x18\x04 \x01(\x04R\x01b\x12\x16\n" +
+	"\x06detail\x18\x05 \x01(\tR\x06detail\"\xb7\x02\n" +
 	"\fSchedSummary\x12\"\n" +
 	"\rworker_cpu_ns\x18\x01 \x01(\x04R\vworkerCpuNs\x12\x16\n" +
 	"\x06slices\x18\x02 \x01(\x04R\x06slices\x12'\n" +
 	"\x10slice_cpu_max_ns\x18\x03 \x01(\x04R\rsliceCpuMaxNs\x12\x16\n" +
 	"\x06frames\x18\x04 \x01(\x04R\x06frames\x12)\n" +
 	"\x10jobs_quarantined\x18\x05 \x01(\rR\x0fjobsQuarantined\x12)\n" +
-	"\x10findings_dropped\x18\x06 \x01(\x04R\x0ffindingsDropped\"\x8a\x01\n" +
+	"\x10findings_dropped\x18\x06 \x01(\x04R\x0ffindingsDropped\x12%\n" +
+	"\x0eslice_overruns\x18\a \x01(\x04R\rsliceOverruns\x12-\n" +
+	"\x13input_thread_cpu_ns\x18\b \x01(\x04R\x10inputThreadCpuNs\"y\n" +
+	"\n" +
+	"TimeSample\x12\x15\n" +
+	"\x06qpc_ns\x18\x01 \x01(\x04R\x05qpcNs\x12\"\n" +
+	"\rtick_count_ms\x18\x02 \x01(\x04R\vtickCountMs\x120\n" +
+	"\x14interrupt_time_100ns\x18\x03 \x01(\x04R\x12interruptTime100ns\"\x96\x01\n" +
+	"\n" +
+	"InputStats\x12!\n" +
+	"\fmouse_events\x18\x01 \x01(\x04R\vmouseEvents\x12\x1a\n" +
+	"\binjected\x18\x02 \x01(\x04R\binjected\x12*\n" +
+	"\x11lower_il_injected\x18\x03 \x01(\x04R\x0flowerIlInjected\x12\x1d\n" +
+	"\n" +
+	"focused_ms\x18\x04 \x01(\x04R\tfocusedMs\"\x84\x01\n" +
+	"\vJobCoverage\x12\x10\n" +
+	"\x03job\x18\x01 \x01(\tR\x03job\x12%\n" +
+	"\x0eruns_completed\x18\x02 \x01(\x04R\rrunsCompleted\x12\x1a\n" +
+	"\boverruns\x18\x03 \x01(\x04R\boverruns\x12 \n" +
+	"\vquarantined\x18\x04 \x01(\bR\vquarantined\"\x9c\x02\n" +
 	"\tHeartbeat\x12\x1a\n" +
 	"\bactivity\x18\x01 \x01(\rR\bactivity\x12/\n" +
 	"\x05sched\x18\x02 \x01(\v2\x19.sentinel.v1.SchedSummaryR\x05sched\x120\n" +
-	"\bfindings\x18\x03 \x03(\v2\x14.sentinel.v1.FindingR\bfindings\"f\n" +
+	"\bfindings\x18\x03 \x03(\v2\x14.sentinel.v1.FindingR\bfindings\x12+\n" +
+	"\x04time\x18\x04 \x01(\v2\x17.sentinel.v1.TimeSampleR\x04time\x12-\n" +
+	"\x05input\x18\x05 \x01(\v2\x17.sentinel.v1.InputStatsR\x05input\x124\n" +
+	"\bcoverage\x18\x06 \x03(\v2\x18.sentinel.v1.JobCoverageR\bcoverage\"f\n" +
 	"\fHeartbeatAck\x12#\n" +
 	"\rrenewed_token\x18\x01 \x01(\tR\frenewedToken\x121\n" +
 	"\x15renewed_expires_at_ms\x18\x02 \x01(\x04R\x12renewedExpiresAtMs\" \n" +
@@ -1743,7 +2374,58 @@ const file_sentinel_v1_handshake_proto_rawDesc = "" +
 	"\fDeviceKeyAlg\x12\x1e\n" +
 	"\x1aDEVICE_KEY_ALG_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fDEVICE_KEY_ALG_ED25519_SOFTWARE\x10\x01\x12!\n" +
-	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02B-Z+sentinel/backend/gen/sentinel/v1;sentinelv1b\x06proto3"
+	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02*\xda\x03\n" +
+	"\vFindingCode\x12\x1c\n" +
+	"\x18FINDING_CODE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dFINDING_CODE_MODULE_NOT_IMAGE\x10\x01\x12$\n" +
+	" FINDING_CODE_IMAGE_NOT_IN_LOADER\x10\x02\x12\x1e\n" +
+	"\x1aFINDING_CODE_UNBACKED_EXEC\x10\x03\x12&\n" +
+	"\"FINDING_CODE_THREAD_START_UNBACKED\x10\x04\x12$\n" +
+	" FINDING_CODE_THREAD_START_LOADER\x10\x05\x12\x19\n" +
+	"\x15FINDING_CODE_API_HOOK\x10\x06\x12\x1b\n" +
+	"\x17FINDING_CODE_CODE_PATCH\x10\a\x12 \n" +
+	"\x1cFINDING_CODE_EXTERNAL_HANDLE\x10\b\x12\x1f\n" +
+	"\x1bFINDING_CODE_OVERLAY_WINDOW\x10\t\x12\x19\n" +
+	"\x15FINDING_CODE_DEBUGGER\x10\n" +
+	"\x12\"\n" +
+	"\x1eFINDING_CODE_VULNERABLE_DRIVER\x10\v\x12\x1e\n" +
+	"\x1aFINDING_CODE_MODULE_LOADED\x10\f\x12\x1c\n" +
+	"\x18FINDING_CODE_MITIGATIONS\x10\r*\xa0\x01\n" +
+	"\rUnbackedFlags\x12\x17\n" +
+	"\x13UNBACKED_FLAGS_NONE\x10\x00\x12\x1c\n" +
+	"\x18UNBACKED_FLAGS_MZ_HEADER\x10\x01\x12\x1f\n" +
+	"\x1bUNBACKED_FLAGS_PE_SIGNATURE\x10\x02\x12\x1a\n" +
+	"\x16UNBACKED_FLAGS_PRIVATE\x10\x04\x12\x1b\n" +
+	"\x17UNBACKED_FLAGS_WRITABLE\x10\b*\xef\x01\n" +
+	"\vDebugSignal\x12\x15\n" +
+	"\x11DEBUG_SIGNAL_NONE\x10\x00\x12#\n" +
+	"\x1fDEBUG_SIGNAL_PEB_BEING_DEBUGGED\x10\x01\x12\x1b\n" +
+	"\x17DEBUG_SIGNAL_DEBUG_PORT\x10\x02\x12\x1d\n" +
+	"\x19DEBUG_SIGNAL_DEBUG_OBJECT\x10\x04\x12 \n" +
+	"\x1cDEBUG_SIGNAL_NO_INHERIT_FLAG\x10\b\x12$\n" +
+	" DEBUG_SIGNAL_HARDWARE_BREAKPOINT\x10\x10\x12 \n" +
+	"\x1cDEBUG_SIGNAL_KERNEL_DEBUGGER\x10 *s\n" +
+	"\x0fModulePathClass\x12\x1b\n" +
+	"\x17MODULE_PATH_CLASS_OTHER\x10\x00\x12\x1e\n" +
+	"\x1aMODULE_PATH_CLASS_GAME_DIR\x10\x01\x12#\n" +
+	"\x1fMODULE_PATH_CLASS_PROGRAM_FILES\x10\x02*\xf7\x04\n" +
+	"\n" +
+	"WatchedApi\x12\x1b\n" +
+	"\x17WATCHED_API_UNSPECIFIED\x10\x00\x122\n" +
+	".WATCHED_API_NTDLL_NT_QUERY_PERFORMANCE_COUNTER\x10\x01\x123\n" +
+	"/WATCHED_API_NTDLL_RTL_QUERY_PERFORMANCE_COUNTER\x10\x02\x122\n" +
+	".WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER\x10\x03\x12+\n" +
+	"'WATCHED_API_KERNELBASE_GET_TICK_COUNT64\x10\x04\x12)\n" +
+	"%WATCHED_API_KERNELBASE_GET_TICK_COUNT\x10\x05\x12#\n" +
+	"\x1fWATCHED_API_WINMM_TIME_GET_TIME\x10\x06\x121\n" +
+	"-WATCHED_API_NTDLL_NT_QUERY_SYSTEM_INFORMATION\x10\a\x12-\n" +
+	")WATCHED_API_NTDLL_NT_QUERY_VIRTUAL_MEMORY\x10\b\x12\"\n" +
+	"\x1eWATCHED_API_NTDLL_LDR_LOAD_DLL\x10\t\x12,\n" +
+	"(WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W\x10\n" +
+	"\x12'\n" +
+	"#WATCHED_API_KERNEL32_LOAD_LIBRARY_A\x10\v\x12'\n" +
+	"#WATCHED_API_KERNEL32_LOAD_LIBRARY_W\x10\f\x12,\n" +
+	"(WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A\x10\rB-Z+sentinel/backend/gen/sentinel/v1;sentinelv1b\x06proto3"
 
 var (
 	file_sentinel_v1_handshake_proto_rawDescOnce sync.Once
@@ -1757,53 +2439,64 @@ func file_sentinel_v1_handshake_proto_rawDescGZIP() []byte {
 	return file_sentinel_v1_handshake_proto_rawDescData
 }
 
-var file_sentinel_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_sentinel_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_sentinel_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_sentinel_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_sentinel_v1_handshake_proto_goTypes = []any{
 	(DeviceKeyAlg)(0),     // 0: sentinel.v1.DeviceKeyAlg
-	(*DeviceKey)(nil),     // 1: sentinel.v1.DeviceKey
-	(*TpmEnrollment)(nil), // 2: sentinel.v1.TpmEnrollment
-	(*EnvReport)(nil),     // 3: sentinel.v1.EnvReport
-	(*Hello)(nil),         // 4: sentinel.v1.Hello
-	(*EkChallenge)(nil),   // 5: sentinel.v1.EkChallenge
-	(*AttestRequest)(nil), // 6: sentinel.v1.AttestRequest
-	(*ChallengeBody)(nil), // 7: sentinel.v1.ChallengeBody
-	(*Challenge)(nil),     // 8: sentinel.v1.Challenge
-	(*Pcr)(nil),           // 9: sentinel.v1.Pcr
-	(*TpmEvidence)(nil),   // 10: sentinel.v1.TpmEvidence
-	(*Prove)(nil),         // 11: sentinel.v1.Prove
-	(*Session)(nil),       // 12: sentinel.v1.Session
-	(*Finding)(nil),       // 13: sentinel.v1.Finding
-	(*SchedSummary)(nil),  // 14: sentinel.v1.SchedSummary
-	(*Heartbeat)(nil),     // 15: sentinel.v1.Heartbeat
-	(*HeartbeatAck)(nil),  // 16: sentinel.v1.HeartbeatAck
-	(*Kicked)(nil),        // 17: sentinel.v1.Kicked
-	(*Error)(nil),         // 18: sentinel.v1.Error
-	(*ClientMsg)(nil),     // 19: sentinel.v1.ClientMsg
-	(*ServerMsg)(nil),     // 20: sentinel.v1.ServerMsg
+	(FindingCode)(0),      // 1: sentinel.v1.FindingCode
+	(UnbackedFlags)(0),    // 2: sentinel.v1.UnbackedFlags
+	(DebugSignal)(0),      // 3: sentinel.v1.DebugSignal
+	(ModulePathClass)(0),  // 4: sentinel.v1.ModulePathClass
+	(WatchedApi)(0),       // 5: sentinel.v1.WatchedApi
+	(*DeviceKey)(nil),     // 6: sentinel.v1.DeviceKey
+	(*TpmEnrollment)(nil), // 7: sentinel.v1.TpmEnrollment
+	(*EnvReport)(nil),     // 8: sentinel.v1.EnvReport
+	(*Hello)(nil),         // 9: sentinel.v1.Hello
+	(*EkChallenge)(nil),   // 10: sentinel.v1.EkChallenge
+	(*AttestRequest)(nil), // 11: sentinel.v1.AttestRequest
+	(*ChallengeBody)(nil), // 12: sentinel.v1.ChallengeBody
+	(*Challenge)(nil),     // 13: sentinel.v1.Challenge
+	(*Pcr)(nil),           // 14: sentinel.v1.Pcr
+	(*TpmEvidence)(nil),   // 15: sentinel.v1.TpmEvidence
+	(*Prove)(nil),         // 16: sentinel.v1.Prove
+	(*Session)(nil),       // 17: sentinel.v1.Session
+	(*Finding)(nil),       // 18: sentinel.v1.Finding
+	(*SchedSummary)(nil),  // 19: sentinel.v1.SchedSummary
+	(*TimeSample)(nil),    // 20: sentinel.v1.TimeSample
+	(*InputStats)(nil),    // 21: sentinel.v1.InputStats
+	(*JobCoverage)(nil),   // 22: sentinel.v1.JobCoverage
+	(*Heartbeat)(nil),     // 23: sentinel.v1.Heartbeat
+	(*HeartbeatAck)(nil),  // 24: sentinel.v1.HeartbeatAck
+	(*Kicked)(nil),        // 25: sentinel.v1.Kicked
+	(*Error)(nil),         // 26: sentinel.v1.Error
+	(*ClientMsg)(nil),     // 27: sentinel.v1.ClientMsg
+	(*ServerMsg)(nil),     // 28: sentinel.v1.ServerMsg
 }
 var file_sentinel_v1_handshake_proto_depIdxs = []int32{
 	0,  // 0: sentinel.v1.DeviceKey.alg:type_name -> sentinel.v1.DeviceKeyAlg
-	1,  // 1: sentinel.v1.Hello.device_key:type_name -> sentinel.v1.DeviceKey
-	3,  // 2: sentinel.v1.Hello.env:type_name -> sentinel.v1.EnvReport
-	2,  // 3: sentinel.v1.Hello.tpm_enrollment:type_name -> sentinel.v1.TpmEnrollment
-	5,  // 4: sentinel.v1.AttestRequest.ek_challenge:type_name -> sentinel.v1.EkChallenge
-	6,  // 5: sentinel.v1.ChallengeBody.attest:type_name -> sentinel.v1.AttestRequest
-	9,  // 6: sentinel.v1.TpmEvidence.pcrs:type_name -> sentinel.v1.Pcr
-	10, // 7: sentinel.v1.Prove.attestation:type_name -> sentinel.v1.TpmEvidence
-	14, // 8: sentinel.v1.Heartbeat.sched:type_name -> sentinel.v1.SchedSummary
-	13, // 9: sentinel.v1.Heartbeat.findings:type_name -> sentinel.v1.Finding
-	11, // 10: sentinel.v1.ClientMsg.prove:type_name -> sentinel.v1.Prove
-	15, // 11: sentinel.v1.ClientMsg.heartbeat:type_name -> sentinel.v1.Heartbeat
-	12, // 12: sentinel.v1.ServerMsg.session:type_name -> sentinel.v1.Session
-	16, // 13: sentinel.v1.ServerMsg.heartbeat_ack:type_name -> sentinel.v1.HeartbeatAck
-	17, // 14: sentinel.v1.ServerMsg.kicked:type_name -> sentinel.v1.Kicked
-	18, // 15: sentinel.v1.ServerMsg.error:type_name -> sentinel.v1.Error
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	6,  // 1: sentinel.v1.Hello.device_key:type_name -> sentinel.v1.DeviceKey
+	8,  // 2: sentinel.v1.Hello.env:type_name -> sentinel.v1.EnvReport
+	7,  // 3: sentinel.v1.Hello.tpm_enrollment:type_name -> sentinel.v1.TpmEnrollment
+	10, // 4: sentinel.v1.AttestRequest.ek_challenge:type_name -> sentinel.v1.EkChallenge
+	11, // 5: sentinel.v1.ChallengeBody.attest:type_name -> sentinel.v1.AttestRequest
+	14, // 6: sentinel.v1.TpmEvidence.pcrs:type_name -> sentinel.v1.Pcr
+	15, // 7: sentinel.v1.Prove.attestation:type_name -> sentinel.v1.TpmEvidence
+	19, // 8: sentinel.v1.Heartbeat.sched:type_name -> sentinel.v1.SchedSummary
+	18, // 9: sentinel.v1.Heartbeat.findings:type_name -> sentinel.v1.Finding
+	20, // 10: sentinel.v1.Heartbeat.time:type_name -> sentinel.v1.TimeSample
+	21, // 11: sentinel.v1.Heartbeat.input:type_name -> sentinel.v1.InputStats
+	22, // 12: sentinel.v1.Heartbeat.coverage:type_name -> sentinel.v1.JobCoverage
+	16, // 13: sentinel.v1.ClientMsg.prove:type_name -> sentinel.v1.Prove
+	23, // 14: sentinel.v1.ClientMsg.heartbeat:type_name -> sentinel.v1.Heartbeat
+	17, // 15: sentinel.v1.ServerMsg.session:type_name -> sentinel.v1.Session
+	24, // 16: sentinel.v1.ServerMsg.heartbeat_ack:type_name -> sentinel.v1.HeartbeatAck
+	25, // 17: sentinel.v1.ServerMsg.kicked:type_name -> sentinel.v1.Kicked
+	26, // 18: sentinel.v1.ServerMsg.error:type_name -> sentinel.v1.Error
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_sentinel_v1_handshake_proto_init() }
@@ -1811,11 +2504,11 @@ func file_sentinel_v1_handshake_proto_init() {
 	if File_sentinel_v1_handshake_proto != nil {
 		return
 	}
-	file_sentinel_v1_handshake_proto_msgTypes[18].OneofWrappers = []any{
+	file_sentinel_v1_handshake_proto_msgTypes[21].OneofWrappers = []any{
 		(*ClientMsg_Prove)(nil),
 		(*ClientMsg_Heartbeat)(nil),
 	}
-	file_sentinel_v1_handshake_proto_msgTypes[19].OneofWrappers = []any{
+	file_sentinel_v1_handshake_proto_msgTypes[22].OneofWrappers = []any{
 		(*ServerMsg_Session)(nil),
 		(*ServerMsg_HeartbeatAck)(nil),
 		(*ServerMsg_Kicked)(nil),
@@ -1826,8 +2519,8 @@ func file_sentinel_v1_handshake_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sentinel_v1_handshake_proto_rawDesc), len(file_sentinel_v1_handshake_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   20,
+			NumEnums:      6,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
