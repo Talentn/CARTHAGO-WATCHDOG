@@ -7,7 +7,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+carthago-harden = { path = "../carthago-harden" }
 carthago-net = { path = "../carthago-net" }
+carthago-scan = { path = "../carthago-scan" }
 ed25519-dalek = "3.0.0"
 hex = "0.4.3"
 prost = "0.14.4"

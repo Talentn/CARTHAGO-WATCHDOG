@@ -1,0 +1,17 @@
+{{define "content"}}
+<section class="login">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="/static/carthago-watchdog.svg" alt="" width="56" height="56">
+      <h1>Carthago <b>Watchdog</b></h1>
+      <p class="muted">Studio dashboard</p>
+    </div>
+    {{with .Data}}<p class="alert">{{.}}</p>{{end}}
+    <form method="post" action="/login" class="stack">
+      <label>Studio (tenant id)<input name="tenant" autocomplete="username" required autofocus></label>
+      <label>Dashboard key<input name="key" type="password" autocomplete="current-password" required></label>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </div>
+</section>
+{{end}}

@@ -1,0 +1,51 @@
+{{define "content"}}
+{{$d := .Data}}{{$s := $d.S}}
+<div class="head">
+  <h1>Session <span class="mono">{{short $s.SessionID}}</span></h1>
+  <span class="state st-{{$s.State}}">{{$s.State}}</span>{{if $s.KickReason}} <span class="muted">{{$s.KickReason}}</span>{{end}}
+</div>
+<div class="grid2">
+<section class="card">
+  <h2>Identity &amp; trust</h2>
+  <dl class="kv">
+    <dt>Session id</dt><dd class="mono wrapall">{{$s.SessionID}}</dd>
+    <dt>Player</dt><dd><a class="mono" href="/players/{{path $s.PlayerHash}}">{{$s.PlayerHash}}</a></dd>
+    <dt>Device</dt><dd class="mono wrapall">{{$s.DeviceID}}</dd>
+    <dt>Trust level</dt><dd><span class="trust t{{$s.TrustLevel}}">{{trust $s.TrustLevel}}</span> <small class="muted">{{trustDesc $s.TrustLevel}}</small></dd>
+    <dt>Attestation</dt><dd>{{range flags $s.AttestFlags}}<span class="pill">{{.}}</span> {{else}}<span class="muted">none</span>{{end}}</dd>
+    <dt>Started</dt><dd>{{when $s.CreatedAt}}</dd>
+    <dt>Last heartbeat</dt><dd>{{when $s.LastHeartbeat}} <small class="muted">({{ago $s.LastHeartbeat}}, {{$s.Heartbeats}} total)</small></dd>
+  </dl>
+</section>
+<section class="card">
+  <h2>Client scanner health</h2>
+  {{with $d.Telemetry}}
+  <dl class="kv">
+    <dt>Background CPU</dt><dd><b>{{pct $d.CPUShare}}</b> of one core <small class="muted">(budget 1%)</small></dd>
+    <dt>Scan worker</dt><dd>{{ms .WorkerCPUNs}} CPU over {{.Slices}} slices · max slice {{ms .SliceCPUMaxNs}}</dd>
+    <dt>Slices over 3 ms</dt><dd>{{.SliceOverruns}}</dd>
+    <dt>Frames</dt><dd>{{.Frames}}</dd>
+    <dt>Jobs quarantined</dt><dd>{{.JobsQuarantined}}</dd>
+    <dt>Findings</dt><dd>{{.FindingsTotal}} reported · {{.FindingsDropped}} dropped client-side</dd>
+    <dt>Mouse input</dt><dd>{{.MouseEvents}} events · {{.InjectedEvents}} injected · hook thread {{ms .InputThreadCPUNs}}</dd>
+    <dt>Mitigations</dt><dd>{{range mitig .MitigationsApplied}}<span class="pill ok">{{.}}</span> {{else}}<span class="muted">none applied</span>{{end}}{{range mitig .MitigationsFailed}} <span class="pill bad">{{.}} refused</span>{{end}}</dd>
+    <dt>Updated</dt><dd>{{ago .UpdatedAt}}</dd>
+  </dl>
+  {{else}}<p class="empty">No heartbeat telemetry recorded.</p>{{end}}
+</section>
+</div>
+{{if $d.Coverage}}
+<section class="card">
+  <h2>Scan coverage</h2>
+  <table class="compact">
+    <thead><tr><th>Job</th><th class="num">Passes completed</th><th class="num">Overruns</th><th>Status</th></tr></thead>
+    <tbody>{{range $d.Coverage}}<tr><td class="mono">{{.Job}}</td><td class="num">{{.Runs}}</td><td class="num">{{.Overruns}}</td>
+      <td>{{if .Quarantined}}<span class="pill bad">quarantined</span>{{else if .Runs}}<span class="pill ok">covering</span>{{else}}<span class="pill">first pass pending</span>{{end}}</td></tr>{{end}}</tbody>
+  </table>
+</section>
+{{end}}
+<section class="card">
+  <h2>Evidence</h2>
+  {{template "evidencetable" $d.Evidence}}
+</section>
+{{end}}

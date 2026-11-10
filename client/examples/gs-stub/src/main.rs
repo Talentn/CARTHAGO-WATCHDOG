@@ -11,6 +11,13 @@
 //!   gs-stub verify --keys public-keys.json (--token T | --token-file F) [--tenant demo]
 //!                  [--skew SECS] [--tamper] [--min-trust N]
 //!       One-shot offline check. Exit 0 = accepted, 2 = rejected, 1 = usage/IO error.
+//!
+//!   gs-stub simulate [--ingest ws://127.0.0.1:8750/v1/ingest] [--gateway-pin HEX[,HEX]]
+//!                    [--server-key demo-server-key]
+//!                    [--match ID] [--players 8] [--seconds 120] [--tick-rate 64] [--realtime]
+//!                    [--sessions FILE] [--anomaly SLOT=profile[+profile]]...
+//!       Streams a synthetic match's gameplay telemetry for server-side analysis (see
+//!       simulate.rs). Exit 0 = every batch acknowledged.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -20,6 +27,8 @@ use std::sync::{Arc, Mutex};
 use sn_crypto::time::now_unix;
 use sn_server::{GsEvent, KickListener, PublicKeys, Verifier};
 
+mod simulate;
+
 struct Args(Vec<String>);
 
 impl Args {
@@ -28,6 +37,9 @@ impl Args {
     }
     fn get_or(&self, name: &str, default: &str) -> String {
         self.get(name).unwrap_or_else(|| default.to_owned())
+    }
+    fn all(&self, name: &str) -> Vec<String> {
+        self.0.windows(2).filter(|w| w[0] == name).map(|w| w[1].clone()).collect()
     }
     fn has(&self, name: &str) -> bool {
         self.0.iter().any(|a| a == name)
@@ -41,13 +53,14 @@ fn main() {
     let code = match mode.as_str() {
         "serve" => serve(&a),
         "verify" => verify(&a),
+        "simulate" => simulate::simulate(&a),
         _ => usage(),
     };
     std::process::exit(code);
 }
 
 fn usage() -> ! {
-    eprintln!("usage: gs-stub serve --keys FILE [...] | gs-stub verify --keys FILE --token T [...] (see source header)");
+    eprintln!("usage: gs-stub serve --keys FILE [...] | gs-stub verify --keys FILE --token T [...] | gs-stub simulate [...] (see source header)");
     std::process::exit(1)
 }
 

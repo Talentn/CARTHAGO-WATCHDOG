@@ -1,3 +1,4 @@
+#[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering::Relaxed};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -94,6 +95,7 @@ pub struct Scheduler {
 impl Scheduler {
     pub fn start(cfg: Config, jobs: Vec<Box<dyn Job>>) -> std::io::Result<Self> {
         let (tx, rx) = sync_channel(cfg.findings_capacity);
+        let tick_capacity = cfg.findings_capacity;
         let stats = SchedStats {
             jobs: jobs.iter().map(|j| JobStats { name: j.name(), ..Default::default() }).collect(),
             ..Default::default()
@@ -120,7 +122,7 @@ impl Scheduler {
             last_tick_ns: 0,
             frame_ema_ns: 0.0,
             hitch_guard_ns,
-            findings: Vec::with_capacity(64),
+            findings: Vec::with_capacity(tick_capacity),
         })
     }
 
@@ -171,6 +173,15 @@ impl Scheduler {
         self.findings.drain(..)
     }
 
+    /// Puts findings a heartbeat had no room for back in front of the queue (bounded by its
+    /// capacity, so `tick()` never reallocates).
+    pub fn requeue_findings(&mut self, rest: Vec<Finding>) {
+        let room = self.findings.capacity() - self.findings.len();
+        let keep = rest.len().min(room);
+        self.shared.dropped.fetch_add((rest.len() - keep) as u64, Relaxed);
+        self.findings.splice(0..0, rest.into_iter().take(keep));
+    }
+
     pub fn stats(&self) -> SchedStats {
         let mut s = self.shared.stats.lock().unwrap().clone();
         s.findings_dropped = self.shared.dropped.load(Relaxed);
@@ -183,6 +194,7 @@ impl Scheduler {
         self.shared.slice_seq.load(Relaxed)
     }
 
+    #[cfg(windows)]
     pub fn worker_handle(&self) -> Option<RawHandle> {
         self.worker.as_ref().map(|w| w.as_raw_handle())
     }
@@ -241,9 +253,11 @@ fn jittered(p: Duration, rng: &mut u64) -> u64 {
     p - p / 5 + rand_below(rng, 2 * p / 5 + 1)
 }
 
+/// 4x grace: at EcoQoS clocks a legitimate 400 µs step was measured at 863 µs (scheduler
+/// spike finding 4), so 2x produced false strikes.
 fn overrun_threshold_ns(b: &JobBudget, hard_cap_ns: u64) -> u64 {
     let m = b.max_step.as_nanos() as u64;
-    (2 * m).max(m + 250_000).min(hard_cap_ns)
+    (4 * m).max(m + 250_000).min(hard_cap_ns)
 }
 
 fn park_ns(ns: u64) {

@@ -1,0 +1,10 @@
+[package]
+name = "carthago-harden"
+description = "Carthago Watchdog process hardening: mitigation-policy profiles applied at SDK init (plan §6.3)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }

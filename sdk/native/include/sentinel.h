@@ -28,6 +28,13 @@ typedef int32_t SnResult;
 
 /* SnConfig.flags */
 #define SN_FLAG_NO_TPM 1u /* force the software device key (trust_level 0) */
+/* Process mitigation profile applied at init. Default: basic (no remote or low-integrity
+ * image loads). Strict adds System32-first DLL search and disables legacy extension points
+ * (AppInit DLLs, LSPs); validate it against the title's IMEs and overlays first. */
+#define CARTHAGO_FLAG_NO_MITIGATIONS 2u
+#define CARTHAGO_FLAG_STRICT_MITIGATIONS 4u
+/* Disable the low-level mouse hook that counts injected input while the game has focus. */
+#define CARTHAGO_FLAG_NO_INPUT_MONITOR 8u
 
 /* Log levels */
 #define SN_LOG_DEBUG 0

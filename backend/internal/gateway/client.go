@@ -500,6 +500,11 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 			if !g.sessions.Heartbeat(id, newExpiry) {
 				continue // already kicked; the kicked channel delivers the notice
 			}
+			if d := g.cfg.Detections; d != nil {
+				if rec, ok := g.sessions.Get(id); ok {
+					d.Heartbeat(rec, hbm)
+				}
+			}
 			if s := hbm.Sched; s != nil {
 				g.log.Debug("heartbeat", "session", id, "activity", hbm.Activity, "worker_cpu_ms", float64(s.WorkerCpuNs)/1e6,
 					"slices", s.Slices, "frames", s.Frames, "findings", len(hbm.Findings))

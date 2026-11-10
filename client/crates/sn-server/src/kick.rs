@@ -67,7 +67,7 @@ impl Drop for KickListener {
     }
 }
 
-fn connect(url: &str, key: &str, pins: &[Pin]) -> Result<WebSocket<Stream>, String> {
+pub(crate) fn connect(url: &str, key: &str, pins: &[Pin]) -> Result<WebSocket<Stream>, String> {
     let mut req = url.into_client_request().map_err(|e| e.to_string())?;
     req.headers_mut().insert("Authorization", format!("Bearer {key}").parse().map_err(|_| "bad server key")?);
     let ws = carthago_net::connect(req, pins, Duration::from_secs(5)).map_err(|e| e.to_string())?;
