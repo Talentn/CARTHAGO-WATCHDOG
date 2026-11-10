@@ -10,6 +10,7 @@ type Memory struct {
 	devices      map[string]Device
 	sessions     map[string]Session
 	attestations []Attestation
+	evid         *memEvidence
 }
 
 func NewMemory() *Memory {

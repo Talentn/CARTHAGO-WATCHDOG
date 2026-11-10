@@ -23,9 +23,11 @@ func OpenSQLite(path string) (*SQLite, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(migrations.SQLiteInit); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("apply schema: %w", err)
+	for i, m := range migrations.SQLite {
+		if _, err := db.Exec(m); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("apply schema %d: %w", i+1, err)
+		}
 	}
 	return &SQLite{db: db}, nil
 }
