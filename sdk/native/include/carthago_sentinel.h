@@ -65,6 +65,8 @@ typedef enum CarthagoActivity { CARTHAGO_MENU = 0, CARTHAGO_LOADING = 1, CARTHAG
 #define CARTHAGO_ATTEST_CODE_INTEGRITY (1ull << 9)
 #define CARTHAGO_ATTEST_EK_CERT_MATCHES (1ull << 10)
 #define CARTHAGO_ATTEST_EK_CHAIN_VERIFIED (1ull << 11)
+#define CARTHAGO_ATTEST_EK_CHAIN_UNKNOWN_VENDOR (1ull << 12)
+#define CARTHAGO_ATTEST_EK_CHAIN_INVALID (1ull << 13)
 
 typedef void (*CarthagoLogFn)(int32_t level, const char* msg, void* user);
 typedef void (*CarthagoSessionCb)(CarthagoResult result, uint32_t trust_level, uint64_t attest_flags, void* user);
