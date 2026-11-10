@@ -12,6 +12,6 @@ mod scheduler;
 mod stats;
 mod sys;
 
-pub use job::{Activity, Ctx, Finding, Job, JobBudget, Step};
+pub use job::{Activity, Ctx, Detail, Finding, Job, JobBudget, Step};
 pub use scheduler::{Config, Scheduler};
 pub use stats::{Histogram, JobStats, SchedStats};

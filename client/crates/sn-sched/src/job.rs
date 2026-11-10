@@ -52,12 +52,58 @@ impl JobBudget {
     }
 }
 
+/// Short inline text attached to a finding (a module or process base name). Fixed size so
+/// findings stay `Copy` and moving them through `tick()` never allocates.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Detail {
+    len: u8,
+    buf: [u8; Detail::CAP],
+}
+
+impl Detail {
+    pub const CAP: usize = 47;
+    pub const EMPTY: Detail = Detail { len: 0, buf: [0; Detail::CAP] };
+
+    /// Truncates on a UTF-8 boundary.
+    pub fn new(s: &str) -> Self {
+        let mut n = s.len().min(Self::CAP);
+        while !s.is_char_boundary(n) {
+            n -= 1;
+        }
+        let mut d = Self::EMPTY;
+        d.buf[..n].copy_from_slice(&s.as_bytes()[..n]);
+        d.len = n as u8;
+        d
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.buf[..self.len as usize]).unwrap_or("")
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl Default for Detail {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
+impl std::fmt::Debug for Detail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Finding {
     pub job: &'static str,
     pub code: u32,
     pub a: u64,
     pub b: u64,
+    pub detail: Detail,
 }
 
 pub struct Ctx<'a> {
@@ -69,7 +115,12 @@ pub struct Ctx<'a> {
 impl Ctx<'_> {
     /// Never blocks: under backpressure the finding is dropped and counted.
     pub fn report(&self, code: u32, a: u64, b: u64) {
-        if let Err(TrySendError::Full(_)) = self.tx.try_send(Finding { job: self.job, code, a, b }) {
+        self.report_detail(code, a, b, "");
+    }
+
+    pub fn report_detail(&self, code: u32, a: u64, b: u64, detail: &str) {
+        let f = Finding { job: self.job, code, a, b, detail: Detail::new(detail) };
+        if let Err(TrySendError::Full(_)) = self.tx.try_send(f) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -83,4 +134,19 @@ pub trait Job: Send {
     /// Start (or restart after an abort) a full pass.
     fn begin(&mut self);
     fn step(&mut self, ctx: &Ctx<'_>) -> Step;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Detail;
+
+    #[test]
+    fn detail_truncates_on_char_boundary() {
+        assert_eq!(Detail::new("cheat.dll").as_str(), "cheat.dll");
+        let long = "é".repeat(40);
+        let d = Detail::new(&long);
+        assert!(d.as_str().len() <= Detail::CAP);
+        assert!(d.as_str().chars().all(|c| c == 'é'));
+        assert!(Detail::EMPTY.is_empty());
+    }
 }

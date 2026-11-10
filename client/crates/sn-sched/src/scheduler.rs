@@ -1,3 +1,4 @@
+#[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering::Relaxed};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -183,6 +184,7 @@ impl Scheduler {
         self.shared.slice_seq.load(Relaxed)
     }
 
+    #[cfg(windows)]
     pub fn worker_handle(&self) -> Option<RawHandle> {
         self.worker.as_ref().map(|w| w.as_raw_handle())
     }
@@ -241,9 +243,11 @@ fn jittered(p: Duration, rng: &mut u64) -> u64 {
     p - p / 5 + rand_below(rng, 2 * p / 5 + 1)
 }
 
+/// 4x grace: at EcoQoS clocks a legitimate 400 µs step was measured at 863 µs (scheduler
+/// spike finding 4), so 2x produced false strikes.
 fn overrun_threshold_ns(b: &JobBudget, hard_cap_ns: u64) -> u64 {
     let m = b.max_step.as_nanos() as u64;
-    (2 * m).max(m + 250_000).min(hard_cap_ns)
+    (4 * m).max(m + 250_000).min(hard_cap_ns)
 }
 
 fn park_ns(ns: u64) {
