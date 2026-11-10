@@ -65,7 +65,7 @@ impl Drop for KickListener {
     }
 }
 
-fn connect(url: &str, key: &str) -> Result<WebSocket<TcpStream>, String> {
+pub(crate) fn connect(url: &str, key: &str) -> Result<WebSocket<TcpStream>, String> {
     let mut req = url.into_client_request().map_err(|e| e.to_string())?;
     if req.uri().scheme_str() != Some("ws") {
         return Err("Phase 0 supports ws:// on loopback only".into());
