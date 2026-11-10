@@ -31,6 +31,38 @@ Regenerate Go protobuf code with `buf generate` in `proto/` (needs `protoc-gen-g
 Builds put cargo output in `$env:CARGO_TARGET_DIR` (the e2e script defaults it to
 `E:\sentinel-spike-scratch\cargo-target` when E: exists).
 
+## Phase 1: Carthago Watchdog MVP
+
+The product is being renamed to Carthago Watchdog; new code uses the Carthago names, and
+existing `sn-*` crates keep theirs until the rename step.
+
+| Path | What |
+| --- | --- |
+| `client/crates/carthago-scan` | Rust: Phase 1 client scans as budgeted `sn-sched` jobs (module inventory, unbacked executable memory, thread starts, timing/loader API and graphics `.text` integrity against disk, external handles, overlays, debugger signals, vulnerable drivers, time samples, low-level input counters). The client only reports; thresholds live on the server |
+| `client/crates/carthago-harden` | Rust: mitigation-policy profiles applied at SDK init (Basic default; Strict opt-in; `CARTHAGO_FLAG_NO_MITIGATIONS` opts out) |
+| `client/crates/sn-server` (`gameplay`) | Rust: `MatchRecorder` + `GameplayStream`, ordered at-least-once delivery of gameplay telemetry to `/v1/ingest` |
+| `backend/internal/analyzer` | Go: pure detection rules: client-finding classification with an overlay allowlist, time-source divergence, scanner stalls, injected input, snap-and-lock aim, headshot rate vs MMR (binomial z), time-to-damage vs lobby (robust z), command rate, trigger-interval regularity |
+| `backend/internal/pipeline` | Go: bounded queue from gateway to analyzer and evidence store; optional auto-kick on integrity evidence (`-auto-kick`, off by default) |
+| `backend/internal/store` | + evidence, session telemetry and match progress (migration `0002_detections.sql`, SQLite and memory) |
+| `backend/internal/dashboard` | Go: the Carthago Watchdog studio dashboard (sessions, trust levels, flagged players, evidence), own listener, per-tenant login |
+| `backend/cmd/carthago-sim` | Go: simulated clients sending synthetic telemetry, for demos and the e2e test |
+| `client/examples/gs-stub simulate` | Synthetic match telemetry with per-slot anomaly profiles |
+| `tools/carthago-e2e.sh` | Linux end-to-end check of the whole Phase 1 path with synthetic traffic |
+
+```bash
+tools/carthago-e2e.sh                         # ~80 s, prints PASS
+cd backend && go run ./cmd/gateway -data gateway-data   # gateway :8750, dashboard http://127.0.0.1:8751
+#   dashboard login: studio "demo", key "demo-dashboard-key" (set others with -dashboard-key tenant=key)
+go run ./cmd/carthago-sim -keys gateway-data/public-keys.json -sessions-out /tmp/sessions.txt
+cd client && cargo run -p gs-stub -- simulate --sessions /tmp/sessions.txt --anomaly 2=snap+headshot
+```
+
+The dashboard listens on loopback by default and serves plain HTTP; put it behind a TLS proxy
+(and pass `-dashboard-secure-cookie`) before exposing it. Linux CI covers the portable crates:
+`cargo test --workspace --exclude sched-spike --exclude sn-attest --exclude attest-spike
+--exclude sn-client-core --exclude sn-client-ffi` plus
+`cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu` for the Windows code.
+
 ## Risk spikes
 
 | Path | What |
