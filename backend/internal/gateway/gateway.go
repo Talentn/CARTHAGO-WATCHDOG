@@ -4,11 +4,13 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
 
+	pb "sentinel/backend/gen/sentinel/v1"
 	"sentinel/backend/internal/store"
 )
 
@@ -28,7 +30,16 @@ type Config struct {
 	// FetchEKCerts allows contacting TPM manufacturer services for EK certificates not in NV.
 	FetchEKCerts bool
 
+	// Detections receives every accepted heartbeat and serves /v1/ingest; nil disables both.
+	Detections Detections
+
 	Now func() time.Time
+}
+
+// Detections is the analysis pipeline (internal/pipeline). Heartbeat must not block.
+type Detections interface {
+	Heartbeat(sess store.Session, hb *pb.Heartbeat)
+	Gameplay(ctx context.Context, tenant string, b *pb.GameplayBatch) (accepted bool, err error)
 }
 
 func (c *Config) defaults() {
@@ -74,6 +85,9 @@ func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/client", g.handleClient)
 	mux.HandleFunc("GET /v1/gs", g.handleGameServer)
+	if g.cfg.Detections != nil {
+		mux.HandleFunc("GET /v1/ingest", g.handleIngest)
+	}
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(g.keys.Public())
