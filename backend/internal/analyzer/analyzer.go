@@ -48,6 +48,9 @@ func (s Severity) String() string {
 // Evidence is one rule's verdict about one player. Score is a 0..1 confidence used to rank
 // within a severity; Integrity marks client-tamper evidence that the auto-kick policy may act
 // on (behavioural rules are advisory and never auto-kick, since they can have false positives).
+// The policy kicks on critical integrity evidence only, so a rule may be critical only if no
+// legitimate software produces it: today that is a writable executable region with a PE header
+// and a clock that runs at a different rate than the kernel's in two consecutive windows.
 type Evidence struct {
 	Rule      string
 	Severity  Severity
@@ -84,16 +87,20 @@ type Config struct {
 }
 
 // Default overlay allowlist: common overlays and capture tools that legitimately inject into or
-// draw over the game (plan §8.4). Base names are lowercase.
+// draw over the game (plan §8.4). Base names are lowercase. Matching is by file name only: the
+// client does not verify who signed the file, so a cheat that takes one of these names is
+// treated like the real thing. Findings about the clocks ignore the list for that reason.
 var defaultOverlayAllow = map[string]bool{
 	"gameoverlayrenderer64.dll": true,
 	"gameoverlayrenderer.dll":   true,
 	"steam.exe":                 true,
 	"steamwebhelper.exe":        true,
+	"discord.exe":               true,
 	"discordhook64.dll":         true,
 	"discordhook.dll":           true,
 	"overlay.x64.dll":           true,
-	"rtsshooks64.dll":           true, // RivaTuner / MSI Afterburner
+	"rtss.exe":                  true, // RivaTuner / MSI Afterburner
+	"rtsshooks64.dll":           true,
 	"graphics-hook64.dll":       true, // OBS game capture
 	"graphics-hook32.dll":       true,
 	"nvspcap64.dll":             true, // NVIDIA ShadowPlay
@@ -128,14 +135,22 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 	allowed := c.OverlayAllow[name]
 	switch pb.FindingCode(code) {
 	case pb.FindingCode_FINDING_CODE_UNBACKED_EXEC:
-		// a=base, b=size|flags<<48. Writable+executable private memory is classic manual-map.
-		writable := b>>48&uint64(pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE) != 0
-		pe := b>>48&uint64(pb.UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE) != 0
-		sev := SeverityHigh
-		if writable && pe {
-			sev = SeverityCritical
+		// a=base, b=size|flags<<48. Executable memory outside any image is what a manually
+		// mapped module looks like, but also what every JIT (script engines, browsers embedded
+		// in launchers, GPU drivers) and every hooking library's relay page looks like. Only a
+		// region that still carries image headers is treated as tamper evidence; the rest is
+		// recorded as information so it adds no risk and can never kick.
+		flags := b >> 48
+		writable := flags&uint64(pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE) != 0
+		pe := flags&uint64(pb.UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE) != 0
+		mz := flags&uint64(pb.UnbackedFlags_UNBACKED_FLAGS_MZ_HEADER) != 0
+		switch {
+		case writable && pe:
+			return ev("unbacked_exec", SeverityCritical, 0.9, true, fmt.Sprintf("writable executable memory with a PE header at %#x", a)), true
+		case pe || mz:
+			return ev("unbacked_exec", SeverityHigh, 0.9, true, fmt.Sprintf("executable memory with an image header outside any module at %#x", a)), true
 		}
-		return ev("unbacked_exec", sev, 0.9, true, fmt.Sprintf("executable private memory at %#x", a)), true
+		return ev("unbacked_exec", SeverityInfo, 0.1, false, fmt.Sprintf("executable memory outside any module at %#x (no image header: JIT code or a hook relay)", a)), true
 	case pb.FindingCode_FINDING_CODE_IMAGE_NOT_IN_LOADER:
 		return ev("image_not_in_loader", SeverityHigh, 0.85, true, fmt.Sprintf("mapped image %q not in the loader list", detail)), true
 	case pb.FindingCode_FINDING_CODE_MODULE_NOT_IMAGE:
@@ -143,9 +158,23 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 	case pb.FindingCode_FINDING_CODE_THREAD_START_UNBACKED:
 		return ev("thread_start_unbacked", SeverityHigh, 0.85, true, "thread started outside any module"), true
 	case pb.FindingCode_FINDING_CODE_API_HOOK:
+		// b = WatchedApi, detail = the module the hook jumps to ("" when it is not a module).
+		// Overlays hook the loader APIs to notice graphics DLLs; nothing legitimate hooks the
+		// clocks, so the allowlist does not apply to those.
+		if allowed && !timingAPI(b) {
+			return ev("api_hook", SeverityInfo, 0.1, false, "API hooked by allowlisted "+detail), true
+		}
 		return ev("api_hook", SeverityHigh, 0.8, true, fmt.Sprintf("hooked API in %s", detail)), true
 	case pb.FindingCode_FINDING_CODE_CODE_PATCH:
-		return ev("code_patch", SeverityCritical, 0.9, true, fmt.Sprintf(".text patched: %s", detail)), true
+		// detail = "patched module>module the patch jumps to" ("?" when the target is not a
+		// module, "" when the patch is not a jump). The patched modules are the graphics DLLs,
+		// which is exactly where overlays and capture tools put their hooks, and a hook that
+		// goes through a relay page cannot be attributed. So this is strong evidence for
+		// review, but never critical: it must not kick on its own.
+		if owner := patchOwner(detail); c.OverlayAllow[owner] {
+			return ev("code_patch", SeverityInfo, 0.1, false, "graphics hook by allowlisted "+owner), true
+		}
+		return ev("code_patch", SeverityHigh, 0.9, true, fmt.Sprintf(".text patched: %s", detail)), true
 	case pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE:
 		if allowed {
 			return ev("external_handle", SeverityInfo, 0.1, false, "handle from allowlisted "+detail), true
@@ -165,11 +194,33 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 		}
 		return ev("debugger", SeverityLow, 0.3, false, fmt.Sprintf("weak debug signal %#x", a)), true
 	case pb.FindingCode_FINDING_CODE_VULNERABLE_DRIVER:
-		return ev("vulnerable_driver", SeverityHigh, 0.7, true, "known-vulnerable driver loaded: "+detail), true
+		// Hardware-monitoring, RGB and overclocking tools ship several of these drivers, so a
+		// match says something about the machine, not about this player: a note for review
+		// that neither flags the player on its own nor counts as tampering.
+		return ev("vulnerable_driver", SeverityLow, 0.5, false, "known-vulnerable driver loaded: "+detail), true
 	case pb.FindingCode_FINDING_CODE_MITIGATIONS, pb.FindingCode_FINDING_CODE_MODULE_LOADED, pb.FindingCode_FINDING_CODE_THREAD_START_LOADER:
 		return Evidence{}, false
 	}
 	return Evidence{}, false
+}
+
+// patchOwner is the module a code patch jumps to, lowercased, or "" when it is unknown.
+func patchOwner(detail string) string {
+	_, owner, ok := strings.Cut(detail, ">")
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(owner))
+}
+
+func timingAPI(api uint64) bool {
+	switch pb.WatchedApi(api) {
+	case pb.WatchedApi_WATCHED_API_NTDLL_NT_QUERY_PERFORMANCE_COUNTER, pb.WatchedApi_WATCHED_API_NTDLL_RTL_QUERY_PERFORMANCE_COUNTER,
+		pb.WatchedApi_WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER, pb.WatchedApi_WATCHED_API_KERNELBASE_GET_TICK_COUNT64,
+		pb.WatchedApi_WATCHED_API_KERNELBASE_GET_TICK_COUNT, pb.WatchedApi_WATCHED_API_WINMM_TIME_GET_TIME:
+		return true
+	}
+	return false
 }
 
 func ev(rule string, sev Severity, score float64, integrity bool, summary string) Evidence {

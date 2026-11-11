@@ -98,9 +98,9 @@ func TestAutoKickReachesGameServer(t *testing.T) {
 	claims, _ := protocol.VerifyToken(tokenKeys(e), c.session.SessionToken, time.Now(), protocol.DefaultLeeway)
 	gs := watch(t, e, claims.SessionID)
 	c.send(&pb.ClientMsg{Body: &pb.ClientMsg_Heartbeat{Heartbeat: &pb.Heartbeat{Findings: []*pb.Finding{
-		{Code: uint32(pb.FindingCode_FINDING_CODE_CODE_PATCH), A: 1, B: 2, Detail: "d3d11.dll>?"},
+		{Code: uint32(pb.FindingCode_FINDING_CODE_UNBACKED_EXEC), A: 0x1f00000, B: 0x2000 | uint64(pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE|pb.UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE)<<48},
 	}}}})
-	if k := readGS(t, gs).GetKick(); k == nil || k.Reason != "integrity_violation: code_patch" {
+	if k := readGS(t, gs).GetKick(); k == nil || k.Reason != "integrity_violation: unbacked_exec" {
 		t.Fatalf("kick: %v", k)
 	}
 }

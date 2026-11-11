@@ -85,7 +85,7 @@ func TestHeartbeatEvidenceAndTelemetry(t *testing.T) {
 	for _, e := range evs {
 		bySev[e.Rule] = e
 	}
-	if e := bySev["code_patch"]; e.Severity != 4 || !e.Integrity || e.PlayerHash != "alice" || e.Raw == "" {
+	if e := bySev["code_patch"]; e.Severity != 3 || !e.Integrity || e.PlayerHash != "alice" || e.Raw == "" {
 		t.Fatalf("code_patch evidence: %+v", e)
 	}
 	if e := bySev["overlay_window"]; e.Severity != 0 {
@@ -105,13 +105,16 @@ func TestAutoKickOnlyOnIntegrity(t *testing.T) {
 	a := session(st, "a", "t1", "alice")
 	b := session(st, "b", "t1", "bob")
 	p.Heartbeat(a, &pb.Heartbeat{Findings: []*pb.Finding{finding(pb.FindingCode_FINDING_CODE_OVERLAY_WINDOW, 1, 0, "unknown.exe")}})
-	p.Heartbeat(b, &pb.Heartbeat{Findings: []*pb.Finding{finding(pb.FindingCode_FINDING_CODE_CODE_PATCH, 1, 2, "dxgi.dll>x")}})
+	// A graphics hook is what overlays do, and one through a relay page cannot be attributed.
+	p.Heartbeat(a, &pb.Heartbeat{Findings: []*pb.Finding{finding(pb.FindingCode_FINDING_CODE_CODE_PATCH, 1, 2, "dxgi.dll>?")}})
+	mapped := uint64(pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE|pb.UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE) << 48
+	p.Heartbeat(b, &pb.Heartbeat{Findings: []*pb.Finding{finding(pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 1, 0x2000|mapped, "")}})
 	flush(p)
 	if r := k.reason("a"); r != "" {
-		t.Fatalf("overlay kicked: %q", r)
+		t.Fatalf("overlay or graphics hook kicked: %q", r)
 	}
-	if r := k.reason("b"); r != "integrity_violation: code_patch" {
-		t.Fatalf("code patch not kicked: %q", r)
+	if r := k.reason("b"); r != "integrity_violation: unbacked_exec" {
+		t.Fatalf("manually mapped image not kicked: %q", r)
 	}
 }
 

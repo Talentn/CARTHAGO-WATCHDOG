@@ -52,8 +52,20 @@ func TestClassifyFinding(t *testing.T) {
 		{pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE, 1, 0x38, "discordhook64.dll", "external_handle", SeverityInfo, false},
 		{pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE, 1, 0x38, "cheatengine-x86_64.exe", "external_handle", SeverityMedium, true},
 		{pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 0x1000, 0x1000 | uint64(pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE|pb.UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE)<<48, "", "unbacked_exec", SeverityCritical, true},
-		{pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 0x1000, 0x1000, "", "unbacked_exec", SeverityHigh, true},
-		{pb.FindingCode_FINDING_CODE_CODE_PATCH, 0, 0, "d3d11.dll>evil.dll", "code_patch", SeverityCritical, true},
+		{pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 0x1000, 0x1000 | uint64(pb.UnbackedFlags_UNBACKED_FLAGS_MZ_HEADER)<<48, "", "unbacked_exec", SeverityHigh, true},
+		// JIT code and hook relay pages: private, executable, often writable, no image header.
+		{pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 0x1000, 0x1000, "", "unbacked_exec", SeverityInfo, false},
+		{pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 0x1000, 0x1000 | uint64(pb.UnbackedFlags_UNBACKED_FLAGS_PRIVATE|pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE)<<48, "", "unbacked_exec", SeverityInfo, false},
+		// A graphics hook is how every overlay works: never critical, info when the owner is known.
+		{pb.FindingCode_FINDING_CODE_CODE_PATCH, 0, 0, "d3d11.dll>evil.dll", "code_patch", SeverityHigh, true},
+		{pb.FindingCode_FINDING_CODE_CODE_PATCH, 0, 0, "d3d11.dll>?", "code_patch", SeverityHigh, true},
+		{pb.FindingCode_FINDING_CODE_CODE_PATCH, 0, 0, "d3d11.dll>", "code_patch", SeverityHigh, true},
+		{pb.FindingCode_FINDING_CODE_CODE_PATCH, 0, 0, "dxgi.dll>GameOverlayRenderer64.dll", "code_patch", SeverityInfo, false},
+		{pb.FindingCode_FINDING_CODE_API_HOOK, 0, uint64(pb.WatchedApi_WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W), "gameoverlayrenderer64.dll", "api_hook", SeverityInfo, false},
+		{pb.FindingCode_FINDING_CODE_API_HOOK, 0, uint64(pb.WatchedApi_WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_W), "", "api_hook", SeverityHigh, true},
+		// A hooked clock is a speedhack whatever the hooking module calls itself.
+		{pb.FindingCode_FINDING_CODE_API_HOOK, 0, uint64(pb.WatchedApi_WATCHED_API_KERNEL32_QUERY_PERFORMANCE_COUNTER), "gameoverlayrenderer64.dll", "api_hook", SeverityHigh, true},
+		{pb.FindingCode_FINDING_CODE_VULNERABLE_DRIVER, 0, 0, "winring0x64.sys", "vulnerable_driver", SeverityLow, false},
 		{pb.FindingCode_FINDING_CODE_DEBUGGER, uint64(pb.DebugSignal_DEBUG_SIGNAL_PEB_BEING_DEBUGGED), 0, "", "debugger", SeverityLow, false},
 		{pb.FindingCode_FINDING_CODE_DEBUGGER, uint64(pb.DebugSignal_DEBUG_SIGNAL_KERNEL_DEBUGGER), 0, "", "debugger", SeverityHigh, true},
 	}
@@ -61,6 +73,17 @@ func TestClassifyFinding(t *testing.T) {
 		e, ok := c.ClassifyFinding(uint32(tc.code), tc.a, tc.b, tc.detail)
 		if !ok || e.Rule != tc.rule || e.Severity != tc.sev || e.Integrity != tc.integrity {
 			t.Errorf("%v %q: got %+v ok=%v", tc.code, tc.detail, e, ok)
+		}
+	}
+	// Only what no legitimate software produces may be critical integrity evidence, because
+	// that is what the auto-kick policy acts on.
+	for code := range pb.FindingCode_name {
+		for _, detail := range []string{"", "?", "x.dll", "d3d11.dll>?", "d3d11.dll>x.dll", "steam.exe"} {
+			for _, b := range []uint64{0, 1, 0x1410, uint64(pb.UnbackedFlags_UNBACKED_FLAGS_PRIVATE|pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE) << 48} {
+				if e, _ := c.ClassifyFinding(uint32(code), ^uint64(0), b, detail); e.Integrity && e.Severity >= SeverityCritical {
+					t.Errorf("%v %q b=%#x is critical integrity evidence: %+v", pb.FindingCode(code), detail, b, e)
+				}
+			}
 		}
 	}
 	for _, code := range []pb.FindingCode{pb.FindingCode_FINDING_CODE_MODULE_LOADED, pb.FindingCode_FINDING_CODE_MITIGATIONS} {
