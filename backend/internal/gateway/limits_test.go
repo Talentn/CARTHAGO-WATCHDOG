@@ -254,3 +254,17 @@ func TestHeartbeatFloodIsNotAnalysed(t *testing.T) {
 		t.Fatalf("%d of 50 flooded heartbeats analysed, want %d", n, heartbeatBurst)
 	}
 }
+
+func TestServerKeySelectsExactlyOneTenant(t *testing.T) {
+	g := &Gateway{cfg: Config{Tenants: map[string]string{"a": "key-a", "b": "key-b", "dup1": "same", "dup2": "same", "empty": ""}}}
+	for auth, want := range map[string]string{
+		"Bearer key-a": "a", "Bearer key-b": "b", "Bearer key-": "", "Bearer key-aa": "", "key-a": "", "Bearer ": "", "": "",
+		// A key shared by two tenants must not pick one of them at random.
+		"Bearer same": "",
+	} {
+		got, ok := g.tenantForServerKey(auth)
+		if got != want && ok || ok != (want != "") {
+			t.Errorf("%q: tenant %q ok=%v, want %q", auth, got, ok, want)
+		}
+	}
+}

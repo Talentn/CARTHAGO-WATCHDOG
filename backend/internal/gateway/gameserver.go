@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
 	"strings"
@@ -29,18 +30,25 @@ func (c *gsConn) send(m *pb.GsServerMsg) {
 	}
 }
 
+// tenantForServerKey maps a server API key to its tenant. Keys are compared as SHA-256
+// digests in constant time against every tenant, so neither a key's length nor which
+// tenant matched shows in the timing. Two tenants must not share a key (the gateway
+// refuses such a configuration at startup); if they do, no tenant matches.
 func (g *Gateway) tenantForServerKey(auth string) (string, bool) {
 	key, ok := strings.CutPrefix(auth, "Bearer ")
-	if !ok {
+	if !ok || key == "" {
 		return "", false
 	}
-	found := ""
+	got := sha256.Sum256([]byte(key))
+	found, matches := "", 0
 	for tenant, k := range g.cfg.Tenants {
-		if subtle.ConstantTimeCompare([]byte(k), []byte(key)) == 1 {
+		want := sha256.Sum256([]byte(k))
+		if subtle.ConstantTimeCompare(want[:], got[:]) == 1 && k != "" {
 			found = tenant
+			matches++
 		}
 	}
-	return found, found != ""
+	return found, matches == 1
 }
 
 func (g *Gateway) handleGameServer(w http.ResponseWriter, r *http.Request) {
