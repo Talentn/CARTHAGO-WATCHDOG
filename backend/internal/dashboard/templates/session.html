@@ -45,6 +45,16 @@
 </section>
 {{end}}
 <section class="card">
+  <h2>Gameplay (telemetry v2)</h2>
+  {{template "gameplaytable" $d.Gameplay}}
+</section>
+{{range $d.Leaks}}
+<section class="card">
+  <h2>Information leak · slot {{.Slot}}</h2>
+  {{template "leak" .}}
+</section>
+{{end}}
+<section class="card">
   <h2>Evidence</h2>
   {{template "evidencetable" $d.Evidence}}
 </section>

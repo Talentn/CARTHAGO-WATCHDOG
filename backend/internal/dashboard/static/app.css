@@ -119,3 +119,28 @@ button.primary { background: linear-gradient(180deg, var(--accent), #e08a2c); co
 button.primary:hover { filter: brightness(1.06); }
 .alert { background: #2a1416; border: 1px solid #5a2525; color: #fecaca; padding: 9px 12px; border-radius: 8px; margin: 0 0 14px; }
 @media (max-width: 720px) { .top { flex-wrap: wrap; gap: 10px; } dl.kv { grid-template-columns: 1fr; } .grid2 { grid-template-columns: 1fr; } }
+
+/* Information-leak explanation */
+.leak h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+.leak .policy { border-left: 3px solid var(--accent); background: var(--panel2); padding: 8px 12px; border-radius: 6px; margin: 12px 0; }
+.moments { margin: 0; padding-left: 20px; }
+.moments li { margin: 0 0 10px; line-height: 1.5; }
+.replay { display: block; max-width: 100%; height: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.rp-floor { fill: #12151c; }
+.rp-wall { fill: #3a4150; stroke: #545d70; stroke-width: 1; }
+.rp-ray { stroke: var(--accent); stroke-width: 1.2; stroke-opacity: .55; }
+.rp-viewer { fill: none; stroke: var(--info); stroke-width: 2.5; stroke-linejoin: round; }
+.rp-viewer-dot { fill: var(--info); }
+.rp-start { fill: none; stroke: var(--info); stroke-width: 1.5; }
+.rp-target { fill: none; stroke: var(--bad); stroke-width: 2.5; stroke-dasharray: 5 3; }
+.rp-target-dot, .rp-item { fill: var(--bad); }
+.rp-scale { stroke: var(--muted); stroke-width: 2; }
+.rp-label { fill: var(--muted); font-size: 11px; }
+.legend { color: var(--muted); font-size: 12.5px; margin: 8px 0; }
+.legend .key { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin: 0 4px 0 12px; }
+.legend .key:first-child { margin-left: 0; }
+.k-viewer { background: var(--info); }
+.k-ray { background: var(--accent); }
+.k-target { background: var(--bad); }
+.k-wall { background: #3a4150; height: 10px !important; }
+details summary { cursor: pointer; color: var(--muted); margin: 10px 0 4px; }

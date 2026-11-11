@@ -102,6 +102,10 @@ func (s *Server) parse() error {
 		"query":     url.QueryEscape,
 		"add":       func(a, b int) int { return a + b },
 		"bar":       trustBar,
+		"leak":      parseLeak,
+		"fixed":     fixed,
+		"add2":      func(a, b float64) float64 { return a + b },
+		"pctOf":     func(f float64) float64 { return f * 100 },
 	}
 	s.pages = map[string]*template.Template{}
 	names, err := fs.Glob(templateFS, "templates/*.html")
@@ -285,6 +289,8 @@ type sessionData struct {
 	Coverage  []coverage
 	Evidence  []store.Evidence
 	CPUShare  float64 // worker CPU as a fraction of one core over the session
+	Gameplay  []store.GameplaySummary
+	Leaks     []*leakView
 }
 
 type coverage struct {
@@ -317,6 +323,11 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 		return
 	}
 	if d.Evidence, err = s.st.ListEvidence(ctx, tenant, store.EvidenceFilter{SessionID: id, Limit: 200}); err != nil {
+		s.fail(w, err)
+		return
+	}
+	d.Leaks = leakOf(d.Evidence)
+	if d.Gameplay, err = s.st.ListGameplaySummaries(ctx, tenant, store.GameplayFilter{SessionID: id, Limit: 50}); err != nil {
 		s.fail(w, err)
 		return
 	}

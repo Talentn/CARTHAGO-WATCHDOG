@@ -40,3 +40,61 @@
 </table>
 {{else}}<p class="empty">No evidence.</p>{{end}}
 {{end}}
+
+{{define "leak"}}
+<div class="leak">
+  <dl class="kv">
+    <dt>Combined score</dt><dd><b>z = {{fixed 2 .Score}}</b> <small class="muted">flags at z ≥ {{fixed 1 .Threshold}} with an excess of at least {{fixed 2 .MinExcess}} over the controls</small></dd>
+    <dt>Segment</dt><dd><span class="pill">{{.Segment}}</span>{{if .AimAssist}} <span class="pill">aim assist</span>{{end}}{{if not .Calibrated}} <span class="pill bad">uncalibrated segment: fallback threshold</span>{{end}}</dd>
+    <dt>Target false-flag rate</dt><dd>{{fixed 1 (pctOf .TargetFPR)}}% of honest player-matches <small class="muted">(threshold set per segment)</small></dd>
+    <dt>Map</dt><dd class="mono">{{.Map}}</dd>
+  </dl>
+  <p class="policy">{{.Policy}}</p>
+  <h3>What the player lined up with</h3>
+  <table class="compact">
+    <thead><tr><th>Feature</th><th>Measures</th><th class="num">z</th><th class="num">On true hidden state</th><th class="num">On controls</th><th class="num">Samples</th><th>Counts</th></tr></thead>
+    <tbody>{{range .Features}}<tr>
+      <td class="mono">{{.Name}}</td><td>{{.Label}}</td><td class="num"><b>{{fixed 2 .Z}}</b></td>
+      <td class="num">{{fixed 3 .RateTrue}}</td><td class="num">{{fixed 3 .RateNull}}</td><td class="num">{{.Samples}}</td>
+      <td>{{if .Scored}}<span class="pill ok">scored</span>{{else if .Eligible}}<span class="pill">reported only</span>{{else}}<span class="pill">too few samples</span>{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table>
+  {{if .Moments}}
+  <h3>Moments</h3>
+  <ol class="moments">{{range .Moments}}
+    <li><span class="mono">{{.At}}</span> <span class="pill">{{.Kind}}</span> {{.Text}}<br><small class="muted">Knowledge model: {{.Known}}</small></li>
+  {{end}}</ol>
+  {{end}}
+  {{with .SVG}}
+  <h3>Replay</h3>
+  <svg class="replay" viewBox="-8 -8 {{add2 .W 16}} {{add2 .H 34}}" width="{{add2 .W 16}}" role="img" aria-label="Top-down replay of the first moment">
+    <rect class="rp-floor" x="0" y="0" width="{{.W}}" height="{{.H}}"/>
+    {{range .Occluders}}<polygon class="rp-wall" points="{{.}}"/>{{end}}
+    {{range .Rays}}<line class="rp-ray" x1="{{.A.X}}" y1="{{.A.Y}}" x2="{{.B.X}}" y2="{{.B.Y}}"/>{{end}}
+    {{if .TargetIsItem}}<circle class="rp-item" cx="{{.TargetEnd.X}}" cy="{{.TargetEnd.Y}}" r="6"/>{{else}}<polyline class="rp-target" points="{{.Target}}"/><circle class="rp-target-dot" cx="{{.TargetEnd.X}}" cy="{{.TargetEnd.Y}}" r="4.5"/>{{end}}
+    <polyline class="rp-viewer" points="{{.Viewer}}"/>
+    <circle class="rp-start" cx="{{.Start.X}}" cy="{{.Start.Y}}" r="3.5"/>
+    <circle class="rp-viewer-dot" cx="{{.End.X}}" cy="{{.End.Y}}" r="4.5"/>
+    <line class="rp-scale" x1="0" y1="{{add2 .H 14}}" x2="{{.ScaleBar}}" y2="{{add2 .H 14}}"/>
+    <text class="rp-label" x="{{add2 .ScaleBar 6}}" y="{{add2 .H 18}}">10 m</text>
+  </svg>
+  <p class="legend"><span class="key k-viewer"></span> flagged player <span class="key k-ray"></span> crosshair direction <span class="key k-target"></span> {{if .TargetIsItem}}unseen loot{{else}}hidden enemy (true position){{end}} <span class="key k-wall"></span> occluder</p>
+  {{end}}
+  {{with .ReplayNote}}<p class="muted">{{.}}</p>{{end}}
+  <details><summary>Knowledge model</summary><p class="muted">{{.Knowledge}}</p></details>
+</div>
+{{end}}
+
+{{define "gameplaytable"}}
+{{if .}}
+<table class="compact">
+  <thead><tr><th>Match</th><th class="num">Slot</th><th>Mode</th><th>Map</th><th>Input</th><th class="num">Batches</th><th class="num">Motion samples</th><th class="num">Sounds</th><th class="num">Shots</th><th class="num">SDK drops</th><th>Information leak</th></tr></thead>
+  <tbody>{{range .}}<tr>
+    <td class="mono">{{short .MatchID}}</td><td class="num">{{.Slot}}</td><td>{{.Mode}}</td><td class="mono">{{.MapID}}{{if .MapVersion}} v{{.MapVersion}}{{end}}</td>
+    <td>{{.Device}}{{if .AimAssist}} <small class="muted">aim assist</small>{{end}}</td>
+    <td class="num">{{.Batches}}</td><td class="num">{{.MotionSamples}}</td><td class="num">{{.Sounds}}</td><td class="num">{{.Shots}}</td><td class="num">{{.DroppedEvents}}</td>
+    <td>{{if not .LeakScored}}<span class="muted">match in progress</span>{{else if .LeakFlagged}}<span class="sev sev-medium">flagged · z {{fixed 2 .LeakScore}}</span>{{else}}<span class="pill ok">clear · z {{fixed 2 .LeakScore}}</span>{{end}}</td>
+  </tr>{{end}}</tbody>
+</table>
+{{else}}<p class="empty">No telemetry v2 gameplay linked to this session.</p>{{end}}
+{{end}}

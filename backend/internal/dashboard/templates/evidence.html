@@ -15,6 +15,13 @@
     {{if $e.MatchID}}<dt>Match</dt><dd class="mono">{{$e.MatchID}}</dd>{{end}}
     <dt>Observed</dt><dd>{{when $e.ObservedAt}} <small class="muted">({{ago $e.ObservedAt}})</small></dd>
   </dl>
-  {{with pretty $e.Raw}}<h2>Raw finding</h2><pre>{{.}}</pre>{{end}}
+  {{with leak $e}}{{else}}{{with pretty $e.Raw}}<h2>Raw finding</h2><pre>{{.}}</pre>{{end}}{{end}}
 </section>
+{{with leak $e}}
+<section class="card">
+  <h2>Why this player was flagged</h2>
+  {{template "leak" .}}
+  <details><summary>Raw evidence</summary><pre>{{pretty $e.Raw}}</pre></details>
+</section>
+{{end}}
 {{end}}
