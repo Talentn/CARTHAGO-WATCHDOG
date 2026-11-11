@@ -62,14 +62,16 @@ func (s *Server) verifyCookie(v string) (string, bool) {
 }
 
 // checkKey compares in constant time against every tenant so timing does not reveal which
-// tenant ids exist.
+// tenant ids exist. Both sides are hashed first, so the comparison time does not depend on
+// the length of the stored key either.
 func (s *Server) checkKey(tenant, key string) bool {
+	gotKey, gotTenant := sha256.Sum256([]byte(key)), sha256.Sum256([]byte(tenant))
 	ok := 0
 	for t, k := range s.keys {
-		match := subtle.ConstantTimeCompare([]byte(k), []byte(key)) & subtle.ConstantTimeCompare([]byte(t), []byte(tenant))
-		ok |= match
+		wantKey, wantTenant := sha256.Sum256([]byte(k)), sha256.Sum256([]byte(t))
+		ok |= subtle.ConstantTimeCompare(wantKey[:], gotKey[:]) & subtle.ConstantTimeCompare(wantTenant[:], gotTenant[:])
 	}
-	return ok == 1
+	return ok == 1 && key != ""
 }
 
 func (s *Server) tenantOf(r *http.Request) (string, bool) {
@@ -145,6 +147,11 @@ func (l *limiter) failed(ip string, now time.Time) {
 			if now.Sub(f.first) > failureReset {
 				delete(l.fail, k)
 			}
+		}
+		// Still full of live entries (failures from very many addresses): start over
+		// rather than grow without bound.
+		if len(l.fail) > 10_000 {
+			l.fail = map[string]failures{}
 		}
 	}
 	f := l.fail[ip]

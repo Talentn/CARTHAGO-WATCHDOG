@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -47,6 +48,11 @@ type Config struct {
 	// SecureCookie sets the cookie's Secure flag; enable it when the dashboard is served
 	// over HTTPS (directly or behind a TLS-terminating proxy).
 	SecureCookie bool
+	// AllowedHosts, when not empty, are the only Host header names (without port) the
+	// dashboard answers to. For a loopback listener this stops DNS rebinding: a web page
+	// that points its own name at 127.0.0.1 would otherwise be same-origin with the
+	// dashboard and could sign in with a known or default key.
+	AllowedHosts []string
 	// OnlineWindow: a session counts as online if it heartbeated within this window.
 	OnlineWindow time.Duration
 	Now          func() time.Time
@@ -62,6 +68,7 @@ type Server struct {
 	log          *slog.Logger
 	pages        map[string]*template.Template
 	lim          limiter
+	hosts        map[string]bool
 }
 
 func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
@@ -76,6 +83,12 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{st: st, keys: cfg.Keys, secret: secret, secureCookie: cfg.SecureCookie, online: cfg.OnlineWindow, now: cfg.Now, log: log}
+	if len(cfg.AllowedHosts) > 0 {
+		s.hosts = map[string]bool{}
+		for _, h := range cfg.AllowedHosts {
+			s.hosts[strings.ToLower(strings.Trim(h, "[]"))] = true
+		}
+	}
 	if err := s.parse(); err != nil {
 		return nil, err
 	}
@@ -135,7 +148,25 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
-	return securityHeaders(mux)
+	return securityHeaders(s.hostCheck(mux))
+}
+
+// hostCheck refuses requests addressed to a name the dashboard is not served under.
+func (s *Server) hostCheck(h http.Handler) http.Handler {
+	if s.hosts == nil {
+		return h
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if hn, _, err := net.SplitHostPort(host); err == nil {
+			host = hn
+		}
+		if !s.hosts[strings.ToLower(strings.Trim(host, "[]"))] {
+			http.Error(w, "this dashboard is not served under that host name", http.StatusMisdirectedRequest)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 func securityHeaders(h http.Handler) http.Handler {

@@ -204,3 +204,57 @@ func TestStaticAssets(t *testing.T) {
 		}
 	}
 }
+
+// A page on another origin can point its own host name at 127.0.0.1 (DNS rebinding) and
+// would then be same-origin with a loopback dashboard. Requests under such a name are
+// refused before any handler runs.
+func TestHostCheckStopsRebinding(t *testing.T) {
+	f := newFixture(t)
+	srv, err := New(Config{Keys: f.srv.keys, AllowedHosts: []string{"localhost", "127.0.0.1", "::1"}, Now: f.srv.now}, f.srv.st, f.srv.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Handler()
+	post := func(host string) int {
+		r := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{"tenant": {"demo"}, "key": {"demo-key"}}.Encode()))
+		r.Host = host
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Origin", "http://"+host)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for _, host := range []string{"rebind.attacker.example:8751", "attacker.example", "127.0.0.1.attacker.example:8751", ""} {
+		if code := post(host); code != http.StatusMisdirectedRequest {
+			t.Errorf("Host %q: %d, want 421", host, code)
+		}
+	}
+	for _, host := range []string{"localhost:8751", "127.0.0.1:8751", "[::1]:8751", "LOCALHOST"} {
+		if code := post(host); code != http.StatusSeeOther {
+			t.Errorf("Host %q: %d, want a successful login", host, code)
+		}
+	}
+	// Without a list (a deployment behind a proxy that did not configure one) nothing changes.
+	if w := f.do("GET", "/login", nil, nil, nil); w.Code != http.StatusOK {
+		t.Errorf("no host list: %d", w.Code)
+	}
+}
+
+func TestCheckKey(t *testing.T) {
+	f := newFixture(t)
+	for _, c := range []struct {
+		tenant, key string
+		want        bool
+	}{
+		{"demo", "demo-key", true}, {"rival", "rival-key", true}, {"demo", "rival-key", false}, {"demo", "", false},
+		{"", "demo-key", false}, {"demo", "demo-key ", false}, {"demo", "demo-ke", false}, {"nobody", "", false},
+	} {
+		if got := f.srv.checkKey(c.tenant, c.key); got != c.want {
+			t.Errorf("checkKey(%q, %q) = %v", c.tenant, c.key, got)
+		}
+	}
+	empty, _ := New(Config{Keys: map[string]string{"demo": ""}}, f.srv.st, f.srv.log)
+	if empty.checkKey("demo", "") {
+		t.Error("an empty configured key accepts an empty login")
+	}
+}
