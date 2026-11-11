@@ -13,11 +13,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	goattest "github.com/google/go-attestation/attest"
@@ -67,16 +71,85 @@ type EKReport struct {
 	Notes       []string       `json:"notes,omitempty"`
 }
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
+// fetchHosts are the only hosts EK certificates and missing issuers are fetched from. The
+// URLs come from the EK certificate, which the client supplies, so without this list the
+// gateway could be made to request arbitrary (internal) URLs.
+var fetchHosts = map[string]bool{
+	"ekop.intel.com":            true, // Intel EK certificate service
+	"tsci.intel.com":            true, // Intel On-Die CA
+	"trustedservices.intel.com": true, // Intel PTT EK CAs
+	"upgrades.intel.com":        true, // Intel PTT EK CAs (older AIA URLs)
+	"ftpm.amd.com":              true, // AMD fTPM
+	"pki.infineon.com":          true,
+	"secure.globalsign.com":     true, // STMicro's chain is issued under GlobalSign
+	"sw-center.st.com":          true,
+	"www.nuvoton.com":           true,
+}
+
+// checkFetchURL allows http(s) URLs on a default port of a host in fetchHosts.
+func checkFetchURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("unparseable URL")
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("scheme %q not allowed", u.Scheme)
+	}
+	if u.User != nil {
+		return errors.New("URL with credentials not allowed")
+	}
+	if p := u.Port(); p != "" && p != "80" && p != "443" {
+		return fmt.Errorf("port %s not allowed", p)
+	}
+	if host := strings.ToLower(u.Hostname()); !fetchHosts[host] {
+		return fmt.Errorf("host %q is not a known TPM manufacturer host", host)
+	}
+	return nil
+}
+
+// publicAddressOnly refuses connections to loopback, private, link-local and other
+// non-global addresses, whatever name they were resolved from.
+func publicAddressOnly(_, address string, _ syscall.RawConn) error {
+	ap, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return fmt.Errorf("fetch: %v", err)
+	}
+	ip := ap.Addr().Unmap()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return fmt.Errorf("fetch: %s is not a public address", ip)
+	}
+	return nil
+}
+
+var httpClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		Proxy:                 nil,
+		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, Control: publicAddressOnly}).DialContext,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+		MaxIdleConns:          4,
+		IdleConnTimeout:       30 * time.Second,
+	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return errors.New("too many redirects")
+		}
+		return checkFetchURL(req.URL.String())
+	},
+}
 
 func fetch(u string) ([]byte, error) {
+	if err := checkFetchURL(u); err != nil {
+		return nil, err
+	}
 	resp, err := httpClient.Get(u)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: HTTP %d", u, resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
@@ -217,7 +290,8 @@ func CheckEK(ekPub *rsa.PublicKey, nvCerts, chainCerts [][]byte, manufacturer st
 				leaf, err = parseAnyCert(body)
 			}
 			if err != nil {
-				rep.Notes = append(rep.Notes, "manufacturer EK cert fetch failed: "+err.Error())
+				slog.Warn("EK certificate fetch failed", "url", rep.CertURL, "err", err)
+				rep.Notes = append(rep.Notes, "manufacturer EK cert fetch failed")
 			} else {
 				rep.CertSource = "manufacturer-service"
 			}
@@ -300,13 +374,17 @@ func fetchIssuers(leaf *x509.Certificate, roots *ekroots.Bundle, have []*x509.Ce
 			if err == nil {
 				break
 			}
-			lastErr = fmt.Errorf("%s: %w", u, err)
+			lastErr = err
+			// Not echoed to the client: the notes go back in the Session message and the
+			// URL is attacker-chosen, so the error would describe what the gateway can reach.
+			slog.Warn("EK issuer fetch failed", "url", u, "err", err)
 		}
 		if parent == nil {
 			if lastErr == nil {
-				lastErr = errors.New("no AIA issuer URL")
+				rep.Notes = append(rep.Notes, "AIA fetch stopped: no AIA issuer URL")
+			} else {
+				rep.Notes = append(rep.Notes, "AIA fetch stopped: issuer could not be fetched")
 			}
-			rep.Notes = append(rep.Notes, "AIA fetch stopped: "+lastErr.Error())
 			break
 		}
 		got = append(got, parent)

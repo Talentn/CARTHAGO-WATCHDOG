@@ -11,6 +11,10 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -233,5 +237,69 @@ func TestCheckEKCapsSuppliedCertificates(t *testing.T) {
 	rep := CheckEK(&ekKey.PublicKey, nv, nil, "", false, base, time.Now())
 	if rep.ChainStatus != ekroots.StatusNoCert || len(rep.Notes) == 0 {
 		t.Errorf("status %s notes %v", rep.ChainStatus, rep.Notes)
+	}
+}
+
+// With fetching enabled, AIA URLs come from a client-supplied certificate. They must not
+// make the gateway request anything but the known manufacturer hosts, and the reason a
+// fetch failed must not be reported back to the client.
+func TestFetchIsLimitedToManufacturerHosts(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+
+	for _, u := range []string{
+		srv.URL + "/issuer.cer",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://localhost:8751/",
+		"file:///etc/passwd",
+		"https://ekop.intel.com.evil.example/x",
+		"https://user@ekop.intel.com/x",
+		"https://ekop.intel.com:8443/x",
+		"gopher://ftpm.amd.com/",
+	} {
+		if err := checkFetchURL(u); err == nil {
+			t.Errorf("%s allowed", u)
+		}
+		if _, err := fetch(u); err == nil {
+			t.Errorf("%s fetched", u)
+		}
+	}
+	for _, u := range []string{"https://ekop.intel.com/ekcertservice/abc", "http://pki.infineon.com/OptigaRsaMfrCA036/OptigaRsaMfrCA036.crt", "https://FTPM.AMD.COM/pki/aia/00"} {
+		if err := checkFetchURL(u); err != nil {
+			t.Errorf("%s refused: %v", u, err)
+		}
+	}
+	// Even an allowed name must not reach a non-public address (DNS pointing inwards).
+	for _, a := range []string{"127.0.0.1:80", "10.1.2.3:443", "192.168.0.1:80", "169.254.169.254:80", "[::1]:80", "[fd00::1]:443", "[::ffff:127.0.0.1]:80", "0.0.0.0:80"} {
+		if err := publicAddressOnly("tcp", a, nil); err == nil {
+			t.Errorf("dial to %s allowed", a)
+		}
+	}
+	if err := publicAddressOnly("tcp", "93.184.216.34:443", nil); err != nil {
+		t.Errorf("public address refused: %v", err)
+	}
+
+	// End to end: an EK certificate whose AIA points at an internal server.
+	ekKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	issuer := newCA(t, "Unknown EK CA", nil)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(7), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		Subject: pkix.Name{CommonName: "EK with internal AIA"}, IssuingCertificateURL: []string{srv.URL + "/secret"}}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, issuer.cert, &ekKey.PublicKey, issuer.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, _ := ekroots.Default()
+	rep := CheckEK(&ekKey.PublicKey, [][]byte{der}, nil, "", true, roots, time.Now())
+	if hits.Load() != 0 {
+		t.Errorf("gateway requested the internal URL %d times", hits.Load())
+	}
+	if rep.ChainStatus != ekroots.StatusUnknownVendor {
+		t.Errorf("status %s", rep.ChainStatus)
+	}
+	for _, n := range rep.Notes {
+		if strings.Contains(n, srv.URL) || strings.Contains(n, "127.0.0.1") {
+			t.Errorf("note leaks the fetch target: %q", n)
+		}
 	}
 }
