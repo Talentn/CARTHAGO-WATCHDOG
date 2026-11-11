@@ -9,6 +9,9 @@
 //!   headshot    headshot share far above the MMR baseline            -> headshot_rate
 //!   cmdrate     more user commands than ticks                        -> command_rate
 //!   regular     trigger presses at near-constant intervals           -> macro_interval
+//!
+//! With `--scenario FILE` it instead replays a telemetry v2 match from carthago-sim
+//! (scenario.rs).
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -77,14 +80,14 @@ struct Slot {
     click_us: u64,
 }
 
-struct Session {
-    id: String,
-    player: String,
-    mmr: i32,
+pub(crate) struct Session {
+    pub(crate) id: String,
+    pub(crate) player: String,
+    pub(crate) mmr: i32,
 }
 
 /// Session file lines: `slot session_id player_hash [mmr]` (written by carthago-sim).
-fn load_sessions(path: &str) -> Result<HashMap<u32, Session>, String> {
+pub(crate) fn load_sessions(path: &str) -> Result<HashMap<u32, Session>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
     let mut out = HashMap::new();
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
@@ -113,6 +116,9 @@ pub fn simulate(a: &Args) -> i32 {
 }
 
 fn run(a: &Args) -> Result<i32, String> {
+    if let Some(path) = a.get("--scenario") {
+        return crate::scenario::run(a, &path);
+    }
     let url = a.get_or("--ingest", "ws://127.0.0.1:8750/v1/ingest");
     let key = a.get_or("--server-key", "demo-server-key");
     let tick_rate: u32 = a.get_or("--tick-rate", "64").parse().map_err(|_| "--tick-rate")?;
