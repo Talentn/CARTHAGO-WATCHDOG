@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"carthago/backend/internal/attest/ekroots"
@@ -66,12 +67,17 @@ func main() {
 	maxHandshakes := flag.Int("max-handshakes", 0, "client handshakes allowed in progress at once (0 = default 1024)")
 	maxHandshakesIP := flag.Int("max-handshakes-per-ip", 0, "client handshakes allowed in progress per remote address (0 = default 32; raise behind a proxy)")
 	autoKick := flag.Bool("auto-kick", false, "kick sessions on critical client integrity evidence (behavioural evidence never kicks)")
+	dashHosts := flag.String("dashboard-host", "", "comma-separated host names the dashboard answers to, besides localhost when it listens on loopback (e.g. the name a reverse proxy forwards)")
 	flag.Parse()
 	if len(tenants) == 0 {
-		tenants["demo"] = "demo-server-key"
+		tenants["demo"] = demoServerKey
 		if len(dashKeys) == 0 {
-			dashKeys["demo"] = "demo-dashboard-key"
+			dashKeys["demo"] = demoDashboardKey
 		}
+	}
+	if err := checkExposure(*listen, *dashListen, tenants, dashKeys, *dashSecure); err != nil {
+		fmt.Fprintln(os.Stderr, "carthago-gateway:", err)
+		os.Exit(2)
 	}
 	level := slog.LevelInfo
 	if *verbose {
@@ -136,7 +142,7 @@ func main() {
 		Detections: detections, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP,
 	}, keys, st, log)
 	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		t := time.NewTicker(time.Minute)
@@ -157,7 +163,7 @@ func main() {
 		_ = srv.Shutdown(sctx)
 	}()
 	if *dashListen != "" {
-		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, st, log); err != nil {
+		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, dashboardHosts(*dashListen, *dashHosts), st, log); err != nil {
 			log.Error("dashboard", "err", err)
 			os.Exit(1)
 		}
@@ -234,17 +240,70 @@ func splitPins(s string) ([]string, error) {
 	return out, nil
 }
 
+const (
+	demoServerKey    = "demo-server-key"
+	demoDashboardKey = "demo-dashboard-key"
+	// minExposedKeyLen is the shortest key accepted on a listener that is not loopback.
+	minExposedKeyLen = 16
+)
+
+// checkExposure refuses configurations that are only acceptable on a developer machine:
+// the built-in demo keys or short keys on a listener reachable from other hosts, a
+// dashboard served in plaintext to other hosts, and tenants sharing a server key (the
+// key is what selects the tenant).
+func checkExposure(listen, dashListen string, tenants, dashKeys map[string]string, dashSecure bool) error {
+	byKey := map[string]string{}
+	for tenant, key := range tenants {
+		if other, dup := byKey[key]; dup {
+			return fmt.Errorf("tenants %q and %q share a server key; each tenant needs its own", other, tenant)
+		}
+		byKey[key] = tenant
+	}
+	if !gateway.IsLoopbackListen(listen) {
+		for tenant, key := range tenants {
+			if key == demoServerKey || len(key) < minExposedKeyLen {
+				return fmt.Errorf("refusing to listen on %s with the demo or a short server key for tenant %q; set -tenant %s=<at least %d random characters>", listen, tenant, tenant, minExposedKeyLen)
+			}
+		}
+	}
+	if dashListen != "" && !gateway.IsLoopbackListen(dashListen) {
+		for tenant, key := range dashKeys {
+			if key == demoDashboardKey || len(key) < minExposedKeyLen {
+				return fmt.Errorf("refusing to serve the dashboard on %s with the demo or a short key for tenant %q; set -dashboard-key %s=<at least %d random characters>", dashListen, tenant, tenant, minExposedKeyLen)
+			}
+		}
+		if !dashSecure {
+			return fmt.Errorf("refusing to serve the dashboard on %s without -dashboard-secure-cookie: it speaks plain HTTP, so off loopback it must sit behind a TLS-terminating proxy", dashListen)
+		}
+	}
+	return nil
+}
+
+// dashboardHosts returns the Host names the dashboard answers to: the loopback names for a
+// loopback listener plus any configured ones. An empty result disables the check (a
+// non-loopback listener without -dashboard-host).
+func dashboardHosts(dashListen, extra string) []string {
+	var hosts []string
+	if gateway.IsLoopbackListen(dashListen) {
+		hosts = append(hosts, "localhost", "127.0.0.1", "::1")
+	}
+	for _, h := range strings.FieldsFunc(extra, func(r rune) bool { return r == ',' || r == ' ' }) {
+		hosts = append(hosts, h)
+	}
+	return hosts
+}
+
 type kickFunc func(id, reason string)
 
 func (f kickFunc) Kick(id, reason string) { f(id, reason) }
 
 // serveDashboard runs the Carthago Watchdog dashboard on its own listener, so it can stay on
 // loopback (or behind a VPN or proxy) while the client gateway faces the internet.
-func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, st evidenceStore, log *slog.Logger) error {
+func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, st evidenceStore, log *slog.Logger) error {
 	if len(keys) == 0 {
 		log.Warn("dashboard has no -dashboard-key entries; nobody can sign in")
 	}
-	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure}, st, log)
+	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts}, st, log)
 	if err != nil {
 		return err
 	}
