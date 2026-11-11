@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/binary"
 	"encoding/pem"
 	"math/big"
@@ -176,5 +177,61 @@ func TestCheckEKIntelPTTChainFromNV(t *testing.T) {
 	}
 	if rep := CheckEK(ek, [][]byte{leaf}, append(junk, chain...), "INTC", false, roots, now); rep.ChainStatus != ekroots.StatusUnknownVendor {
 		t.Errorf("chain beyond MaxEKChainCerts was used: %s", rep.ChainStatus)
+	}
+}
+
+// A certificate for the EK's key that is a CA certificate, or is limited to another use,
+// is not an EK certificate even if it chains to a trusted root.
+func TestCheckEKRejectsNonEKLeaf(t *testing.T) {
+	ekKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	ek := &ekKey.PublicKey
+	root := newCA(t, "Leaf Check Root", nil)
+	base, _ := ekroots.Default()
+	trusted, err := base.WithExtraRoots(map[string][]byte{"root.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: root.cert.Raw})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(mod func(*x509.Certificate)) []byte {
+		tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+			Subject: pkix.Name{CommonName: "leaf"}, KeyUsage: x509.KeyUsageKeyEncipherment}
+		mod(tmpl)
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, root.cert, ek, root.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return der
+	}
+	now := time.Now()
+	for name, c := range map[string]struct {
+		der  []byte
+		want ekroots.Status
+	}{
+		"no EKU": {mk(func(*x509.Certificate) {}), ekroots.StatusVerified},
+		"EK EKU": {mk(func(c *x509.Certificate) { c.UnknownExtKeyUsage = []asn1.ObjectIdentifier{oidEKCertificate} }), ekroots.StatusVerified},
+		"CA": {mk(func(c *x509.Certificate) {
+			c.IsCA, c.BasicConstraintsValid, c.KeyUsage = true, true, x509.KeyUsageCertSign
+		}), ekroots.StatusInvalid},
+		"TLS EKU only": {mk(func(c *x509.Certificate) { c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth} }), ekroots.StatusInvalid},
+	} {
+		rep := CheckEK(ek, [][]byte{c.der}, nil, "", false, trusted, now)
+		if rep.ChainStatus != c.want {
+			t.Errorf("%s: %s, want %s (%v)", name, rep.ChainStatus, c.want, rep.Notes)
+		}
+	}
+}
+
+func TestCheckEKCapsSuppliedCertificates(t *testing.T) {
+	ekKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	root := newCA(t, "Cap Root", nil)
+	base, _ := ekroots.Default()
+	var nv [][]byte
+	for i := 0; i < MaxEKNVCerts+5; i++ {
+		nv = append(nv, root.cert.Raw)
+	}
+	// The EK certificate sits behind more filler than the cap admits, so it is not used.
+	nv = append(nv, ekCert(t, root, &ekKey.PublicKey))
+	rep := CheckEK(&ekKey.PublicKey, nv, nil, "", false, base, time.Now())
+	if rep.ChainStatus != ekroots.StatusNoCert || len(rep.Notes) == 0 {
+		t.Errorf("status %s notes %v", rep.ChainStatus, rep.Notes)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -132,8 +134,36 @@ func parseSuppliedCert(der []byte) (*x509.Certificate, error) {
 	return ekroots.ParseCertificate(der)
 }
 
+// tcg-kp-EKCertificate (TCG EK Credential Profile).
+var oidEKCertificate = asn1.ObjectIdentifier{2, 23, 133, 8, 1}
+
+// notAnEKCertificate says why leaf cannot be an EK certificate, or returns "". A CA
+// certificate is never one, and a certificate that restricts its use with an extended key
+// usage must name the EK usage.
+func notAnEKCertificate(leaf *x509.Certificate) string {
+	if leaf.BasicConstraintsValid && leaf.IsCA {
+		return fmt.Sprintf("%q is a CA certificate, not an EK certificate", leaf.Subject.String())
+	}
+	if len(leaf.ExtKeyUsage) == 0 && len(leaf.UnknownExtKeyUsage) == 0 {
+		return ""
+	}
+	if slices.Contains(leaf.ExtKeyUsage, x509.ExtKeyUsageAny) {
+		return ""
+	}
+	for _, oid := range leaf.UnknownExtKeyUsage {
+		if oid.Equal(oidEKCertificate) {
+			return ""
+		}
+	}
+	return fmt.Sprintf("%q has an extended key usage that does not include tcg-kp-EKCertificate", leaf.Subject.String())
+}
+
 // MaxEKChainCerts bounds the EK chain certificates taken from one handshake.
 const MaxEKChainCerts = 16
+
+// MaxEKNVCerts bounds the EK certificates taken from one handshake (a TPM holds one per EK
+// template: RSA and ECC, low and high range).
+const MaxEKNVCerts = 8
 
 // CheckEK finds an EK certificate (NV first, then the manufacturer service when allowed),
 // confirms it certifies the EK used for the AK binding, and verifies its chain against the
@@ -146,6 +176,10 @@ func CheckEK(ekPub *rsa.PublicKey, nvCerts, chainCerts [][]byte, manufacturer st
 
 	var leaf *x509.Certificate
 	var extra []*x509.Certificate
+	if len(nvCerts) > MaxEKNVCerts {
+		rep.Notes = append(rep.Notes, fmt.Sprintf("EK certificates: %d supplied, using the first %d", len(nvCerts), MaxEKNVCerts))
+		nvCerts = nvCerts[:MaxEKNVCerts]
+	}
 	for i, der := range nvCerts {
 		c, err := parseSuppliedCert(der)
 		if err != nil {
@@ -199,6 +233,12 @@ func CheckEK(ekPub *rsa.PublicKey, nvCerts, chainCerts [][]byte, manufacturer st
 		return rep
 	}
 	rep.CertMatchesEK = true
+	if msg := notAnEKCertificate(leaf); msg != "" {
+		rep.ChainStatus = ekroots.StatusInvalid
+		rep.Chain = []CertInfo{info(leaf, rep.CertSource)}
+		rep.Notes = append(rep.Notes, "EK chain: "+msg)
+		return rep
+	}
 	if allowFetch {
 		extra = append(extra, fetchIssuers(leaf, roots, extra, &rep)...)
 	}
