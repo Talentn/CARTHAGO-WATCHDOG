@@ -34,6 +34,12 @@ type Config struct {
 	// EKRoots are the trusted TPM manufacturer CAs; nil means the embedded bundle.
 	EKRoots *ekroots.Bundle
 
+	// MaxHandshakes and MaxHandshakesPerIP bound client handshakes in progress, in total
+	// and per remote address; further connections get HTTP 503. Raise the per-address
+	// limit when clients reach the gateway through a proxy that hides their address.
+	MaxHandshakes      int
+	MaxHandshakesPerIP int
+
 	// Detections receives every accepted heartbeat and serves /v1/ingest; nil disables both.
 	Detections Detections
 
@@ -65,6 +71,12 @@ func (c *Config) defaults() {
 	if c.ProveTimeout == 0 {
 		c.ProveTimeout = 60 * time.Second
 	}
+	if c.MaxHandshakes <= 0 {
+		c.MaxHandshakes = defaultMaxHandshakes
+	}
+	if c.MaxHandshakesPerIP <= 0 {
+		c.MaxHandshakesPerIP = defaultMaxHandshakesPerIP
+	}
 	if c.Now == nil {
 		c.Now = time.Now
 	}
@@ -78,16 +90,17 @@ func (c *Config) defaults() {
 }
 
 type Gateway struct {
-	cfg      Config
-	keys     *Keys
-	store    store.Store
-	sessions *Manager
-	log      *slog.Logger
+	cfg        Config
+	keys       *Keys
+	store      store.Store
+	sessions   *Manager
+	log        *slog.Logger
+	handshakes *handshakeGate
 }
 
 func New(cfg Config, keys *Keys, st store.Store, log *slog.Logger) *Gateway {
 	cfg.defaults()
-	return &Gateway{cfg: cfg, keys: keys, store: st, sessions: NewManager(st, log, cfg.Now), log: log}
+	return &Gateway{cfg: cfg, keys: keys, store: st, sessions: NewManager(st, log, cfg.Now), log: log, handshakes: newHandshakeGate(cfg.MaxHandshakes, cfg.MaxHandshakesPerIP)}
 }
 
 func (g *Gateway) Sessions() *Manager { return g.sessions }

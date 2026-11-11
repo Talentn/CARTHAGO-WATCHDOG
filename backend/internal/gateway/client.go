@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -110,12 +111,21 @@ func randBytes(n int) []byte {
 }
 
 func (g *Gateway) handleClient(w http.ResponseWriter, r *http.Request) {
+	// Refuse before the upgrade when too many handshakes are already in progress.
+	ip := remoteIP(r.RemoteAddr)
+	if !g.handshakes.acquire(ip) {
+		g.log.Warn("handshake refused: too many in progress", "remote", r.RemoteAddr)
+		http.Error(w, "too many handshakes in progress", http.StatusServiceUnavailable)
+		return
+	}
+	release := sync.OnceFunc(func() { g.handshakes.release(ip) })
+	defer release()
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer ws.CloseNow()
-	ws.SetReadLimit(4 << 20)
+	ws.SetReadLimit(helloReadLimit)
 	ctx := r.Context()
 	sc, hb, err := g.handshake(ctx, ws)
 	if err != nil {
@@ -135,6 +145,8 @@ func (g *Gateway) handleClient(w http.ResponseWriter, r *http.Request) {
 		ws.Close(websocket.StatusPolicyViolation, reason)
 		return
 	}
+	release()
+	ws.SetReadLimit(sessionReadLimit)
 	g.serve(ctx, ws, sc, hb)
 }
 
@@ -192,8 +204,8 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 	if _, ok := g.cfg.Tenants[hello.TenantId]; !ok {
 		return nil, nil, reject("unknown_tenant", "tenant %q", hello.TenantId)
 	}
-	if n := len(hello.PlayerIdHash); n == 0 || n > 128 {
-		return nil, nil, reject("bad_hello", "player_id_hash must be 1-128 bytes")
+	if err := validateHello(&hello); err != nil {
+		return nil, nil, err
 	}
 	if len(hello.ClientEphPub) != 32 {
 		return nil, nil, reject("bad_hello", "client_eph_pub must be 32 bytes")
@@ -281,6 +293,9 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 	}
 	sc = &sealedConn{ws: ws, sid: sid, sendKey: s2c, recvKey: c2s, g: g, sessionID: hex.EncodeToString(sid)}
 
+	if attestReq != nil {
+		ws.SetReadLimit(proveReadLimit)
+	}
 	proveFrame, err := readFrame(ctx, ws, g.cfg.ProveTimeout, protocol.FrameSealed)
 	if err != nil {
 		return sc, nil, err
@@ -451,6 +466,8 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 	}
 	defer g.sessions.Detach(id)
 
+	limiter := newHeartbeatLimiter(g.cfg.HeartbeatInterval, g.cfg.Now())
+	skipped := 0
 	frames := make(chan []byte)
 	readErr := make(chan error, 1)
 	go func() {
@@ -492,6 +509,12 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 			if hbm == nil {
 				continue
 			}
+			if err := validateHeartbeat(hbm); err != nil {
+				g.log.Warn("oversized heartbeat", "session", id, "err", err)
+				g.sessions.Kick(id, "protocol_violation")
+				ws.Close(websocket.StatusPolicyViolation, "protocol violation")
+				return
+			}
 			ack := &pb.HeartbeatAck{}
 			var newExpiry time.Time
 			now := g.cfg.Now()
@@ -508,7 +531,11 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 				continue // already kicked; the kicked channel delivers the notice
 			}
 			if d := g.cfg.Detections; d != nil {
-				if rec, ok := g.sessions.Get(id); ok {
+				if !limiter.allow(now) {
+					if skipped++; skipped == 1 {
+						g.log.Warn("heartbeats arriving faster than negotiated; extra ones are not analysed", "session", id)
+					}
+				} else if rec, ok := g.sessions.Get(id); ok {
 					d.Heartbeat(rec, hbm)
 				}
 			}

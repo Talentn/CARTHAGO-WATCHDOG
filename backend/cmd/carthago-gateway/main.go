@@ -63,6 +63,8 @@ func main() {
 	dashKeys := tenantFlag{}
 	flag.Var(dashKeys, "dashboard-key", "tenant=dashboard-login-key (repeatable); default demo=demo-dashboard-key with the default tenant")
 	dashSecure := flag.Bool("dashboard-secure-cookie", false, "mark the dashboard cookie Secure (when served over HTTPS)")
+	maxHandshakes := flag.Int("max-handshakes", 0, "client handshakes allowed in progress at once (0 = default 1024)")
+	maxHandshakesIP := flag.Int("max-handshakes-per-ip", 0, "client handshakes allowed in progress per remote address (0 = default 32; raise behind a proxy)")
 	autoKick := flag.Bool("auto-kick", false, "kick sessions on critical client integrity evidence (behavioural evidence never kicks)")
 	flag.Parse()
 	if len(tenants) == 0 {
@@ -131,7 +133,7 @@ func main() {
 	defer detections.Close()
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections,
+		Detections: detections, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP,
 	}, keys, st, log)
 	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
