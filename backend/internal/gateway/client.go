@@ -25,7 +25,14 @@ import (
 	"carthago/backend/internal/store"
 )
 
-var windowsPCRs = []uint32{0, 2, 4, 7, 11, 12, 13, 14}
+// windowsPCRs is the PCR set requested from the client; the verifier accepts no other set.
+var windowsPCRs = func() []uint32 {
+	out := make([]uint32, len(attest.WindowsPCRs))
+	for i, p := range attest.WindowsPCRs {
+		out[i] = uint32(p)
+	}
+	return out
+}()
 
 // rejectError is a handshake failure the client is told about.
 type rejectError struct {

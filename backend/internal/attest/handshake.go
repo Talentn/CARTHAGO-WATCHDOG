@@ -1,11 +1,15 @@
 package attest
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/elliptic"
+	"crypto/sha256"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
 	"time"
 
@@ -118,6 +122,75 @@ func VerifyDeviceKeyCertify(akPublic, devicePublicArea, deviceSEC1, attest, sign
 	return nil
 }
 
+// WindowsPCRs is the PCR set (SHA-256 bank) a boot quote must cover: firmware (0, 2, 4),
+// Secure Boot policy (7) and the Windows boot manager and loader measurements (11 to 14).
+var WindowsPCRs = []int{0, 2, 4, 7, 11, 12, 13, 14}
+
+// checkPCRSet requires exactly one SHA-256 value for each PCR in WindowsPCRs. A duplicate
+// index would let the quote check use one value and the event-log replay another.
+func checkPCRSet(pcrs []PCRValue) error {
+	if len(pcrs) != len(WindowsPCRs) {
+		return fmt.Errorf("%d PCR values supplied, want exactly PCRs %v", len(pcrs), WindowsPCRs)
+	}
+	seen := map[int]bool{}
+	for _, p := range pcrs {
+		if len(p.Digest) != sha256.Size {
+			return fmt.Errorf("PCR %d value is %d bytes, want a SHA-256 digest", p.Index, len(p.Digest))
+		}
+		if seen[p.Index] {
+			return fmt.Errorf("PCR %d supplied more than once", p.Index)
+		}
+		seen[p.Index] = true
+	}
+	for _, want := range WindowsPCRs {
+		if !seen[want] {
+			return fmt.Errorf("PCR %d missing, want exactly PCRs %v", want, WindowsPCRs)
+		}
+	}
+	return nil
+}
+
+// checkQuoteSelection requires the quote itself to select exactly WindowsPCRs in the
+// SHA-256 bank. A quote over another bank, a subset or an empty selection would leave the
+// supplied PCR values (and so the event log) unauthenticated.
+func checkQuoteSelection(quote []byte) error {
+	ad, err := tpm2.DecodeAttestationData(quote)
+	if err != nil {
+		return fmt.Errorf("quote: %v", err)
+	}
+	if ad.Type != tpm2.TagAttestQuote || ad.AttestedQuoteInfo == nil {
+		return errors.New("attestation is not a quote")
+	}
+	sel := ad.AttestedQuoteInfo.PCRSelection
+	if sel.Hash != tpm2.AlgSHA256 {
+		return fmt.Errorf("quote selects PCR bank %v, want SHA256", sel.Hash)
+	}
+	got := append([]int(nil), sel.PCRs...)
+	sort.Ints(got)
+	if !slices.Equal(got, WindowsPCRs) {
+		return fmt.Errorf("quote selects PCRs %v, want exactly %v", got, WindowsPCRs)
+	}
+	return nil
+}
+
+// checkLogCoverage rejects a log that has no event for a PCR whose quoted value is not the
+// reset value: go-attestation's replay accepts such a PCR without looking at its value, so
+// dropping every event of one PCR (e.g. the boot options in PCR 12) would otherwise read as
+// "nothing was measured".
+func checkLogCoverage(events []goattest.Event, pcrs []PCRValue) error {
+	measured := map[int]bool{}
+	for _, e := range events {
+		measured[e.Index] = true
+	}
+	var zero [sha256.Size]byte
+	for _, p := range pcrs {
+		if !measured[p.Index] && !bytes.Equal(p.Digest, zero[:]) {
+			return fmt.Errorf("event log has no events for PCR %d, whose quoted value is not the reset value", p.Index)
+		}
+	}
+	return nil
+}
+
 // BootResult is the verified boot evidence for one quote.
 type BootResult struct {
 	Checks   []Check        `json:"checks"`
@@ -145,6 +218,13 @@ func VerifyBootEvidence(akPublic, nonce, quote, quoteSig []byte, pcrValues []PCR
 		r.Policy = evaluatePolicy(false, nil)
 		return r
 	}
+	// The quote only binds the PCR values it selects, and go-attestation takes the selection
+	// from the (client-built) quote. Both the supplied values and the quote must therefore
+	// cover exactly the PCR set the gateway asked for, once each, in the SHA-256 bank.
+	if !add("pcr_set", checkPCRSet(pcrValues), "") || !add("quote_pcr_selection", checkQuoteSelection(quote), "") {
+		r.Policy = evaluatePolicy(false, nil)
+		return r
+	}
 	pcrs := make([]goattest.PCR, 0, len(pcrValues))
 	idx := make([]int, 0, len(pcrValues))
 	for _, p := range pcrValues {
@@ -160,6 +240,9 @@ func VerifyBootEvidence(akPublic, nonce, quote, quoteSig []byte, pcrValues []PCR
 	if err == nil {
 		r.EventLog = map[string]any{"bytes": len(eventLog), "algs": fmt.Sprint(el.Algs), "raw_events": len(el.Events(goattest.HashSHA256))}
 		events, err = el.Verify(pcrs)
+	}
+	if err == nil {
+		err = checkLogCoverage(events, pcrValues)
 	}
 	logOK := add("event_log_replay", err, fmt.Sprintf("%d events replay to the quoted PCRs", len(events)))
 	r.QuoteOK = quoteErr == nil && logOK
