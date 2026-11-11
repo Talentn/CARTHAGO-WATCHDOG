@@ -200,7 +200,7 @@ func ints(xs []int32) string {
 //
 //	carthago-scenario 1
 //	match <id> <shooter|extraction> <tick_rate> <ticks>
-//	map <map_id> <version>
+//	map <map_id> <version> <default mode: shooter|extraction>
 //	occluder <z_min> <z_max> <x0> <y0> <x1> <y1> ...
 //	zone <name, spaces as _> <x0> <y0> ...
 //	loot <spawn_id> <x> <y> <z>
@@ -222,7 +222,7 @@ func WriteScenario(w io.Writer, spec Spec) error {
 	g := YardGeometry()
 	fmt.Fprintln(bw, "carthago-scenario 1")
 	fmt.Fprintf(bw, "match %s %s %d %d\n", spec.MatchID, ModeName(spec.Mode), spec.TickRate, uint32(spec.Seconds)*spec.TickRate)
-	fmt.Fprintf(bw, "map %s %d\n", g.MapId, g.Version)
+	fmt.Fprintf(bw, "map %s %d %s\n", g.MapId, g.Version, ModeName(g.Mode))
 	for _, o := range g.Occluders {
 		fmt.Fprintf(bw, "occluder %d %d %s\n", o.ZMinCm, o.ZMaxCm, ints(o.XyCm))
 	}
