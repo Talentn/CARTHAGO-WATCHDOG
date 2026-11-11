@@ -21,8 +21,29 @@ use tungstenite::{Message as WsMessage, WebSocket};
 
 use crate::kick::connect;
 
+/// Per-flush caps on telemetry v2 events. Anything over a cap is dropped and counted in the
+/// batch's `dropped_events`, so a misbehaving game loop costs bounded memory and bandwidth.
+pub const MAX_MOTION_SAMPLES_PER_FLUSH: usize = 16_384;
+pub const MAX_SOUNDS_PER_FLUSH: usize = 4_096;
+pub const MAX_TEAM_INFO_PER_FLUSH: usize = 1_024;
+pub const MAX_ITEMS_PER_FLUSH: usize = 1_024;
+/// Default motion sampling: every 4th tick (16 Hz at 64 ticks/s).
+pub const DEFAULT_MOTION_STRIDE: u32 = 4;
+
+/// Telemetry v2 schema version written into batches once any v2 call was made.
+pub const SCHEMA_V2: u32 = 2;
+
+struct MotionBuf {
+    track: pb::MotionTrack,
+    last_tick: u32,
+    last: [i32; 6],
+}
+
 /// Builds `GameplayBatch`es from per-tick calls. Aim samples for consecutive ticks are packed
 /// into one track per player; command counts are summed into one window per flush.
+///
+/// Telemetry v2 (positions, sounds, team info, items, map geometry) is opt-in: a recorder
+/// that never calls a v2 method produces exactly the v1 batches it always did.
 pub struct MatchRecorder {
     match_id: String,
     tick_rate: u32,
@@ -37,6 +58,22 @@ pub struct MatchRecorder {
     visibility: Vec<pb::VisibilityEvent>,
     commands: BTreeMap<u32, u32>,
     triggers: BTreeMap<u32, Vec<u64>>,
+    v2: bool,
+    mode: pb::GameMode,
+    map: Option<pb::MapRef>,
+    geometry: Option<pb::MapGeometry>,
+    motion_stride: u32,
+    motion: BTreeMap<u32, MotionBuf>,
+    motion_done: Vec<pb::MotionTrack>,
+    motion_samples: usize,
+    sounds: Vec<pb::SoundEvent>,
+    team_info: Vec<pb::TeamInfo>,
+    items: Vec<pb::ItemEvent>,
+    dropped: u32,
+}
+
+fn cm(m: f32) -> i32 {
+    (m * 100.0).round().clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
 impl MatchRecorder {
@@ -55,15 +92,139 @@ impl MatchRecorder {
             visibility: Vec::new(),
             commands: BTreeMap::new(),
             triggers: BTreeMap::new(),
+            v2: false,
+            mode: pb::GameMode::Unspecified,
+            map: None,
+            geometry: None,
+            motion_stride: DEFAULT_MOTION_STRIDE,
+            motion: BTreeMap::new(),
+            motion_done: Vec::new(),
+            motion_samples: 0,
+            sounds: Vec::new(),
+            team_info: Vec::new(),
+            items: Vec::new(),
+            dropped: 0,
         }
+    }
+
+    /// v2: the player's team (0 = solo), input device and whether the game assists their aim.
+    /// These select the calibration segment the leak scorer judges them in.
+    pub fn player_profile(&mut self, slot: u32, team: u32, device: pb::InputDevice, aim_assist: bool) {
+        self.v2 = true;
+        let p = self.players.entry(slot).or_insert_with(|| pb::MatchPlayer { slot, ..Default::default() });
+        let (t, d) = (team, device as i32);
+        if p.team != t || p.input_device != d || p.aim_assist != aim_assist {
+            p.team = t;
+            p.input_device = d;
+            p.aim_assist = aim_assist;
+            self.players_dirty = true;
+        }
+    }
+
+    /// v2: the match's mode, which picks the scorer's thresholds.
+    pub fn set_mode(&mut self, mode: pb::GameMode) {
+        self.v2 = true;
+        self.mode = mode;
+    }
+
+    /// v2: the map the match runs on. The geometry is sent once, with the next batch; later
+    /// matches on the same version may call [`MatchRecorder::set_map_ref`] instead.
+    pub fn set_map(&mut self, geometry: pb::MapGeometry) {
+        self.v2 = true;
+        self.map = Some(pb::MapRef { map_id: geometry.map_id.clone(), version: geometry.version });
+        self.geometry = Some(geometry);
+    }
+
+    /// v2: names a map version the gateway already holds, without resending its geometry.
+    pub fn set_map_ref(&mut self, map_id: &str, version: u32) {
+        self.v2 = true;
+        self.map = Some(pb::MapRef { map_id: map_id.into(), version });
+    }
+
+    /// v2: motion is kept every `stride` ticks (default 4). Call before recording motion.
+    pub fn set_motion_stride(&mut self, stride: u32) {
+        self.motion_stride = stride.max(1);
+    }
+
+    /// v2: a slot's eye position (metres) and velocity (m/s) at `tick`. Call every tick if
+    /// convenient: only ticks that are a multiple of the stride are kept, so samples stay
+    /// evenly spaced across batches.
+    pub fn motion(&mut self, slot: u32, tick: u32, pos_m: [f32; 3], vel_m_s: [f32; 3]) {
+        self.v2 = true;
+        let stride = self.motion_stride;
+        if !tick.is_multiple_of(stride) {
+            return;
+        }
+        if self.motion_samples >= MAX_MOTION_SAMPLES_PER_FLUSH {
+            self.dropped = self.dropped.saturating_add(1);
+            return;
+        }
+        self.motion_samples += 1;
+        let v = [cm(pos_m[0]), cm(pos_m[1]), cm(pos_m[2]), cm(vel_m_s[0]), cm(vel_m_s[1]), cm(vel_m_s[2])];
+        let fresh = |tick| MotionBuf { track: pb::MotionTrack { slot, first_tick: tick, stride, ..Default::default() }, last_tick: tick, last: [0; 6] };
+        let b = self.motion.entry(slot).or_insert_with(|| fresh(tick));
+        if !b.track.x_cm.is_empty() && tick != b.last_tick + stride {
+            let done = std::mem::replace(b, fresh(tick));
+            self.motion_done.push(done.track);
+        }
+        let t = &mut b.track;
+        let d: [i32; 6] = std::array::from_fn(|i| v[i].wrapping_sub(b.last[i]));
+        t.x_cm.push(d[0]);
+        t.y_cm.push(d[1]);
+        t.z_cm.push(d[2]);
+        t.vx_cm_s.push(d[3]);
+        t.vy_cm_s.push(d[4]);
+        t.vz_cm_s.push(d[5]);
+        b.last = v;
+        b.last_tick = tick;
+    }
+
+    /// v2: a sound the game played. `radius_m` is the game's own audibility rule for it.
+    pub fn sound(&mut self, tick: u32, source_slot: Option<u32>, kind: pb::SoundKind, pos_m: [f32; 3], radius_m: f32) {
+        self.v2 = true;
+        if self.sounds.len() >= MAX_SOUNDS_PER_FLUSH {
+            self.dropped = self.dropped.saturating_add(1);
+            return;
+        }
+        self.sounds.push(pb::SoundEvent {
+            tick,
+            source_slot: source_slot.map_or(-1, |s| s as i32),
+            kind: kind as i32,
+            x_cm: cm(pos_m[0]),
+            y_cm: cm(pos_m[1]),
+            z_cm: cm(pos_m[2]),
+            radius_cm: cm(radius_m).max(0) as u32,
+        });
+    }
+
+    /// v2: information the game gave a whole team (pings, spotted enemies, radar reveals).
+    pub fn team_info(&mut self, info: pb::TeamInfo) {
+        self.v2 = true;
+        if self.team_info.len() >= MAX_TEAM_INFO_PER_FLUSH {
+            self.dropped = self.dropped.saturating_add(1);
+            return;
+        }
+        self.team_info.push(info);
+    }
+
+    /// v2: loot or an objective spawned, moved or was picked up (`removed`).
+    pub fn item(&mut self, item: pb::ItemEvent) {
+        self.v2 = true;
+        if item.item_id == 0 || self.items.len() >= MAX_ITEMS_PER_FLUSH {
+            self.dropped = self.dropped.saturating_add(1);
+            return;
+        }
+        self.items.push(item);
     }
 
     /// Declares or updates a slot. `session_id` is the verified token's session ("" for bots),
     /// so the gateway can attach evidence to the session the client is running.
     pub fn player(&mut self, slot: u32, session_id: &str, player_hash: &str, mmr: i32) {
-        let p = pb::MatchPlayer { slot, session_id: session_id.into(), player_hash: player_hash.into(), mmr };
-        if self.players.get(&slot) != Some(&p) {
-            self.players.insert(slot, p);
+        let p = self.players.entry(slot).or_insert_with(|| pb::MatchPlayer { slot, ..Default::default() });
+        if p.session_id != session_id || p.player_hash != player_hash || p.mmr != mmr {
+            p.session_id = session_id.into();
+            p.player_hash = player_hash.into();
+            p.mmr = mmr;
             self.players_dirty = true;
         }
     }
@@ -124,6 +285,11 @@ impl MatchRecorder {
             self.window_from = self.tick;
         }
         let players = if std::mem::take(&mut self.players_dirty) { self.players.values().cloned().collect() } else { Vec::new() };
+        // Every batch's tracks start from absolute values, so a lost or rejected batch never
+        // corrupts the next one.
+        let mut motion = std::mem::take(&mut self.motion_done);
+        motion.extend(std::mem::take(&mut self.motion).into_values().map(|b| b.track));
+        self.motion_samples = 0;
         pb::GameplayBatch {
             match_id: self.match_id.clone(),
             batch_seq: self.seq,
@@ -135,6 +301,15 @@ impl MatchRecorder {
             commands,
             triggers: std::mem::take(&mut self.triggers).into_iter().map(|(slot, t)| pb::TriggerPresses { slot, client_time_us: t }).collect(),
             match_over,
+            schema_version: if self.v2 { SCHEMA_V2 } else { 0 },
+            mode: self.mode as i32,
+            map: if self.v2 { self.map.clone() } else { None },
+            map_geometry: self.geometry.take(),
+            motion,
+            sounds: std::mem::take(&mut self.sounds),
+            team_info: std::mem::take(&mut self.team_info),
+            items: std::mem::take(&mut self.items),
+            dropped_events: std::mem::take(&mut self.dropped),
         }
     }
 }
@@ -144,7 +319,9 @@ pub enum IngestEvent {
     Connected,
     Disconnected(String),
     /// `accepted = false` means the gateway already had this batch (a resend after reconnect).
-    Acked { match_id: String, batch_seq: u64, accepted: bool },
+    /// `warning` is set when the gateway could only partly use it (for example it refused the
+    /// map geometry); the batch is not resent.
+    Acked { match_id: String, batch_seq: u64, accepted: bool, warning: String },
     /// The gateway refused the batch for good (malformed); it is not retried.
     Rejected { match_id: String, batch_seq: u64, error: String },
 }
@@ -213,7 +390,7 @@ fn deliver(ws: &mut WebSocket<Stream>, b: &pb::GameplayBatch, ev: &Sender<Ingest
                 }
                 return match ack.error.as_str() {
                     "" => {
-                        let _ = ev.send(IngestEvent::Acked { match_id: ack.match_id, batch_seq: ack.batch_seq, accepted: ack.accepted });
+                        let _ = ev.send(IngestEvent::Acked { match_id: ack.match_id, batch_seq: ack.batch_seq, accepted: ack.accepted, warning: ack.warning });
                         Outcome::Done
                     }
                     "busy" | "context deadline exceeded" => Outcome::Retry,
@@ -338,6 +515,109 @@ mod tests {
         assert!(b.match_over);
     }
 
+    fn decode_track(t: &pb::MotionTrack) -> Vec<[i32; 6]> {
+        let mut cur = [0i32; 6];
+        (0..t.x_cm.len())
+            .map(|i| {
+                for (k, v) in [&t.x_cm, &t.y_cm, &t.z_cm, &t.vx_cm_s, &t.vy_cm_s, &t.vz_cm_s].iter().enumerate() {
+                    cur[k] = cur[k].wrapping_add(v[i]);
+                }
+                cur
+            })
+            .collect()
+    }
+
+    #[test]
+    fn v1_callers_get_v1_batches() {
+        let mut r = MatchRecorder::new("m", 64);
+        r.player(1, "s", "p", 0);
+        r.aim(1, 1, 0.0, 0.0);
+        let b = r.flush(true);
+        assert_eq!(b.schema_version, 0);
+        assert!(b.map.is_none() && b.map_geometry.is_none() && b.motion.is_empty() && b.mode == 0);
+    }
+
+    #[test]
+    fn motion_is_strided_delta_coded_and_absolute_per_batch() {
+        let mut r = MatchRecorder::new("m", 64);
+        r.set_mode(pb::GameMode::Extraction);
+        r.set_map(pb::MapGeometry { map_id: "yard".into(), version: 3, ..Default::default() });
+        r.player(2, "s", "p", 0);
+        r.player_profile(2, 1, pb::InputDevice::Controller, true);
+        for t in 0..16u32 {
+            r.motion(2, 100 + t, [t as f32 * 0.25, 1.0, 1.7], [4.0, 0.0, 0.0]);
+        }
+        r.motion(2, 140, [9.0, 9.0, 1.7], [0.0; 3]); // gap: new track
+        let b = r.flush(false);
+        assert_eq!(b.schema_version, SCHEMA_V2);
+        assert_eq!(b.mode, pb::GameMode::Extraction as i32);
+        assert_eq!(b.map, Some(pb::MapRef { map_id: "yard".into(), version: 3 }));
+        assert!(b.map_geometry.is_some());
+        assert_eq!((b.players[0].team, b.players[0].input_device, b.players[0].aim_assist), (1, pb::InputDevice::Controller as i32, true));
+        assert_eq!(b.motion.len(), 2);
+        let t = &b.motion[0];
+        assert_eq!((t.slot, t.first_tick, t.stride, t.x_cm.len()), (2, 100, 4, 4));
+        let s = decode_track(t);
+        assert_eq!(s[0], [0, 100, 170, 400, 0, 0]);
+        assert_eq!(s[3], [300, 100, 170, 400, 0, 0]);
+        assert_eq!((b.motion[1].first_tick, decode_track(&b.motion[1])[0][0]), (140, 900));
+
+        r.motion(2, 144, [9.5, 9.0, 1.7], [0.0; 3]);
+        let b = r.flush(true);
+        assert!(b.map_geometry.is_none(), "geometry goes with one batch only");
+        assert_eq!(b.map.as_ref().unwrap().map_id, "yard");
+        assert_eq!(decode_track(&b.motion[0])[0][0], 950, "each batch starts absolute");
+    }
+
+    #[test]
+    fn v2_events_are_capped_and_counted() {
+        let mut r = MatchRecorder::new("m", 64);
+        for i in 0..(MAX_SOUNDS_PER_FLUSH + 5) {
+            r.sound(i as u32, Some(1), pb::SoundKind::Footstep, [1.0, 2.0, 0.0], 18.0);
+        }
+        r.item(pb::ItemEvent { item_id: 0, ..Default::default() });
+        for slot in 0..200u32 {
+            for t in 0..400u32 {
+                r.motion(slot, t * 4, [0.0; 3], [0.0; 3]);
+            }
+        }
+        let b = r.flush(false);
+        assert_eq!(b.sounds.len(), MAX_SOUNDS_PER_FLUSH);
+        assert_eq!(b.sounds[0].radius_cm, 1800);
+        let samples: usize = b.motion.iter().map(|t| t.x_cm.len()).sum();
+        assert_eq!(samples, MAX_MOTION_SAMPLES_PER_FLUSH);
+        assert_eq!(b.dropped_events as usize, 5 + 1 + (200 * 400 - MAX_MOTION_SAMPLES_PER_FLUSH));
+        assert_eq!(r.flush(false).dropped_events, 0);
+    }
+
+    /// The client budget for the game server: a 10-player match at 64 ticks/s with motion at
+    /// the default stride adds only a few bytes per player-tick on top of v1 aim tracks.
+    #[test]
+    fn motion_bytes_per_player_tick() {
+        let mut r = MatchRecorder::new("m", 64);
+        let mut seed = 0x9e3779b97f4a7c15u64;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % 1000) as f32 / 1000.0
+        };
+        let mut pos = [[0.0f32; 3]; 10];
+        for t in 0..64u32 {
+            for (slot, p) in pos.iter_mut().enumerate() {
+                let v = [5.0 * (rnd() - 0.5) * 2.0, 5.0 * (rnd() - 0.5) * 2.0, 0.0];
+                p[0] += v[0] / 64.0;
+                p[1] += v[1] / 64.0;
+                r.motion(slot as u32, t, [30.0 + p[0], 20.0 + p[1], 1.7], v);
+            }
+        }
+        let b = r.flush(false);
+        let bytes: usize = b.motion.iter().map(|t| t.encoded_len()).sum();
+        let per = bytes as f64 / (10.0 * 64.0);
+        eprintln!("motion: {per:.2} bytes per player-tick");
+        assert!(per < 4.0, "motion costs {per:.2} bytes per player-tick");
+    }
+
     /// A minimal /v1/ingest: answers the first copy of each batch "busy", then accepts it;
     /// drops the connection once to force a resend.
     fn fake_gateway(listener: TcpListener, batches: usize) -> JoinHandle<Vec<u64>> {
@@ -355,7 +635,7 @@ mod tests {
                         dropped_once = true;
                         break; // connection lost before the ack
                     }
-                    let mut ack = pb::IngestAck { match_id: b.match_id.clone(), batch_seq: b.batch_seq, accepted: true, error: String::new() };
+                    let mut ack = pb::IngestAck { match_id: b.match_id.clone(), batch_seq: b.batch_seq, accepted: true, ..Default::default() };
                     if busy_sent.insert(b.batch_seq) {
                         ack.accepted = false;
                         ack.error = "busy".into();
