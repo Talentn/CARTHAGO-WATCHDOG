@@ -1802,6 +1802,103 @@ func (x *MapGeometry) GetLootSpawns() []*LootSpawn {
 	return nil
 }
 
+// A decoy: a fake enemy the game server replicated only to `recipients`, placed where none of
+// their team could see or hear it. Decoys are not players: they never appear in `players`,
+// `aim`, `shots`, `visibility`, `sounds` or `team_info`, and the game never plays a sound or
+// shares a ping or spot for one. A decoy is reported in every batch it was alive in, with
+// its positions for that batch in `track`.
+type DecoyTrack struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	DecoyId        uint32                 `protobuf:"varint,1,opt,name=decoy_id,json=decoyId,proto3" json:"decoy_id,omitempty"`                        // non-zero, unique per match
+	Recipients     []uint32               `protobuf:"varint,2,rep,packed,name=recipients,proto3" json:"recipients,omitempty"`                          // slots it was replicated to
+	Team           uint32                 `protobuf:"varint,3,opt,name=team,proto3" json:"team,omitempty"`                                             // the enemy team it posed as
+	SpawnTick      uint32                 `protobuf:"varint,4,opt,name=spawn_tick,json=spawnTick,proto3" json:"spawn_tick,omitempty"`                  // first tick it was replicated
+	DespawnTick    uint32                 `protobuf:"varint,5,opt,name=despawn_tick,json=despawnTick,proto3" json:"despawn_tick,omitempty"`            // tick it stopped being replicated; 0 = still alive
+	Track          *MotionTrack           `protobuf:"bytes,6,opt,name=track,proto3" json:"track,omitempty"`                                            // `slot` is ignored; encoded like a player's motion
+	ClonedFromSlot int32                  `protobuf:"varint,7,opt,name=cloned_from_slot,json=clonedFromSlot,proto3" json:"cloned_from_slot,omitempty"` // the real player whose movement it imitates; -1 = none
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DecoyTrack) Reset() {
+	*x = DecoyTrack{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecoyTrack) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecoyTrack) ProtoMessage() {}
+
+func (x *DecoyTrack) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecoyTrack.ProtoReflect.Descriptor instead.
+func (*DecoyTrack) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *DecoyTrack) GetDecoyId() uint32 {
+	if x != nil {
+		return x.DecoyId
+	}
+	return 0
+}
+
+func (x *DecoyTrack) GetRecipients() []uint32 {
+	if x != nil {
+		return x.Recipients
+	}
+	return nil
+}
+
+func (x *DecoyTrack) GetTeam() uint32 {
+	if x != nil {
+		return x.Team
+	}
+	return 0
+}
+
+func (x *DecoyTrack) GetSpawnTick() uint32 {
+	if x != nil {
+		return x.SpawnTick
+	}
+	return 0
+}
+
+func (x *DecoyTrack) GetDespawnTick() uint32 {
+	if x != nil {
+		return x.DespawnTick
+	}
+	return 0
+}
+
+func (x *DecoyTrack) GetTrack() *MotionTrack {
+	if x != nil {
+		return x.Track
+	}
+	return nil
+}
+
+func (x *DecoyTrack) GetClonedFromSlot() int32 {
+	if x != nil {
+		return x.ClonedFromSlot
+	}
+	return 0
+}
+
 type GameplayBatch struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	MatchId    string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
@@ -1824,13 +1921,14 @@ type GameplayBatch struct {
 	TeamInfo      []*TeamInfo    `protobuf:"bytes,17,rep,name=team_info,json=teamInfo,proto3" json:"team_info,omitempty"`
 	Items         []*ItemEvent   `protobuf:"bytes,18,rep,name=items,proto3" json:"items,omitempty"`
 	DroppedEvents uint32         `protobuf:"varint,19,opt,name=dropped_events,json=droppedEvents,proto3" json:"dropped_events,omitempty"` // v2 samples or events the recorder dropped at its per-batch caps
+	Decoys        []*DecoyTrack  `protobuf:"bytes,20,rep,name=decoys,proto3" json:"decoys,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GameplayBatch) Reset() {
 	*x = GameplayBatch{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1842,7 +1940,7 @@ func (x *GameplayBatch) String() string {
 func (*GameplayBatch) ProtoMessage() {}
 
 func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1855,7 +1953,7 @@ func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameplayBatch.ProtoReflect.Descriptor instead.
 func (*GameplayBatch) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{21}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GameplayBatch) GetMatchId() string {
@@ -1991,6 +2089,13 @@ func (x *GameplayBatch) GetDroppedEvents() uint32 {
 	return 0
 }
 
+func (x *GameplayBatch) GetDecoys() []*DecoyTrack {
+	if x != nil {
+		return x.Decoys
+	}
+	return nil
+}
+
 type IngestAck struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	MatchId  string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
@@ -2006,7 +2111,7 @@ type IngestAck struct {
 
 func (x *IngestAck) Reset() {
 	*x = IngestAck{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2018,7 +2123,7 @@ func (x *IngestAck) String() string {
 func (*IngestAck) ProtoMessage() {}
 
 func (x *IngestAck) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2031,7 +2136,7 @@ func (x *IngestAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IngestAck.ProtoReflect.Descriptor instead.
 func (*IngestAck) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{22}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *IngestAck) GetMatchId() string {
@@ -2207,7 +2312,19 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\toccluders\x18\x04 \x03(\v2\x15.carthago.v1.OccluderR\toccluders\x12'\n" +
 	"\x05zones\x18\x05 \x03(\v2\x11.carthago.v1.ZoneR\x05zones\x127\n" +
 	"\vloot_spawns\x18\x06 \x03(\v2\x16.carthago.v1.LootSpawnR\n" +
-	"lootSpawns\"\xdf\x06\n" +
+	"lootSpawns\"\xf7\x01\n" +
+	"\n" +
+	"DecoyTrack\x12\x19\n" +
+	"\bdecoy_id\x18\x01 \x01(\rR\adecoyId\x12\x1e\n" +
+	"\n" +
+	"recipients\x18\x02 \x03(\rR\n" +
+	"recipients\x12\x12\n" +
+	"\x04team\x18\x03 \x01(\rR\x04team\x12\x1d\n" +
+	"\n" +
+	"spawn_tick\x18\x04 \x01(\rR\tspawnTick\x12!\n" +
+	"\fdespawn_tick\x18\x05 \x01(\rR\vdespawnTick\x12.\n" +
+	"\x05track\x18\x06 \x01(\v2\x18.carthago.v1.MotionTrackR\x05track\x12(\n" +
+	"\x10cloned_from_slot\x18\a \x01(\x05R\x0eclonedFromSlot\"\x90\a\n" +
 	"\rGameplayBatch\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1b\n" +
@@ -2231,7 +2348,8 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\x06sounds\x18\x10 \x03(\v2\x17.carthago.v1.SoundEventR\x06sounds\x122\n" +
 	"\tteam_info\x18\x11 \x03(\v2\x15.carthago.v1.TeamInfoR\bteamInfo\x12,\n" +
 	"\x05items\x18\x12 \x03(\v2\x16.carthago.v1.ItemEventR\x05items\x12%\n" +
-	"\x0edropped_events\x18\x13 \x01(\rR\rdroppedEvents\"\x8f\x01\n" +
+	"\x0edropped_events\x18\x13 \x01(\rR\rdroppedEvents\x12/\n" +
+	"\x06decoys\x18\x14 \x03(\v2\x17.carthago.v1.DecoyTrackR\x06decoys\"\x8f\x01\n" +
 	"\tIngestAck\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1a\n" +
@@ -2273,7 +2391,7 @@ func file_carthago_v1_gameserver_proto_rawDescGZIP() []byte {
 }
 
 var file_carthago_v1_gameserver_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_carthago_v1_gameserver_proto_goTypes = []any{
 	(InputDevice)(0),        // 0: carthago.v1.InputDevice
 	(GameMode)(0),           // 1: carthago.v1.GameMode
@@ -2300,8 +2418,9 @@ var file_carthago_v1_gameserver_proto_goTypes = []any{
 	(*Zone)(nil),            // 22: carthago.v1.Zone
 	(*LootSpawn)(nil),       // 23: carthago.v1.LootSpawn
 	(*MapGeometry)(nil),     // 24: carthago.v1.MapGeometry
-	(*GameplayBatch)(nil),   // 25: carthago.v1.GameplayBatch
-	(*IngestAck)(nil),       // 26: carthago.v1.IngestAck
+	(*DecoyTrack)(nil),      // 25: carthago.v1.DecoyTrack
+	(*GameplayBatch)(nil),   // 26: carthago.v1.GameplayBatch
+	(*IngestAck)(nil),       // 27: carthago.v1.IngestAck
 }
 var file_carthago_v1_gameserver_proto_depIdxs = []int32{
 	4,  // 0: carthago.v1.GsClientMsg.watch:type_name -> carthago.v1.WatchSession
@@ -2315,24 +2434,26 @@ var file_carthago_v1_gameserver_proto_depIdxs = []int32{
 	21, // 8: carthago.v1.MapGeometry.occluders:type_name -> carthago.v1.Occluder
 	22, // 9: carthago.v1.MapGeometry.zones:type_name -> carthago.v1.Zone
 	23, // 10: carthago.v1.MapGeometry.loot_spawns:type_name -> carthago.v1.LootSpawn
-	10, // 11: carthago.v1.GameplayBatch.players:type_name -> carthago.v1.MatchPlayer
-	11, // 12: carthago.v1.GameplayBatch.aim:type_name -> carthago.v1.AimTrack
-	12, // 13: carthago.v1.GameplayBatch.shots:type_name -> carthago.v1.ShotEvent
-	13, // 14: carthago.v1.GameplayBatch.visibility:type_name -> carthago.v1.VisibilityEvent
-	14, // 15: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
-	15, // 16: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
-	1,  // 17: carthago.v1.GameplayBatch.mode:type_name -> carthago.v1.GameMode
-	20, // 18: carthago.v1.GameplayBatch.map:type_name -> carthago.v1.MapRef
-	24, // 19: carthago.v1.GameplayBatch.map_geometry:type_name -> carthago.v1.MapGeometry
-	16, // 20: carthago.v1.GameplayBatch.motion:type_name -> carthago.v1.MotionTrack
-	17, // 21: carthago.v1.GameplayBatch.sounds:type_name -> carthago.v1.SoundEvent
-	18, // 22: carthago.v1.GameplayBatch.team_info:type_name -> carthago.v1.TeamInfo
-	19, // 23: carthago.v1.GameplayBatch.items:type_name -> carthago.v1.ItemEvent
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	16, // 11: carthago.v1.DecoyTrack.track:type_name -> carthago.v1.MotionTrack
+	10, // 12: carthago.v1.GameplayBatch.players:type_name -> carthago.v1.MatchPlayer
+	11, // 13: carthago.v1.GameplayBatch.aim:type_name -> carthago.v1.AimTrack
+	12, // 14: carthago.v1.GameplayBatch.shots:type_name -> carthago.v1.ShotEvent
+	13, // 15: carthago.v1.GameplayBatch.visibility:type_name -> carthago.v1.VisibilityEvent
+	14, // 16: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
+	15, // 17: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
+	1,  // 18: carthago.v1.GameplayBatch.mode:type_name -> carthago.v1.GameMode
+	20, // 19: carthago.v1.GameplayBatch.map:type_name -> carthago.v1.MapRef
+	24, // 20: carthago.v1.GameplayBatch.map_geometry:type_name -> carthago.v1.MapGeometry
+	16, // 21: carthago.v1.GameplayBatch.motion:type_name -> carthago.v1.MotionTrack
+	17, // 22: carthago.v1.GameplayBatch.sounds:type_name -> carthago.v1.SoundEvent
+	18, // 23: carthago.v1.GameplayBatch.team_info:type_name -> carthago.v1.TeamInfo
+	19, // 24: carthago.v1.GameplayBatch.items:type_name -> carthago.v1.ItemEvent
+	25, // 25: carthago.v1.GameplayBatch.decoys:type_name -> carthago.v1.DecoyTrack
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_carthago_v1_gameserver_proto_init() }
@@ -2354,7 +2475,7 @@ func file_carthago_v1_gameserver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_gameserver_proto_rawDesc), len(file_carthago_v1_gameserver_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   23,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
