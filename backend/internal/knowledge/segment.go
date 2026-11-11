@@ -4,8 +4,9 @@ import (
 	pb "carthago/backend/gen/carthago/v1"
 )
 
-// Threshold is one calibration segment's flag rule. A player is flagged when the strongest
-// leak feature with enough data reaches Z and its excess alignment reaches MinExcess.
+// Threshold is one calibration segment's flag rule. A player is flagged when the combined
+// score of the scored features with enough data (Stouffer: Σz/√k) reaches Z and at least one
+// of them is positive with an excess alignment of at least MinExcess.
 //
 // The target false-positive rate is per honest player-match at the flag threshold. Z values
 // were set from the synthetic honest corpus (carthago-sim -calibrate) with a margin over the
