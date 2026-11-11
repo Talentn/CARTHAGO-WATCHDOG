@@ -303,3 +303,27 @@ func TestFetchIsLimitedToManufacturerHosts(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeBCryptRSAPublicRejectsDegenerateKeys(t *testing.T) {
+	k, _ := rsa.GenerateKey(rand.Reader, 2048)
+	if _, err := DecodeBCryptRSAPublic(bcryptRSABlob(&k.PublicKey)); err != nil {
+		t.Fatalf("valid key rejected: %v", err)
+	}
+	small, _ := rsa.GenerateKey(rand.Reader, 1024)
+	even := &rsa.PublicKey{N: new(big.Int).Lsh(big.NewInt(1), 2047), E: 65537}
+	for name, pub := range map[string]*rsa.PublicKey{
+		"1024-bit modulus": &small.PublicKey,
+		"even modulus":     even,
+		"exponent 1":       {N: k.N, E: 1},
+		"even exponent":    {N: k.N, E: 65536},
+	} {
+		if _, err := DecodeBCryptRSAPublic(bcryptRSABlob(pub)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	zeroExp := bcryptRSABlob(&k.PublicKey)
+	binary.LittleEndian.PutUint32(zeroExp[8:], 0)
+	if _, err := DecodeBCryptRSAPublic(zeroExp); err == nil {
+		t.Error("blob without an exponent accepted")
+	}
+}

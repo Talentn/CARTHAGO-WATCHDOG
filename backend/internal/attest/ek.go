@@ -45,6 +45,14 @@ func DecodeBCryptRSAPublic(b []byte) (*rsa.PublicKey, error) {
 	}
 	e := new(big.Int).SetBytes(b[24 : 24+expLen])
 	n := new(big.Int).SetBytes(b[24+expLen : 24+expLen+modLen])
+	// An EK is RSA-2048 or larger with a small odd exponent; anything else is not a key the
+	// EK challenge should be wrapped to.
+	if n.BitLen() < 2048 || n.BitLen() > 4096 || n.Bit(0) == 0 {
+		return nil, fmt.Errorf("RSA modulus of %d bits is not a usable EK", n.BitLen())
+	}
+	if !e.IsInt64() || e.Int64() < 3 || e.Int64() > 1<<31-1 || e.Bit(0) == 0 {
+		return nil, errors.New("RSA public exponent out of range")
+	}
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }
 
