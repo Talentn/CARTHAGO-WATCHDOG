@@ -43,7 +43,7 @@ type Config struct {
 // Detections is the analysis pipeline (internal/pipeline). Heartbeat must not block.
 type Detections interface {
 	Heartbeat(sess store.Session, hb *pb.Heartbeat)
-	Gameplay(ctx context.Context, tenant string, b *pb.GameplayBatch) (accepted bool, err error)
+	Gameplay(ctx context.Context, tenant string, b *pb.GameplayBatch) (accepted bool, warning string, err error)
 }
 
 func (c *Config) defaults() {

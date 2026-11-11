@@ -258,4 +258,7 @@ message IngestAck {
   uint64 batch_seq = 2;
   bool accepted = 3;
   string error = 4;
+  // Set on an accepted batch the gateway could only partly use, such as map geometry it
+  // refused. The batch must not be resent.
+  string warning = 5;
 }

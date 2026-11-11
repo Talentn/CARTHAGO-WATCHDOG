@@ -24,10 +24,11 @@ type Segment struct {
 }
 
 func (s Segment) String() string {
-	return modeName(s.Mode) + "/" + deviceName(s.Device)
+	return ModeName(s.Mode) + "/" + DeviceName(s.Device)
 }
 
-func modeName(m pb.GameMode) string {
+// ModeName is a mode's segment spelling.
+func ModeName(m pb.GameMode) string {
 	switch m {
 	case pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER:
 		return "competitive_shooter"
@@ -37,7 +38,8 @@ func modeName(m pb.GameMode) string {
 	return "unspecified_mode"
 }
 
-func deviceName(d pb.InputDevice) string {
+// DeviceName is an input device's segment spelling.
+func DeviceName(d pb.InputDevice) string {
 	switch d {
 	case pb.InputDevice_INPUT_DEVICE_MOUSE_KEYBOARD:
 		return "mouse_keyboard"

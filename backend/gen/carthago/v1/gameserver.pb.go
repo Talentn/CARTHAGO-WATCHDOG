@@ -1992,11 +1992,14 @@ func (x *GameplayBatch) GetDroppedEvents() uint32 {
 }
 
 type IngestAck struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MatchId       string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
-	BatchSeq      uint64                 `protobuf:"varint,2,opt,name=batch_seq,json=batchSeq,proto3" json:"batch_seq,omitempty"`
-	Accepted      bool                   `protobuf:"varint,3,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Error         string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	MatchId  string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
+	BatchSeq uint64                 `protobuf:"varint,2,opt,name=batch_seq,json=batchSeq,proto3" json:"batch_seq,omitempty"`
+	Accepted bool                   `protobuf:"varint,3,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Error    string                 `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
+	// Set on an accepted batch the gateway could only partly use, such as map geometry it
+	// refused. The batch must not be resent.
+	Warning       string `protobuf:"bytes,5,opt,name=warning,proto3" json:"warning,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2055,6 +2058,13 @@ func (x *IngestAck) GetAccepted() bool {
 func (x *IngestAck) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *IngestAck) GetWarning() string {
+	if x != nil {
+		return x.Warning
 	}
 	return ""
 }
@@ -2221,12 +2231,13 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\x06sounds\x18\x10 \x03(\v2\x17.carthago.v1.SoundEventR\x06sounds\x122\n" +
 	"\tteam_info\x18\x11 \x03(\v2\x15.carthago.v1.TeamInfoR\bteamInfo\x12,\n" +
 	"\x05items\x18\x12 \x03(\v2\x16.carthago.v1.ItemEventR\x05items\x12%\n" +
-	"\x0edropped_events\x18\x13 \x01(\rR\rdroppedEvents\"u\n" +
+	"\x0edropped_events\x18\x13 \x01(\rR\rdroppedEvents\"\x8f\x01\n" +
 	"\tIngestAck\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1a\n" +
 	"\baccepted\x18\x03 \x01(\bR\baccepted\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error*\x81\x01\n" +
+	"\x05error\x18\x04 \x01(\tR\x05error\x12\x18\n" +
+	"\awarning\x18\x05 \x01(\tR\awarning*\x81\x01\n" +
 	"\vInputDevice\x12\x1c\n" +
 	"\x18INPUT_DEVICE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bINPUT_DEVICE_MOUSE_KEYBOARD\x10\x01\x12\x1b\n" +

@@ -44,9 +44,9 @@ func (g *Gateway) handleIngest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		bctx, cancel := context.WithTimeout(ctx, ingestTimeout)
-		accepted, err := g.cfg.Detections.Gameplay(bctx, tenant, &b)
+		accepted, warning, err := g.cfg.Detections.Gameplay(bctx, tenant, &b)
 		cancel()
-		ack := &pb.IngestAck{MatchId: b.MatchId, BatchSeq: b.BatchSeq, Accepted: accepted}
+		ack := &pb.IngestAck{MatchId: b.MatchId, BatchSeq: b.BatchSeq, Accepted: accepted, Warning: warning}
 		if err != nil {
 			ack.Error = err.Error()
 		}
