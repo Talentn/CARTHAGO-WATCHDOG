@@ -331,9 +331,12 @@ func (b *Bundle) Verify(leaf *x509.Certificate, extra []*x509.Certificate, now t
 			extras.index(&entry{cert: c, name: "supplied"})
 		}
 	}
-	v := &verifier{b: b, extras: extras, now: now, seen: map[[32]byte]bool{}}
+	v := &verifier{b: b, extras: extras, now: now, seen: map[[32]byte]bool{}, budget: maxSignatureChecks}
 	path, anchor := v.walk(leaf, 0)
 	if anchor == nil {
+		if v.budget <= 0 {
+			return Result{Status: StatusInvalid, Detail: fmt.Sprintf("no issuer path found within %d signature checks", maxSignatureChecks)}
+		}
 		if v.failure != "" {
 			return Result{Status: StatusInvalid, Detail: v.failure}
 		}
@@ -356,12 +359,19 @@ func outsideValidity(c *x509.Certificate, now time.Time) string {
 	return ""
 }
 
+// maxSignatureChecks bounds the path search of one Verify call. The supplied intermediates
+// are attacker-controlled: a handful of mutually cross-signed CA certificates with one name
+// would otherwise make the depth-first search try every ordering of them. Real EK chains
+// have at most a few candidates per level.
+const maxSignatureChecks = 128
+
 type verifier struct {
 	b       *Bundle
 	extras  *Bundle
 	now     time.Time
 	seen    map[[32]byte]bool
 	failure string
+	budget  int
 }
 
 // walk returns the issuer path above child (child excluded) ending at an anchor.
@@ -381,6 +391,10 @@ func (v *verifier) walk(child *x509.Certificate, depth int) ([]*x509.Certificate
 		if len(child.AuthorityKeyId) > 0 && len(pc.SubjectKeyId) > 0 && !bytes.Equal(child.AuthorityKeyId, pc.SubjectKeyId) {
 			continue
 		}
+		if v.budget <= 0 {
+			return nil, nil
+		}
+		v.budget--
 		if err := pc.CheckSignature(child.SignatureAlgorithm, child.RawTBSCertificate, child.Signature); err != nil {
 			v.fail(fmt.Sprintf("signature on %q does not verify under %q: %v", child.Subject.String(), pc.Subject.String(), err))
 			continue
@@ -390,6 +404,11 @@ func (v *verifier) walk(child *x509.Certificate, depth int) ([]*x509.Certificate
 				v.fail(fmt.Sprintf("issuer %q is not a CA", pc.Subject.String()))
 				continue
 			}
+		}
+		// depth counts the CA certificates between pc and the EK certificate.
+		if pc.BasicConstraintsValid && (pc.MaxPathLen > 0 || pc.MaxPathLenZero) && depth > pc.MaxPathLen {
+			v.fail(fmt.Sprintf("issuer %q allows %d CA certificates below it, the path has %d", pc.Subject.String(), pc.MaxPathLen, depth))
+			continue
 		}
 		if pc.KeyUsage != 0 && pc.KeyUsage&x509.KeyUsageCertSign == 0 {
 			v.fail(fmt.Sprintf("issuer %q lacks keyCertSign", pc.Subject.String()))

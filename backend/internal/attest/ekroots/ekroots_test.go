@@ -267,3 +267,61 @@ func padSerial(der []byte) ([]byte, bool) {
 	bump(6)
 	return out, true
 }
+
+// Mutually cross-signed CA certificates with one name and key make every ordering of them
+// a candidate path. The search must give up after a bounded number of signature checks
+// instead of trying them all (12 such certificates are about 2e7 orderings at depth 8).
+func TestVerifyBoundsPathSearch(t *testing.T) {
+	base, _ := Default()
+	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	name := pkix.Name{CommonName: "Looping CA"}
+	var cas []*x509.Certificate
+	for i := 0; i < 12; i++ {
+		tmpl := &x509.Certificate{SerialNumber: big.NewInt(int64(i + 1)), Subject: name, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+			BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageCertSign}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &k.PublicKey, k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, _ := x509.ParseCertificate(der)
+		cas = append(cas, c)
+	}
+	leaf := issue(t, &testCA{cas[0], k}, "Looping EK", false)
+	start := time.Now()
+	r := base.Verify(leaf.cert, cas, time.Now())
+	if r.Status != StatusInvalid || !strings.Contains(r.Detail, "signature checks") {
+		t.Errorf("want the search budget to end the walk, got %+v", r)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("path search took %s", d)
+	}
+}
+
+func TestVerifyEnforcesPathLength(t *testing.T) {
+	base, _ := Default()
+	root := issue(t, nil, "PathLen Root", true)
+	b, err := base.WithExtraRoots(map[string][]byte{"root.pem": pemOf(root.cert)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := func(parent *testCA, cn string, pathLenZero bool) *testCA {
+		k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn}, NotBefore: time.Now().Add(-time.Hour),
+			NotAfter: time.Now().Add(time.Hour), BasicConstraintsValid: true, IsCA: true, KeyUsage: x509.KeyUsageCertSign, MaxPathLenZero: pathLenZero}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, parent.cert, &k.PublicKey, parent.key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, _ := x509.ParseCertificate(der)
+		return &testCA{c, k}
+	}
+	limited := ca(root, "PathLen 0 CA", true)
+	if r := b.Verify(issue(t, limited, "EK under pathLen 0", false).cert, []*x509.Certificate{limited.cert}, time.Now()); r.Status != StatusVerified {
+		t.Errorf("EK directly under a pathLen 0 CA: %+v", r)
+	}
+	sub := ca(limited, "CA under pathLen 0", false)
+	leaf := issue(t, sub, "EK under a forbidden sub-CA", false)
+	if r := b.Verify(leaf.cert, []*x509.Certificate{limited.cert, sub.cert}, time.Now()); r.Status != StatusInvalid || !strings.Contains(r.Detail, "allows 0 CA") {
+		t.Errorf("sub-CA below a pathLen 0 CA: %+v", r)
+	}
+}
