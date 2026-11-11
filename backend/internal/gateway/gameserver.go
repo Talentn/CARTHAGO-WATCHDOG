@@ -17,6 +17,10 @@ import (
 type gsConn struct {
 	tenant string
 	out    chan []byte
+	// drop closes the connection. A game server that is not reading must not silently
+	// lose a Kick: closing makes it reconnect and watch again, and Watch on a session
+	// that was kicked meanwhile answers with the Kick.
+	drop func()
 }
 
 func (c *gsConn) send(m *pb.GsServerMsg) {
@@ -27,6 +31,9 @@ func (c *gsConn) send(m *pb.GsServerMsg) {
 	select {
 	case c.out <- b:
 	default:
+		if c.drop != nil {
+			c.drop()
+		}
 	}
 }
 
@@ -64,7 +71,10 @@ func (g *Gateway) handleGameServer(w http.ResponseWriter, r *http.Request) {
 	defer ws.CloseNow()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	conn := &gsConn{tenant: tenant, out: make(chan []byte, 256)}
+	conn := &gsConn{tenant: tenant, out: make(chan []byte, 256), drop: func() {
+		g.log.Warn("game server is not reading its control channel; closing it so it reconnects", "tenant", tenant, "remote", r.RemoteAddr)
+		cancel()
+	}}
 	defer g.sessions.DropConn(conn)
 	g.log.Info("game server connected", "tenant", tenant, "remote", r.RemoteAddr)
 
