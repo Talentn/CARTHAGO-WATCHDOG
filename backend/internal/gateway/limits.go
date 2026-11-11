@@ -32,22 +32,37 @@ const (
 
 	// Handshakes in progress hold up to a 4 MiB frame and run TPM verification, so they are
 	// bounded in total and per remote address (a stalled handshake holds its slot until the
-	// Hello or Prove timeout).
+	// Hello or Prove timeout). One address may start twice the per-address limit at once
+	// and a sixteenth of it per second after that (64 at once, then 2 per second by default).
 	defaultMaxHandshakes      = 1024
 	defaultMaxHandshakesPerIP = 32
 )
 
-// handshakeGate counts handshakes in progress, in total and per remote address.
+// handshakeGate counts handshakes in progress, in total and per remote address, and limits
+// how fast one address may start them. Every completed handshake creates a session and
+// possibly a device row without any authentication of the player, so the start rate is
+// what bounds store growth caused by one address.
 type handshakeGate struct {
 	mu       sync.Mutex
 	total    int
 	perIP    map[string]int
+	started  map[string]*startBucket
 	max      int
 	maxPerIP int
+	// burst handshakes may start at once from one address, then perSecond per second.
+	burst     float64
+	perSecond float64
+	now       func() time.Time
+}
+
+type startBucket struct {
+	tokens float64
+	last   time.Time
 }
 
 func newHandshakeGate(max, maxPerIP int) *handshakeGate {
-	return &handshakeGate{perIP: map[string]int{}, max: max, maxPerIP: maxPerIP}
+	return &handshakeGate{perIP: map[string]int{}, started: map[string]*startBucket{}, max: max, maxPerIP: maxPerIP,
+		burst: float64(2 * maxPerIP), perSecond: float64(maxPerIP) / 16, now: time.Now}
 }
 
 func remoteIP(remoteAddr string) string {
@@ -63,6 +78,25 @@ func (h *handshakeGate) acquire(ip string) bool {
 	if h.total >= h.max || h.perIP[ip] >= h.maxPerIP {
 		return false
 	}
+	now := h.now()
+	b := h.started[ip]
+	if b == nil {
+		if len(h.started) >= 50_000 {
+			for k, o := range h.started {
+				if now.Sub(o.last).Seconds()*h.perSecond >= h.burst {
+					delete(h.started, k)
+				}
+			}
+		}
+		b = &startBucket{tokens: h.burst, last: now}
+		h.started[ip] = b
+	}
+	b.tokens = min(h.burst, b.tokens+now.Sub(b.last).Seconds()*h.perSecond)
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
 	h.total++
 	h.perIP[ip]++
 	return true

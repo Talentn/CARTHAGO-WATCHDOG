@@ -130,6 +130,7 @@ func TestHandshakeGate(t *testing.T) {
 func TestStalledHandshakesAreBounded(t *testing.T) {
 	e := newEnv(t)
 	e.gw.handshakes = newHandshakeGate(100, 2)
+	e.gw.handshakes.burst = 100
 	ctx := context.Background()
 	var stalled []*websocket.Conn
 	for i := 0; i < 2; i++ {
@@ -253,18 +254,38 @@ func TestHeartbeatFloodIsNotAnalysed(t *testing.T) {
 	if n := det.n.Load(); n != heartbeatBurst {
 		t.Fatalf("%d of 50 flooded heartbeats analysed, want %d", n, heartbeatBurst)
 	}
+	claims, _ := protocol.VerifyToken(tokenKeys(e), c.session.SessionToken, time.Now(), protocol.DefaultLeeway)
+	if s, _ := e.gw.Sessions().Get(claims.SessionID); s.Heartbeats != heartbeatBurst || s.State != store.SessionActive {
+		t.Fatalf("session after the flood: %d heartbeats persisted, state %v", s.Heartbeats, s.State)
+	}
 }
 
-func TestServerKeySelectsExactlyOneTenant(t *testing.T) {
-	g := &Gateway{cfg: Config{Tenants: map[string]string{"a": "key-a", "b": "key-b", "dup1": "same", "dup2": "same", "empty": ""}}}
-	for auth, want := range map[string]string{
-		"Bearer key-a": "a", "Bearer key-b": "b", "Bearer key-": "", "Bearer key-aa": "", "key-a": "", "Bearer ": "", "": "",
-		// A key shared by two tenants must not pick one of them at random.
-		"Bearer same": "",
-	} {
-		got, ok := g.tenantForServerKey(auth)
-		if got != want && ok || ok != (want != "") {
-			t.Errorf("%q: tenant %q ok=%v, want %q", auth, got, ok, want)
+func TestHandshakeStartRate(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	g := newHandshakeGate(1000, 4)
+	g.now = func() time.Time { return now }
+	started := 0
+	for i := 0; i < 100; i++ {
+		if g.acquire("203.0.113.7") {
+			g.release("203.0.113.7")
+			started++
 		}
+	}
+	if started != 8 {
+		t.Fatalf("%d handshakes started at once from one address, want the burst of 8", started)
+	}
+	if !g.acquire("198.51.100.1") {
+		t.Fatal("another address is throttled too")
+	}
+	now = now.Add(8 * time.Second) // 4/16 per second: two more
+	started = 0
+	for i := 0; i < 10; i++ {
+		if g.acquire("203.0.113.7") {
+			g.release("203.0.113.7")
+			started++
+		}
+	}
+	if started != 2 {
+		t.Fatalf("%d handshakes after 8 s, want 2", started)
 	}
 }

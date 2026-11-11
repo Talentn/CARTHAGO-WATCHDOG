@@ -515,6 +515,18 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 				ws.Close(websocket.StatusPolicyViolation, "protocol violation")
 				return
 			}
+			// A heartbeat within the allowed rate refreshed the deadline moments ago, so an
+			// excess one is acknowledged and otherwise ignored: no store write, no token
+			// signature, no analysis.
+			if !limiter.allow(g.cfg.Now()) {
+				if skipped++; skipped == 1 {
+					g.log.Warn("heartbeats arriving faster than negotiated; extra ones are ignored", "session", id)
+				}
+				if err := sc.send(ctx, &pb.ServerMsg{Body: &pb.ServerMsg_HeartbeatAck{HeartbeatAck: &pb.HeartbeatAck{}}}); err != nil {
+					return
+				}
+				continue
+			}
 			ack := &pb.HeartbeatAck{}
 			var newExpiry time.Time
 			now := g.cfg.Now()
@@ -531,11 +543,7 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 				continue // already kicked; the kicked channel delivers the notice
 			}
 			if d := g.cfg.Detections; d != nil {
-				if !limiter.allow(now) {
-					if skipped++; skipped == 1 {
-						g.log.Warn("heartbeats arriving faster than negotiated; extra ones are not analysed", "session", id)
-					}
-				} else if rec, ok := g.sessions.Get(id); ok {
+				if rec, ok := g.sessions.Get(id); ok {
 					d.Heartbeat(rec, hbm)
 				}
 			}
