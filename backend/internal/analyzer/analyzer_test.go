@@ -271,7 +271,7 @@ func TestTimeSourceDivergence(t *testing.T) {
 	// Every client clock accelerated together: only the server comparison sees it.
 	var vm ClientState
 	got = nil
-	for i := range 20 {
+	for i := range 30 {
 		el := time.Duration(i) * 15 * time.Second
 		fast := el * 11 / 10
 		got = append(got, c.Heartbeat(&vm, hbAt(boot+fast, boot+fast, boot+fast), t0.Add(el))...)
@@ -290,6 +290,70 @@ func TestTimeSourceDivergence(t *testing.T) {
 	}
 }
 
+// One disturbed window must never be enough: this rule can lead to an automatic kick.
+func TestClockRulesNeedTwoWindows(t *testing.T) {
+	c := Defaults()
+	t0 := time.Unix(1_700_000_000, 0)
+	boot := 5 * time.Hour
+	run := func(name string, n int, sample func(i int, el time.Duration) (*pb.Heartbeat, time.Time)) {
+		t.Helper()
+		var st ClientState
+		for i := range n {
+			hb, at := sample(i, time.Duration(i)*10*time.Second)
+			if e := c.Heartbeat(&st, hb, at); len(e) != 0 {
+				t.Fatalf("%s: flagged at heartbeat %d: %+v", name, i, e)
+			}
+		}
+	}
+	// QPC steps 5 s ahead of the interrupt time once (the clocks resynchronising after a
+	// suspend): one window is off, the next ones are not.
+	run("single QPC step", 40, func(i int, el time.Duration) (*pb.Heartbeat, time.Time) {
+		step := time.Duration(0)
+		if i >= 7 {
+			step = 5 * time.Second
+		}
+		return hbAt(boot+el+step, boot+el, boot+el), t0.Add(el)
+	})
+	// GetTickCount going backwards (a 32-bit counter wrapping) used to underflow into a ratio
+	// of trillions and a critical integrity finding.
+	run("tick count wrap", 40, func(i int, el time.Duration) (*pb.Heartbeat, time.Time) {
+		tick := boot + el
+		if i >= 9 {
+			tick = el - 90*time.Second
+		}
+		return hbAt(boot+el, tick, boot+el), t0.Add(el)
+	})
+	// A failed read of the interrupt time (reported as 0) must not become the baseline.
+	run("missing interrupt time", 40, func(i int, el time.Duration) (*pb.Heartbeat, time.Time) {
+		if i == 0 || i == 11 {
+			return hbAt(boot+el, boot+el, 0), t0.Add(el)
+		}
+		return hbAt(boot+el, boot+el, boot+el), t0.Add(el)
+	})
+	// One heartbeat held up for 12 s by the network: the window that ends with it looks slow
+	// and the one after looks fast, which is not a clock running at a different rate.
+	run("late heartbeat", 120, func(i int, el time.Duration) (*pb.Heartbeat, time.Time) {
+		at := t0.Add(el)
+		if i == 18 || i == 36 {
+			at = at.Add(12 * time.Second)
+		}
+		return hbAt(boot+el, boot+el, boot+el), at
+	})
+
+	// A sustained 4% QPC speed-up is still reported, at the second window.
+	var st ClientState
+	var at []int
+	for i := range 10 {
+		el := time.Duration(i) * 10 * time.Second
+		if e := c.Heartbeat(&st, hbAt(boot+el*104/100, boot+el, boot+el), t0.Add(el)); len(e) != 0 {
+			at = append(at, i)
+		}
+	}
+	if len(at) == 0 || at[0] != 6 {
+		t.Fatalf("sustained speed-up: reported at heartbeats %v, want first at 6 (60 s)", at)
+	}
+}
+
 func TestScannerStallAndInput(t *testing.T) {
 	c := Defaults()
 	var st ClientState
@@ -300,10 +364,20 @@ func TestScannerStallAndInput(t *testing.T) {
 		if i == 0 {
 			cpu = 500_000
 		}
-		got = append(got, c.Heartbeat(&st, &pb.Heartbeat{Activity: 0, Sched: &pb.SchedSummary{WorkerCpuNs: cpu, Frames: uint64(1000 * (i + 1))}}, now)...)
+		at := now.Add(time.Duration(i) * 15 * time.Second)
+		got = append(got, c.Heartbeat(&st, &pb.Heartbeat{Activity: 0, Sched: &pb.SchedSummary{WorkerCpuNs: cpu, Frames: uint64(1000 * (i + 1))}}, at)...)
 	}
 	if n := len(got); n != 1 || got[0].Rule != "scanner_stalled" {
 		t.Fatalf("stall: %+v", got)
+	}
+	// Heartbeats every half second: four of them fit between two runs of a 4 s scan job.
+	var quick ClientState
+	for i := range 12 {
+		cpu := uint64(1_000_000 * (1 + i/8))
+		at := now.Add(time.Duration(i) * 500 * time.Millisecond)
+		if e := c.Heartbeat(&quick, &pb.Heartbeat{Activity: 0, Sched: &pb.SchedSummary{WorkerCpuNs: cpu, Frames: uint64(100 * (i + 1))}}, at); len(e) != 0 {
+			t.Fatalf("idle gap between scan periods flagged at heartbeat %d: %+v", i, e)
+		}
 	}
 	// Loading screens legitimately starve the worker.
 	var menu ClientState
