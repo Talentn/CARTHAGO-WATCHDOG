@@ -61,30 +61,49 @@ func (v VBSState) HVCIEnforced() bool {
 
 // ParseVBS walks the verified PCR 12 EV_EVENT_TAG events before the WBCL separator,
 // mirroring the scoping go-attestation applies in ParseWinEvents.
+//
+// The replay only authenticates each event's digest. Its type and data come from the
+// client, so both are checked here: PCR 12 may hold nothing but tagged events and one
+// "WBCL" separator, and every event's data must hash to its digest. Otherwise relabelling
+// the event that reports test signing or debugging (or planting an early separator) would
+// hide it while the log still replays.
 func ParseVBS(events []goattest.Event) (VBSState, error) {
 	var out VBSState
+	seenSeparator := false
 	for _, e := range events {
 		if e.Index != 12 {
 			continue
 		}
-		if e.Type == evSeparator {
-			break
-		}
-		if e.Type != evEventTag {
-			continue
-		}
-		if sum := sha256.Sum256(e.Data); len(e.Digest) == sha256.Size && !bytes.Equal(sum[:], e.Digest) {
-			return out, fmt.Errorf("PCR12 tagged event digest does not match its data")
-		}
-		if len(e.Data) < 8 {
-			return out, fmt.Errorf("short tagged event (%d bytes)", len(e.Data))
-		}
-		n := binary.LittleEndian.Uint32(e.Data[4:8])
-		if int(n) > len(e.Data)-8 {
-			return out, fmt.Errorf("tagged event length %d exceeds data", n)
-		}
-		if err := out.walk(e.Data[8:8+n], 0); err != nil {
-			return out, err
+		sum := sha256.Sum256(e.Data)
+		digestOK := bytes.Equal(sum[:], e.Digest)
+		switch e.Type {
+		case evSeparator:
+			if seenSeparator {
+				return out, fmt.Errorf("duplicate PCR12 separator")
+			}
+			if !bytes.Equal(e.Data, []byte("WBCL")) || !digestOK {
+				return out, fmt.Errorf("PCR12 separator is not the WBCL separator")
+			}
+			seenSeparator = true
+		case evEventTag:
+			if seenSeparator {
+				continue
+			}
+			if !digestOK {
+				return out, fmt.Errorf("PCR12 tagged event digest does not match its data")
+			}
+			if len(e.Data) < 8 {
+				return out, fmt.Errorf("short tagged event (%d bytes)", len(e.Data))
+			}
+			n := binary.LittleEndian.Uint32(e.Data[4:8])
+			if int(n) > len(e.Data)-8 {
+				return out, fmt.Errorf("tagged event length %d exceeds data", n)
+			}
+			if err := out.walk(e.Data[8:8+n], 0); err != nil {
+				return out, err
+			}
+		default:
+			return out, fmt.Errorf("unexpected event type 0x%x in PCR12", uint32(e.Type))
 		}
 	}
 	return out, nil
