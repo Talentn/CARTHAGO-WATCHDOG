@@ -335,4 +335,15 @@ func TestEKChainStatusCapsTrustLevel(t *testing.T) {
 			t.Errorf("software key with %+v: trust %d", c.dev, got)
 		}
 	}
+
+	// A chain status stored at enrollment counts only when the EK was presented and verified
+	// again in this handshake.
+	stored := store.Device{EKCertMatches: true, EKChain: string(ekroots.StatusVerified)}
+	all := verified | ekChainFlags(&stored)
+	if f, notes := capUncheckedEK(all, nil, false); protocol.TrustLevel(f) != protocol.TrustTPMKey || len(notes) != 1 {
+		t.Errorf("stored chain status without a re-check: trust %d, notes %v", protocol.TrustLevel(f), notes)
+	}
+	if f, notes := capUncheckedEK(all, nil, true); protocol.TrustLevel(f) != protocol.TrustRankedBoot || len(notes) != 0 {
+		t.Errorf("re-checked chain: trust %d, notes %v", protocol.TrustLevel(f), notes)
+	}
 }

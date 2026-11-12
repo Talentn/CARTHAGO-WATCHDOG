@@ -202,7 +202,7 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 		return nil, nil, reject("bad_version", "protocol %d not supported", hello.ProtocolVersion)
 	}
 	if _, ok := g.cfg.Tenants[hello.TenantId]; !ok {
-		return nil, nil, reject("unknown_tenant", "tenant %q", hello.TenantId)
+		return nil, nil, reject("unknown_tenant", "tenant %.64q", hello.TenantId)
 	}
 	if err := validateHello(&hello); err != nil {
 		return nil, nil, err
@@ -230,6 +230,10 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 	var attestReq *pb.AttestRequest
 	var pending *attest.Enrollment
 	var notes []string
+	// ekChecked: the EK certificate chain was verified in this handshake. The status stored
+	// with the device is from an earlier day and an earlier root bundle; on its own it does
+	// not count towards trust 2 and 3.
+	ekChecked := false
 	if isTPM && hello.TpmAttestationAvailable {
 		attestReq = &pb.AttestRequest{Pcrs: windowsPCRs, CertifyDeviceKey: true}
 		enr := hello.TpmEnrollment
@@ -242,6 +246,7 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 				dev.EKCertMatches, dev.EKChain, dev.EKChainRoot = rep.CertMatchesEK, string(rep.ChainStatus), rep.Root
 				notes = append(notes, rep.Notes...)
 			}
+			ekChecked = true
 		case enr != nil:
 			pending, err = attest.PrepareEnrollment(enr.EkPublic, enr.EkCerts, enr.EkChainCerts, attest.AKParams{
 				Public: enr.AkPublic, CreateData: enr.AkCreateData, CreateAttestation: enr.AkCreateAttestation, CreateSignature: enr.AkCreateSignature,
@@ -251,6 +256,7 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 				attestReq = nil
 			} else {
 				attestReq.EkChallenge = &pb.EkChallenge{ObjectPublic: pending.Challenge.ObjectPublic, Duplicate: pending.Challenge.Duplicate, InSymSeed: pending.Challenge.InSymSeed}
+				ekChecked = true
 			}
 		case len(dev.AKPublic) == 0:
 			notes = append(notes, "TPM available but no AK enrollment presented")
@@ -319,6 +325,7 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 	var boot *attest.BootResult
 	if attestReq != nil {
 		f, b, n := g.verifyAttestation(ctx, dev, pending, prove.Attestation, hello.DeviceKey.PublicKey, protocol.QuoteNonce(th))
+		f, n = capUncheckedEK(f, n, ekChecked)
 		flags |= f
 		boot = b
 		notes = append(notes, n...)
@@ -436,6 +443,15 @@ func (g *Gateway) verifyAttestation(ctx context.Context, dev *store.Device, pend
 	}
 	notes = append(notes, boot.Policy.RankedFailures...)
 	return flags, boot, notes
+}
+
+// capUncheckedEK removes the verified-chain flag when the EK certificate chain was not
+// verified in this handshake (a bound device that presented no EK).
+func capUncheckedEK(flags uint64, notes []string, ekChecked bool) (uint64, []string) {
+	if ekChecked || flags&protocol.FlagEKChainVerified == 0 {
+		return flags, notes
+	}
+	return flags &^ protocol.FlagEKChainVerified, append(notes, "EK not presented in this handshake: the stored EK certificate chain status was not re-checked; trust capped at 1")
 }
 
 // ekChainFlags maps a device's stored EK chain status to attest_flags.
