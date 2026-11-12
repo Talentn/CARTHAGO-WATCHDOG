@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/analyzer"
 )
 
 // ingestTimeout bounds how long one batch may wait for the analysis queue before the game
@@ -43,12 +44,17 @@ func (g *Gateway) handleIngest(w http.ResponseWriter, r *http.Request) {
 			ws.Close(websocket.StatusUnsupportedData, "expected a binary GameplayBatch")
 			return
 		}
-		bctx, cancel := context.WithTimeout(ctx, ingestTimeout)
-		accepted, err := g.cfg.Detections.Gameplay(bctx, tenant, &b)
-		cancel()
-		ack := &pb.IngestAck{MatchId: b.MatchId, BatchSeq: b.BatchSeq, Accepted: accepted}
-		if err != nil {
+		ack := &pb.IngestAck{MatchId: b.MatchId, BatchSeq: b.BatchSeq}
+		if err := analyzer.CheckBatch(&b); err != nil {
 			ack.Error = err.Error()
+		} else {
+			bctx, cancel := context.WithTimeout(ctx, ingestTimeout)
+			accepted, err := g.cfg.Detections.Gameplay(bctx, tenant, &b)
+			cancel()
+			ack.Accepted = accepted
+			if err != nil {
+				ack.Error = err.Error()
+			}
 		}
 		out, err := proto.Marshal(ack)
 		if err != nil {

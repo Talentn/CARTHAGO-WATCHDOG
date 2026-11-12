@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,7 +141,7 @@ func TestIngest(t *testing.T) {
 	}
 	ws := dialIngest(t, e, serverKey)
 	var cw []*pb.CommandWindow
-	for w := range uint32(5) {
+	for w := range uint32(10) {
 		cw = append(cw, &pb.CommandWindow{Slot: 7, TickFrom: w * 64, TickTo: (w + 1) * 64, Commands: 90})
 	}
 	b := &pb.GameplayBatch{MatchId: "m-1", BatchSeq: 1, TickRate: 64, Players: []*pb.MatchPlayer{{Slot: 7, PlayerHash: "speedy"}}, Commands: cw}
@@ -161,5 +162,14 @@ func TestIngest(t *testing.T) {
 	}
 	if ack := sendBatch(t, ws, &pb.GameplayBatch{BatchSeq: 1}); ack.Accepted || ack.Error == "" {
 		t.Fatalf("missing match id ack %v", ack)
+	}
+	// A batch the analyzer cannot hold in bounded memory is refused, and refused before it
+	// advances the match: the corrected batch with the same sequence number is still accepted.
+	bad := &pb.GameplayBatch{MatchId: "m-9", BatchSeq: 1, Visibility: []*pb.VisibilityEvent{{ObserverSlot: 1 << 20, TargetSlot: 2, Visible: true}}}
+	if ack := sendBatch(t, ws, bad); ack.Accepted || !strings.Contains(ack.Error, "slots are 0-255") {
+		t.Fatalf("out-of-range slot ack %v", ack)
+	}
+	if ack := sendBatch(t, ws, &pb.GameplayBatch{MatchId: "m-9", BatchSeq: 1}); !ack.Accepted {
+		t.Fatalf("corrected batch ack %v", ack)
 	}
 }

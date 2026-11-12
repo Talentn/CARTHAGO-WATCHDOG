@@ -72,3 +72,29 @@ func binomialZ(k, n int, p float64) float64 {
 	sd := math.Sqrt(float64(n) * p * (1 - p))
 	return (float64(k) - exp) / sd
 }
+
+// binomialTail is the exact probability of k or more successes in n trials at rate p.
+func binomialTail(k, n int, p float64) float64 {
+	if k <= 0 {
+		return 1
+	}
+	if n <= 0 || k > n || p <= 0 {
+		return 0
+	}
+	if p >= 1 {
+		return 1
+	}
+	lg := func(x int) float64 { v, _ := math.Lgamma(float64(x) + 1); return v }
+	lp, lq := math.Log(p), math.Log1p(-p)
+	sum := 0.0
+	for i := k; i <= n; i++ {
+		sum += math.Exp(lg(n) - lg(i) - lg(n-i) + float64(i)*lp + float64(n-i)*lq)
+	}
+	return math.Min(1, sum)
+}
+
+// normalTail is the one-sided tail probability of a standard normal beyond z, used to express
+// a configured z threshold as the probability an exact test is held to.
+func normalTail(z float64) float64 {
+	return 0.5 * math.Erfc(z/math.Sqrt2)
+}

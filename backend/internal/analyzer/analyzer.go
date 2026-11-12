@@ -70,10 +70,13 @@ type Config struct {
 	SnapSettleDeg float64 // the step right after a snap must be below this to count as a lock
 	SnapMin       int     // snaps-then-lock events before the player is flagged
 
-	HeadshotMinShots int     // minimum hits before the headshot z-test runs
-	HeadshotZ        float64 // z above which the headshot rate is flagged
+	HeadshotMinShots  int     // minimum hits before the headshot test runs
+	HeadshotZ         float64 // significance of the test, as a one-sided normal z
+	HeadshotMinExcess float64 // the rate must also exceed the baseline by this much (0..1)
 
-	TTDMinSamples int     // time-to-damage samples needed, across the match
+	TTDMinOwn     int     // reaction samples needed from the player being judged
+	TTDMinSamples int     // reaction samples needed from the rest of the lobby
+	TTDMinPlayers int     // other players those samples must come from
 	TTDZ          float64 // robust-z below which a player reacts implausibly fast
 
 	CmdRatio    float64 // commands-per-tick ratio counted as speedhacking
@@ -116,11 +119,14 @@ func Defaults() Config {
 		SnapMin:             4,
 		HeadshotMinShots:    40,
 		HeadshotZ:           3.5,
+		HeadshotMinExcess:   0.15,
+		TTDMinOwn:           8,
 		TTDMinSamples:       12,
+		TTDMinPlayers:       3,
 		TTDZ:                3.5,
 		CmdRatio:            1.08,
-		CmdMinTicks:         256,
-		TriggerMinPresses:   8,
+		CmdMinTicks:         640,
+		TriggerMinPresses:   16,
 		TriggerMaxCV:        0.02,
 		ClockToleranceRatio: 0.02,
 		CoverageMinRuns:     1,
