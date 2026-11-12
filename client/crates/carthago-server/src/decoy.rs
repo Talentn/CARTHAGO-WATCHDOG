@@ -16,7 +16,7 @@
 //! The decoy's route must not depend on its recipients: move it with the game's own bot
 //! navigation toward goals of its own, and let replication alone keep it out of sight.
 //! A decoy that steered by what its recipient does would make its own positions at other
-//! times an unfair control (see the README's decoy integration rules). Create it, unreplicated,
+//! times an unfair control (see `docs/decoys.md`). Create it, unreplicated,
 //! at least [`crate::DECOY_ROLL_MIN_S`] seconds before replicating it; call
 //! [`DecoyPlanner::can_replicate`] to start and [`DecoyPlanner::keep`] every tick while
 //! replicated, stopping replication the tick it returns false; keep moving it unreplicated for

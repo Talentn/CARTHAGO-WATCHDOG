@@ -38,6 +38,7 @@ players ranked by risk, and the evidence behind each detection.</sub>
 | **Client integrity scans** | Module inventory; executable memory with no backing image; thread start addresses; timing and loader API integrity; graphics-module `.text` compared with disk; external process handles; overlay windows; debugger signals; known-vulnerable drivers; time-source samples; injected-input counters. Plus a mitigation-policy profile applied at startup. |
 | **Server-side detections** | Snap-and-lock aim; headshot rate against an MMR baseline (binomial z-test); time-to-damage against the lobby (robust z-score); sustained command rate; trigger-interval regularity; time-source divergence; scanner stalls. Client findings are classified against an allowlist of common overlays and capture tools (Steam, Discord, OBS, RTSS, NVIDIA). |
 | **Information-leak scoring** | Telemetry v2 (positions, view, sounds, team pings, input device, versioned map geometry) feeds a per-team knowledge model: line of sight through occluders, audible sounds, and what teammates spotted. A scorer tests whether a player's aim, shots and routes follow enemies the team could not have known about, against a null model of the same enemies at shifted times. Flag-only, with the moments and a top-down replay in the dashboard; per-segment thresholds (game mode × input device) target a false-positive rate of 1 in 1,000 player-matches. |
+| **Decoys** | The game server can replicate fake enemies to one player at a time, only while that player cannot see or hear them. The server SDK places them, using the gateway's own visibility rules, and reports them. The gateway's `decoy_reaction` rule tests whether a player's aim and shots follow decoys more than the same decoys at shifted times, and needs reactions to several decoys. Flag-only, a separate evidence family with its own dashboard card and replay. Integration rules and limits: [`docs/decoys.md`](docs/decoys.md). |
 | **Studio dashboard** | Sessions and trust levels, flagged players ranked by severity × confidence, a per-player history and the raw evidence for every verdict. Read-only, tenant-isolated, and served on its own listener. |
 | **No false-ban defaults** | Behavioural evidence is advisory and goes to review. Automatic kicks can be enabled only for critical client-integrity evidence, and are off by default. |
 
@@ -160,7 +161,9 @@ cd client  && cargo run -p gs-stub -- simulate --sessions /tmp/sessions.txt \
 **Linux** (synthetic traffic through the gateway, pipeline and dashboard; about 80 s). It also
 replays two 30-minute telemetry v2 matches (a shooter and an extraction raid) and checks that
 the information-leak rule flags the informed players and stays quiet on legit, pre-firing,
-sound-reacting and team-call players:
+sound-reacting and team-call players. Both matches carry decoys. The script checks that the
+decoy rule flags the shooter's informed player, that no honest player gets evidence of any rule,
+and that nothing kicks:
 
 ```bash
 tools/carthago-e2e.sh
@@ -335,10 +338,14 @@ Phases are defined by scope and exit criteria, not dates.
     the flag-only scorer with per-segment thresholds, dashboard explanations, and v2
     scenarios in `carthago-sim` and `gs-stub`. Still synthetic-only: thresholds must be
     re-calibrated on each pilot game's real matches.
+  - Decoys (second slice, this branch): `DecoyTrack` in telemetry v2, the server SDK's
+    decoy recorder and `DecoyPlanner`, the flag-only `decoy_reaction` rule with per-segment
+    thresholds and a dashboard card, and decoys in `carthago-sim`, `gs-stub` and the e2e
+    check. Still to come: better recall in extraction modes, a calibration large enough to
+    support the 1e-3 target, and engine-side checks of the rendering and audio rules.
   - Launcher and helper.
   - Signed, streamed detection modules with a kill switch.
   - Per-queue attestation policy.
-  - Honeypot entities in the server SDK.
   - A first flag-only ML model.
   - Ban waves and a device graph.
   - Billing, a privacy package, and the published benchmark report.

@@ -159,6 +159,20 @@ team-info events and 1,024 item events; anything past a cap is counted in `dropp
 Motion is kept every 4th tick by default (`set_motion_stride`), which measures about 2.2 bytes
 per player-tick on the wire at 64 Hz.
 
+**Decoys** (`decoys`, `DecoyTrack`, field 20): fake enemies the game server replicated
+only to `recipients`. Each track carries:
+
+- `spawn_tick`: the first replicated tick, or 0 if not replicated yet;
+- `despawn_tick`: the first tick no longer replicated;
+- `cloned_from_slot`;
+- `track`: the decoy's motion, encoded like a player's, including an unreplicated pre-roll and
+  post-roll of at least 12.5 s that were never sent to any client.
+
+A decoy is reported in every batch it exists in. Decoys never appear in the player, aim,
+shot, visibility, sound or team-info fields. Recorder caps: 256 decoys at once, 16
+recipients each, and 16,384 decoy samples per flush. Rules for studios:
+[`docs/decoys.md`](../docs/decoys.md).
+
 **Scoring** happens once per match, at `match_over`, and only produces flag-only evidence
-(`information_leak`) that is never used for automatic kicks. The rule, its knowledge model and
+(`information_leak`, and `decoy_reaction` for decoys) that is never used for automatic kicks. The rule, its knowledge model and
 its per-segment thresholds are documented in the `backend/internal/knowledge` package.
