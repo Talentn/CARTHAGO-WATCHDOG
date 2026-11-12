@@ -24,6 +24,7 @@
   --wall: #343a47;
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -216,6 +217,12 @@ summary { width: max-content; cursor: pointer; font-size: 13px; color: var(--tex
 summary:hover { color: var(--text); }
 details[open] > summary { margin-bottom: 8px; }
 details p { margin: 0; max-width: 88ch; }
+
+/* Motion marks a change of state under the pointer or the keyboard and nothing else: 140ms,
+   one easing, on links, buttons, inputs and the disclosure. Nothing animates on page load,
+   and table rows highlight at once so the eye can run down a column. */
+a, button, input, summary { transition: color 140ms var(--ease), background-color 140ms var(--ease), border-color 140ms var(--ease), text-decoration-color 140ms var(--ease), transform 140ms var(--ease); }
+@media (prefers-reduced-motion: reduce) { a, button, input, summary { transition: none; } }
 
 @media (max-width: 720px) {
   .wrap { padding: 0 16px; }

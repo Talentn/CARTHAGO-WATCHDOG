@@ -153,3 +153,15 @@ func TestTrustChartKey(t *testing.T) {
 		}
 	}
 }
+
+// Transitions are optional: anyone who asks the system for reduced motion gets none.
+func TestMotionRespectsReducedMotion(t *testing.T) {
+	f := newFixture(t)
+	css := f.do("GET", "/static/app.css", nil, nil, nil).Body.String()
+	if strings.Contains(css, "transition:") && !strings.Contains(css, "@media (prefers-reduced-motion: reduce) { a, button, input, summary { transition: none; } }") {
+		t.Error("app.css animates without a prefers-reduced-motion override")
+	}
+	if strings.Contains(css, "@keyframes") || strings.Contains(css, "animation:") {
+		t.Error("app.css animates on load; motion is for state changes only")
+	}
+}
