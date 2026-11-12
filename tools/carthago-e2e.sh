@@ -16,7 +16,12 @@
 #      footsteps, following team spots). gs-stub replays them through the SDK's v2 API, the
 #      second by map reference only, and the script checks the information_leak rule flags
 #      the informed slots, stays quiet on every honest one, never kicks, and that the
-#      dashboard explains the flag.
+#      dashboard explains the flag;
+#   5. decoys: both matches carry decoys, fake enemies the simulated game server replicates
+#      only to one player while that player cannot see or hear them. The script checks the
+#      decoy_reaction rule flags the shooter's informed slot, reports the extraction informed
+#      slot's result (extraction recall is low, see the findings), never touches an honest
+#      slot, never kicks, and that the information_leak results above are unchanged.
 #
 # Usage: tools/carthago-e2e.sh [--skip-build]
 # Uses ports 18750 (gateway) and 18751 (dashboard); takes about two minutes (the time-source
@@ -53,8 +58,8 @@ curl -sf "http://127.0.0.1:$gw_port/healthz" >/dev/null || fail "gateway did not
 v2_shooter="legit,informed,prefire,sound,teamcall,legit,legit,prefire,sound,teamcall"
 v2_extraction="informed,legit,sound,prefire,teamcall,legit,legit,sound,prefire,teamcall"
 step "carthago-sim: telemetry v2 scenarios (shooter slots 9-18, extraction slots 19-28)"
-"$bin/carthago-sim" -scenario-out "$run/shooter.scn" -mode shooter -roles "$v2_shooter" -first-slot 9 -match e2e-v2-shooter -seed 11
-"$bin/carthago-sim" -scenario-out "$run/extraction.scn" -mode extraction -roles "$v2_extraction" -first-slot 19 -match e2e-v2-extraction -seed 12
+"$bin/carthago-sim" -scenario-out "$run/shooter.scn" -mode shooter -roles "$v2_shooter" -first-slot 9 -match e2e-v2-shooter -seed 11 -decoys
+"$bin/carthago-sim" -scenario-out "$run/extraction.scn" -mode extraction -roles "$v2_extraction" -first-slot 19 -match e2e-v2-extraction -seed 12 -decoys
 
 step "carthago-sim: 28 sessions with synthetic telemetry (70 s)"
 "$bin/carthago-sim" -gateway "ws://127.0.0.1:$gw_port/v1/client" -keys "$run/data/public-keys.json" \
@@ -131,5 +136,20 @@ done
 echo "ok   honest v2 slots 9 11-18 20-28 (legit, prefire, sound, teamcall) scored and clear"
 ! grep -q 'kick.*information_leak\|integrity_violation: information_leak' "$run/gateway.log" || fail "an information_leak flag kicked someone"
 echo "ok   information_leak never kicks"
+
+step "check decoy reactions"
+grep -q "player=$(player 10) rule=decoy_reaction " "$run/gateway.log" || fail "informed shooter slot 10 not flagged for decoy_reaction"
+page=$(curl -sf -b "$jar" "http://127.0.0.1:$dash_port/sessions/$(session 10)") || fail "session page for slot 10"
+for want in 'Decoy reaction · slot' 'class="rp-decoy"' 'sent only to this player' 'Decoy reactions are their own evidence family'; do
+  grep -qF "$want" <<<"$page" || fail "session page for slot 10 lacks: $want"
+done
+echo "ok   informed shooter slot 10 flagged for decoy_reaction, decoy card on its session page"
+if grep -q "player=$(player 19) rule=decoy_reaction " "$run/gateway.log"; then
+  echo "ok   informed extraction slot 19 flagged for decoy_reaction"
+else
+  echo "note informed extraction slot 19 not flagged for decoy_reaction (extraction recall is low; not a failure)"
+fi
+! grep -q 'kick.*decoy_reaction\|integrity_violation: decoy_reaction' "$run/gateway.log" || fail "a decoy_reaction flag kicked someone"
+echo "ok   decoy_reaction never kicks; honest v2 slots have no evidence of any rule (checked above)"
 
 printf '\nPASS (logs in %s)\n' "$run"
