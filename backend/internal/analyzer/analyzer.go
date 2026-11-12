@@ -166,10 +166,53 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 		return ev("debugger", SeverityLow, 0.3, false, fmt.Sprintf("weak debug signal %#x", a)), true
 	case pb.FindingCode_FINDING_CODE_VULNERABLE_DRIVER:
 		return ev("vulnerable_driver", SeverityHigh, 0.7, true, "known-vulnerable driver loaded: "+detail), true
+	case pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE:
+		return classifyModuleSignature(b, detail), true
+	case pb.FindingCode_FINDING_CODE_EXTERNAL_EXEC_REGIONS:
+		// Seen from outside the process, the engine's own loader (GoldSrc maps hw.dll itself on
+		// older builds) and script JITs look the same as foreign code, so this is context for a
+		// reviewer and carries no risk until build ground truth exists to compare against.
+		return ev("external_exec_regions", SeverityInfo, 0.1, false,
+			fmt.Sprintf("%d executable regions without a backing file (%d KB), seen from outside the process", a, b&(1<<48-1)>>10)), true
 	case pb.FindingCode_FINDING_CODE_MITIGATIONS, pb.FindingCode_FINDING_CODE_MODULE_LOADED, pb.FindingCode_FINDING_CODE_THREAD_START_LOADER:
 		return Evidence{}, false
 	}
 	return Evidence{}, false
+}
+
+// classifyModuleSignature turns a companion's module report into evidence. Everything is
+// informational except two cases: an unsigned module loaded from outside the game folder and
+// Program Files, and a signed file that was modified after signing. Neither is integrity
+// evidence, so neither can kick.
+func classifyModuleSignature(b uint64, detail string) Evidence {
+	state, class := pb.ModuleSignature(b&0xff), pb.ModulePathClass(b>>8&0xff)
+	where := map[pb.ModulePathClass]string{
+		pb.ModulePathClass_MODULE_PATH_CLASS_GAME_DIR:      "game folder",
+		pb.ModulePathClass_MODULE_PATH_CLASS_PROGRAM_FILES: "Program Files",
+		pb.ModulePathClass_MODULE_PATH_CLASS_OTHER:         "outside the game folder",
+	}[class]
+	if where == "" {
+		where = "unknown location"
+	}
+	what := map[pb.ModuleSignature]string{
+		pb.ModuleSignature_MODULE_SIGNATURE_VALID:      "signed, signature valid",
+		pb.ModuleSignature_MODULE_SIGNATURE_NONE:       "not signed",
+		pb.ModuleSignature_MODULE_SIGNATURE_BAD_DIGEST: "signed, but changed after signing",
+		pb.ModuleSignature_MODULE_SIGNATURE_UNTRUSTED:  "signed by an untrusted signer",
+		pb.ModuleSignature_MODULE_SIGNATURE_EXPIRED:    "signed with an expired certificate",
+		pb.ModuleSignature_MODULE_SIGNATURE_ERROR:      "signature could not be checked",
+	}[state]
+	if what == "" {
+		what = "signature state unknown"
+	}
+	summary := fmt.Sprintf("module %s (%s): %s", detail, where, what)
+	switch {
+	case state == pb.ModuleSignature_MODULE_SIGNATURE_BAD_DIGEST:
+		return ev("module_signature", SeverityMedium, 0.4, false, summary)
+	case class == pb.ModulePathClass_MODULE_PATH_CLASS_OTHER && state != pb.ModuleSignature_MODULE_SIGNATURE_VALID:
+		return ev("module_signature", SeverityLow, 0.3, false, summary)
+	}
+	return ev("module_signature", SeverityInfo, 0.1, false, summary)
 }
 
 func ev(rule string, sev Severity, score float64, integrity bool, summary string) Evidence {

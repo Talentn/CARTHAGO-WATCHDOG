@@ -56,6 +56,12 @@ func TestClassifyFinding(t *testing.T) {
 		{pb.FindingCode_FINDING_CODE_CODE_PATCH, 0, 0, "d3d11.dll>evil.dll", "code_patch", SeverityCritical, true},
 		{pb.FindingCode_FINDING_CODE_DEBUGGER, uint64(pb.DebugSignal_DEBUG_SIGNAL_PEB_BEING_DEBUGGED), 0, "", "debugger", SeverityLow, false},
 		{pb.FindingCode_FINDING_CODE_DEBUGGER, uint64(pb.DebugSignal_DEBUG_SIGNAL_KERNEL_DEBUGGER), 0, "", "debugger", SeverityHigh, true},
+		// A companion's view from outside the process: context, never integrity evidence.
+		{pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE, 0x1000, sigB(pb.ModuleSignature_MODULE_SIGNATURE_NONE, pb.ModulePathClass_MODULE_PATH_CLASS_GAME_DIR), "hw.dll", "module_signature", SeverityInfo, false},
+		{pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE, 0x1000, sigB(pb.ModuleSignature_MODULE_SIGNATURE_VALID, pb.ModulePathClass_MODULE_PATH_CLASS_OTHER), "overlay.dll", "module_signature", SeverityInfo, false},
+		{pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE, 0x1000, sigB(pb.ModuleSignature_MODULE_SIGNATURE_NONE, pb.ModulePathClass_MODULE_PATH_CLASS_OTHER), "x.dll", "module_signature", SeverityLow, false},
+		{pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE, 0x1000, sigB(pb.ModuleSignature_MODULE_SIGNATURE_BAD_DIGEST, pb.ModulePathClass_MODULE_PATH_CLASS_GAME_DIR), "y.dll", "module_signature", SeverityMedium, false},
+		{pb.FindingCode_FINDING_CODE_EXTERNAL_EXEC_REGIONS, 7, 0x40000 | uint64(pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE|pb.UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE)<<48, "", "external_exec_regions", SeverityInfo, false},
 	}
 	for _, tc := range cases {
 		e, ok := c.ClassifyFinding(uint32(tc.code), tc.a, tc.b, tc.detail)
@@ -69,6 +75,8 @@ func TestClassifyFinding(t *testing.T) {
 		}
 	}
 }
+
+func sigB(s pb.ModuleSignature, c pb.ModulePathClass) uint64 { return uint64(s) | uint64(c)<<8 }
 
 // human aim: smooth turns with noise, occasional fast flicks that decelerate over a few ticks.
 func humanAim(rng *rand.Rand, n int) ([]float32, []float32) {

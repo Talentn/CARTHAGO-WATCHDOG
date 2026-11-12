@@ -9,6 +9,7 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
+use crate::external::TargetCell;
 use crate::seen::Seen;
 use crate::win::{self, NtGetNextProcess, Owned};
 
@@ -59,9 +60,15 @@ fn entry(buf: &[u8], i: usize) -> HandleEntry {
 /// memory or thread access. This is what Cheat Engine and external ESP readers hold.
 /// Elevated holders can't be opened from the game's medium integrity and are not seen;
 /// launchers, overlays and capture tools that hold such handles are allowlisted on the server.
+///
+/// In-process the watched process is the scanner's own. A companion watches another process
+/// ([`ExternalHandles::for_target`]) and skips itself as a holder.
 pub struct ExternalHandles {
     cur: Owned,
     self_pid: u32,
+    /// The process whose handles are being looked for.
+    game_pid: u32,
+    cell: Option<std::sync::Arc<TargetCell>>,
     process_type: Option<u32>,
     buf: Vec<u8>,
     seen: Seen,
@@ -72,7 +79,14 @@ unsafe impl Send for ExternalHandles {}
 
 impl ExternalHandles {
     pub fn new() -> Self {
-        Self { cur: Owned(std::ptr::null_mut()), self_pid: unsafe { GetCurrentProcessId() }, process_type: None, buf: vec![0; 64 * 1024], seen: Seen::new(256) }
+        let self_pid = unsafe { GetCurrentProcessId() };
+        Self { cur: Owned(std::ptr::null_mut()), self_pid, game_pid: self_pid, cell: None, process_type: None, buf: vec![0; 64 * 1024], seen: Seen::new(256) }
+    }
+
+    /// Watches the companion's target process instead of the scanner's own. Idle until the
+    /// target is set.
+    pub fn for_target(cell: std::sync::Arc<TargetCell>) -> Self {
+        Self { game_pid: 0, cell: Some(cell), ..Self::new() }
     }
 
     /// The object type index of "Process", learned from a handle we open to ourselves.
@@ -88,7 +102,7 @@ impl ExternalHandles {
     fn scan(&mut self, holder: HANDLE, ctx: &Ctx<'_>) {
         let pid = unsafe { GetProcessId(holder) };
         let Some(ptype) = self.process_type else { return };
-        if pid == self.self_pid || pid == 0 {
+        if pid == self.self_pid || pid == self.game_pid || pid == 0 {
             return;
         }
         let Some(n) = handle_snapshot(holder, &mut self.buf) else { return };
@@ -109,7 +123,7 @@ impl ExternalHandles {
                 continue;
             }
             let dup = Owned(dup);
-            if unsafe { GetProcessId(dup.0) } == self.self_pid {
+            if unsafe { GetProcessId(dup.0) } == self.game_pid {
                 worst |= e.granted_access;
             }
         }
@@ -141,12 +155,15 @@ impl Job for ExternalHandles {
     }
     fn begin(&mut self) {
         self.cur = Owned(std::ptr::null_mut());
+        if let Some(cell) = &self.cell {
+            self.game_pid = cell.get().filter(|t| t.alive()).map_or(0, |t| t.pid());
+        }
         if self.process_type.is_none() {
             self.process_type = self.learn_process_type();
         }
     }
     fn step(&mut self, ctx: &Ctx<'_>) -> Step {
-        if self.process_type.is_none() {
+        if self.process_type.is_none() || self.game_pid == 0 {
             return Step::Done;
         }
         let mut next = std::ptr::null_mut();
