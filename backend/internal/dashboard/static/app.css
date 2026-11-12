@@ -43,11 +43,11 @@ small { font-size: 12px; line-height: 1; }
 .mono { font-family: var(--mono); font-size: 13px; font-weight: 400; font-variant-ligatures: none; }
 a.mono, span.mono { line-height: 1; }
 .muted { color: var(--muted); }
-.wrapall { word-break: break-all; }
-.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+.wrapall { overflow-wrap: anywhere; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: 0 32px; }
 
 /* The header's side padding tracks .wrap, so the logo lines up with the page content. */
-.top { display: flex; align-items: center; gap: 24px; min-height: 56px; padding: 0 max(32px, calc(50% - 608px)); background: var(--page); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+.top { display: flex; align-items: center; gap: 24px; min-height: 56px; padding: 0 max(32px, calc(50% - 688px)); background: var(--page); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; text-decoration: none; }
 .brand b { color: var(--accent); font-weight: 600; }
 .top nav { display: flex; gap: 4px; flex: 1; }
@@ -61,13 +61,15 @@ button.link { background: none; border: 0; color: var(--muted); cursor: pointer;
 button.link:hover { color: var(--text); }
 
 main.wrap { padding-top: 24px; padding-bottom: 32px; }
-.head { display: flex; align-items: center; gap: 8px 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.head { display: flex; align-items: baseline; gap: 8px 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .head h1 .mono { font-size: 16px; color: var(--text-2); margin-left: 4px; }
 .foot { color: var(--muted); font-size: 12px; line-height: 16px; padding-bottom: 32px; }
-.note { font-size: 13px; max-width: 88ch; }
+.note { color: var(--muted); font-size: 13px; max-width: 88ch; margin: 0 0 16px; }
 
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 16px; margin-bottom: 16px; }
-.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; }
+/* Stat strip: plain numbers in one row with hairlines between them, not a row of cards. */
+.kpis { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; }
+.kpi { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 16px 20px; }
+.kpi + .kpi { border-left: 1px solid var(--line); }
 .kpi > span:first-child { color: var(--muted); font-size: 13px; }
 .kpi b { font: 400 28px/32px var(--mono); }
 .kpi b.small { font: 400 16px/32px var(--sans); }
@@ -75,7 +77,9 @@ main.wrap { padding-top: 24px; padding-bottom: 32px; }
 .kpi.warn b { color: var(--accent); }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; overflow-x: auto; }
-.card-head { display: flex; justify-content: space-between; align-items: baseline; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.card-head a, .card-head > span { font-size: 13px; color: var(--text-2); }
+.card-head > span.muted { color: var(--muted); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 0 16px; }
 
 table { width: 100%; border-collapse: collapse; }
@@ -88,7 +92,13 @@ tbody tr:hover td { background: var(--raised); }
 tbody tr:last-child td { border-bottom: 0; }
 td.num, th.num { text-align: right; }
 td.num { font-family: var(--mono); font-size: 13px; }
-td.sum { max-width: 460px; }
+td.sum { max-width: 560px; }
+/* Clock time first, in mono so a column of times lines up; how long ago after it. */
+td.when { white-space: nowrap; }
+td.when .muted { margin-left: 4px; }
+td.det .n { display: inline-block; min-width: 3ch; margin-right: 8px; text-align: right; }
+/* A player's own page does not need the player column in its session table. */
+.no-player .c-player { display: none; }
 table.compact td { padding: 6px 12px; }
 .empty { color: var(--muted); margin: 4px 0; }
 
@@ -118,14 +128,7 @@ rect.t3, .legend i.t3 { fill: var(--verified); background: var(--verified); }
 .legend { list-style: none; padding: 0; margin: 12px 0 0; display: flex; gap: 8px 24px; flex-wrap: wrap; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; }
 
-.feed { list-style: none; margin: 0; padding: 0; }
-.feed li { display: grid; grid-template-columns: 76px 1fr auto; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: start; }
-.feed li:last-child { border-bottom: 0; }
-.feed .sev { text-align: center; }
-.feed p { margin: 4px 0 0; color: var(--text-2); font-size: 13px; }
-.feed time { font-size: 13px; white-space: nowrap; }
-
-dl.kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; margin: 0; }
+dl.kv { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; margin: 0; }
 dl.kv dt { color: var(--muted); }
 dl.kv dd { margin: 0; }
 /* The finding is the headline of an evidence record. */
@@ -136,8 +139,8 @@ pre { margin: 0; background: var(--inset); border: 1px solid var(--line); border
 .tabs a.on { background: var(--raised); color: var(--text); }
 .tabs a:hover { color: var(--text); }
 
-.login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-.login-card { width: 100%; max-width: 380px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 32px; }
+.login { min-height: 100vh; display: grid; place-items: center; padding: 24px 24px 12vh; }
+.login-card { width: 100%; max-width: 376px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 32px; }
 .login-brand { text-align: center; margin-bottom: 24px; }
 .login-brand h1 { margin-top: 12px; }
 .login-brand h1 b { color: var(--accent); font-weight: 600; }
@@ -149,12 +152,16 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color:
 button.primary { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 8px; height: 40px; padding: 0 16px; font: 500 14px var(--sans); cursor: pointer; }
 button.primary:hover { background: var(--accent-hi); }
 .alert { background: var(--raised); border: 1px solid var(--act-line); padding: 8px 12px; border-radius: 8px; margin: 0 0 16px; }
-@media (max-width: 720px) { .wrap { padding: 0 16px; } .top { flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; } dl.kv { grid-template-columns: 1fr; } .grid2 { grid-template-columns: 1fr; } }
 
 /* Information-leak explanation */
 .leak .policy { background: var(--raised); color: var(--text-2); padding: 12px 16px; border-radius: 6px; margin: 16px 0 0; }
+/* Moments and the replay sit side by side when there is room: read a moment, see it drawn. */
+.leak-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 0 32px; align-items: start; }
 .moments { margin: 0; padding-left: 24px; }
-.moments li { margin: 0 0 12px; }
+.moments li { margin: 0 0 12px; padding-left: 4px; color: var(--text-2); }
+.moments .at { display: block; color: var(--text); }
+.moments .at .muted { margin-left: 8px; }
+.replay-note { margin: 0; font-size: 13px; color: var(--muted); }
 .moments li:last-child { margin-bottom: 0; }
 /* Replay: the flagged player's path in the text colour, where the crosshair pointed in amber
    (what to look at), the hidden target in red and dashed. */
@@ -178,3 +185,18 @@ button.primary:hover { background: var(--accent-hi); }
 .k-target { background: var(--act); }
 .k-wall { background: var(--wall); box-shadow: 0 0 0 1px var(--line-2); width: 8px; height: 8px; }
 details summary { cursor: pointer; font-size: 13px; color: var(--text-2); margin: 12px 0 8px; }
+
+@media (max-width: 720px) {
+  .wrap { padding: 0 16px; }
+  .top { flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; }
+  .top nav { order: 3; flex-basis: 100%; }
+  .who { margin-left: auto; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; }
+  .kpi + .kpi { border-left: 0; }
+  .kpi:nth-child(even) { border-left: 1px solid var(--line); }
+  .kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .kpi:last-child:nth-child(odd) { grid-column: span 2; }
+  .grid2, .leak-split { grid-template-columns: minmax(0, 1fr); }
+  dl.kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  dl.kv dd { margin-bottom: 8px; }
+}

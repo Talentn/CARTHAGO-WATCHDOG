@@ -19,7 +19,6 @@
   </ul>
 </section>
 
-<div class="grid2">
 <section class="card">
   <div class="card-head"><h2>Flagged players</h2><a href="/players">All flagged →</a></div>
   {{if $d.Flagged}}
@@ -40,17 +39,20 @@
 <section class="card">
   <div class="card-head"><h2>Recent detections</h2></div>
   {{if $d.Recent}}
-  <ul class="feed">
+  <table>
+    <thead><tr><th>Severity</th><th>Rule</th><th>Player</th><th>Finding</th><th>Observed</th></tr></thead>
+    <tbody>
     {{range $d.Recent}}
-    <li><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>
-      <div><a class="mono" href="/evidence/{{.ID}}">{{.Rule}}</a> · <a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>
-      <p>{{.Summary}}</p></div>
-      <time class="muted">{{ago .ObservedAt}}</time></li>
+      <tr><td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span></td>
+        <td><a class="mono" href="/evidence/{{.ID}}">{{.Rule}}</a></td>
+        <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
+        <td>{{.Summary}}</td>
+        <td class="when" title="{{when .ObservedAt}}"><span class="mono">{{.ObservedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .ObservedAt}}</span></td></tr>
     {{end}}
-  </ul>
+    </tbody>
+  </table>
   {{else}}<p class="empty">Nothing detected yet</p>{{end}}
 </section>
-</div>
 
 <section class="card">
   <div class="card-head"><h2>Latest sessions</h2><a href="/sessions">All sessions →</a></div>

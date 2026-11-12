@@ -1,18 +1,18 @@
 {{define "sessiontable"}}
 {{if .}}
 <table>
-  <thead><tr><th>Session</th><th>Player</th><th>Trust</th><th>State</th><th>Started</th><th>Last heartbeat</th><th class="num">Heartbeats</th><th>Detections</th></tr></thead>
+  <thead><tr><th>Session</th><th class="c-player">Player</th><th>Trust</th><th>State</th><th>Started</th><th>Last heartbeat</th><th class="num">Heartbeats</th><th>Detections</th></tr></thead>
   <tbody>
   {{range .}}
   <tr>
     <td><a class="mono" href="/sessions/{{path .SessionID}}">{{short .SessionID}}</a></td>
-    <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
+    <td class="c-player"><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
     <td><span class="trust t{{.TrustLevel}}" title="{{trustDesc .TrustLevel}}">{{trust .TrustLevel}}</span></td>
     <td><span class="state st-{{.State}}">{{.State}}</span>{{if .KickReason}} <small class="muted">{{.KickReason}}</small>{{end}}</td>
-    <td title="{{when .CreatedAt}}">{{ago .CreatedAt}}</td>
-    <td title="{{when .LastHeartbeat}}">{{ago .LastHeartbeat}}</td>
+    <td class="when" title="{{when .CreatedAt}}"><span class="mono">{{.CreatedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .CreatedAt}}</span></td>
+    <td class="when" title="{{when .LastHeartbeat}}">{{if gt .LastHeartbeat.Unix 0}}<span class="mono">{{.LastHeartbeat.UTC.Format "15:04:05"}}</span> {{end}}<span class="muted">{{ago .LastHeartbeat}}</span></td>
     <td class="num">{{.Heartbeats}}</td>
-    <td>{{if .EvidenceCount}}<span class="sev sev-{{sev .MaxSeverity}}">{{.EvidenceCount}} · {{sev .MaxSeverity}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="det">{{if .EvidenceCount}}<span class="n mono">{{.EvidenceCount}}</span><span class="sev sev-{{sev .MaxSeverity}}">{{sev .MaxSeverity}}</span>{{else}}<span class="n mono muted">—</span>{{end}}</td>
   </tr>
   {{end}}
   </tbody>
@@ -33,7 +33,7 @@
     <td>{{.Source}}{{if .MatchID}} <span class="mono muted">{{short .MatchID}}</span>{{end}}</td>
     <td class="sum">{{.Summary}}</td>
     <td class="num">{{score .Score}}</td>
-    <td title="{{when .ObservedAt}}">{{ago .ObservedAt}}</td>
+    <td class="when" title="{{when .ObservedAt}}"><span class="mono">{{.ObservedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .ObservedAt}}</span></td>
   </tr>
   {{end}}
   </tbody>
@@ -59,13 +59,17 @@
       <td>{{if .Scored}}<span class="pill ok">scored</span>{{else if .Eligible}}<span class="pill">reported only</span>{{else}}<span class="pill">too few samples</span>{{end}}</td>
     </tr>{{end}}</tbody>
   </table>
+  <div class="leak-split">
   {{if .Moments}}
+  <div>
   <h3>Moments</h3>
   <ol class="moments">{{range .Moments}}
-    <li><span class="mono">{{.At}}</span> <span class="pill">{{.Kind}}</span> {{.Text}}</li>
+    <li><span class="at"><span class="mono">{{.At}}</span><span class="mono muted">{{.Kind}}</span></span>{{.Text}}</li>
   {{end}}</ol>
+  </div>
   {{end}}
   {{with .SVG}}
+  <div>
   <h3>Replay</h3>
   <svg class="replay" viewBox="-8 -8 {{add2 .W 16}} {{add2 .H 34}}" width="{{add2 .W 16}}" role="img" aria-label="Top-down replay of the first moment">
     <rect class="rp-floor" x="0" y="0" width="{{.W}}" height="{{.H}}"/>
@@ -79,8 +83,10 @@
     <text class="rp-label" x="{{add2 .ScaleBar 8}}" y="{{add2 .H 18}}">10 m</text>
   </svg>
   <p class="replay-key"><span><span class="key k-viewer"></span>flagged player</span><span><span class="key k-ray"></span>crosshair direction</span><span><span class="key k-target"></span>{{if .TargetIsItem}}unseen loot{{else}}hidden enemy (true position){{end}}</span><span><span class="key k-wall"></span>occluder</span></p>
+  {{with $.ReplayNote}}<p class="replay-note">{{.}}</p>{{end}}
+  </div>
   {{end}}
-  {{with .ReplayNote}}<p class="muted">{{.}}</p>{{end}}
+  </div>
   <details><summary>Knowledge model</summary><p class="muted">{{.Knowledge}}</p></details>
 </div>
 {{end}}

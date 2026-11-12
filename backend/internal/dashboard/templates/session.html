@@ -9,7 +9,7 @@
   <h2>Identity and trust</h2>
   <dl class="kv">
     <dt>Session id</dt><dd class="mono wrapall">{{$s.SessionID}}</dd>
-    <dt>Player</dt><dd><a class="mono" href="/players/{{path $s.PlayerHash}}">{{$s.PlayerHash}}</a></dd>
+    <dt>Player</dt><dd><a class="mono wrapall" href="/players/{{path $s.PlayerHash}}">{{$s.PlayerHash}}</a></dd>
     <dt>Device</dt><dd class="mono wrapall">{{$s.DeviceID}}</dd>
     <dt>Trust level</dt><dd><span class="trust t{{$s.TrustLevel}}">{{trust $s.TrustLevel}}</span> <small class="muted">{{trustDesc $s.TrustLevel}}</small></dd>
     <dt>Attestation</dt><dd>{{range flags $s.AttestFlags}}<span class="pill">{{.}}</span> {{else}}<span class="muted">none</span>{{end}}</dd>

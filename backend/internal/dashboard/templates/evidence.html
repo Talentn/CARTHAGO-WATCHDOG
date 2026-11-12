@@ -10,8 +10,8 @@
     <dt>Rule</dt><dd class="mono">{{$e.Rule}}</dd>
     <dt>Source</dt><dd>{{if eq $e.Source "client"}}client integrity scan{{else}}server-side gameplay analysis{{end}}</dd>
     <dt>Confidence</dt><dd class="mono">{{score $e.Score}}</dd>
-    <dt>Player</dt><dd><a class="mono" href="/players/{{path $e.PlayerHash}}">{{$e.PlayerHash}}</a></dd>
-    {{if $e.SessionID}}<dt>Session</dt><dd><a class="mono" href="/sessions/{{path $e.SessionID}}">{{$e.SessionID}}</a></dd>{{end}}
+    <dt>Player</dt><dd><a class="mono wrapall" href="/players/{{path $e.PlayerHash}}">{{$e.PlayerHash}}</a></dd>
+    {{if $e.SessionID}}<dt>Session</dt><dd><a class="mono wrapall" href="/sessions/{{path $e.SessionID}}">{{$e.SessionID}}</a></dd>{{end}}
     {{if $e.MatchID}}<dt>Match</dt><dd class="mono">{{$e.MatchID}}</dd>{{end}}
     <dt>Observed</dt><dd>{{when $e.ObservedAt}} <small class="muted">({{ago $e.ObservedAt}})</small></dd>
   </dl>
