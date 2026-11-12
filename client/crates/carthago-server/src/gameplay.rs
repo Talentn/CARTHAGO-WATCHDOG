@@ -340,19 +340,32 @@ impl GameplayStream {
     /// API key; `tls_pins` are the gateway's pinned TLS keys (required for `wss://`, empty for
     /// `ws://` on loopback).
     pub fn start(url: &str, server_key: &str, tls_pins: &[Pin]) -> (Self, Receiver<IngestEvent>) {
+        let (url, key, pins) = (url.to_owned(), server_key.to_owned(), tls_pins.to_vec());
+        Self::start_with(move |rx, ev_tx| {
+            std::thread::Builder::new().name("carthago-gs-ingest".into()).spawn(move || run(&url, &key, &pins, rx, ev_tx))
+        })
+    }
+
+    /// A stream whose thread could not be started (the process is out of threads or memory)
+    /// reports [`IngestEvent::Disconnected`] once and hands every batch back from
+    /// [`GameplayStream::send`]; it does not take the game server down.
+    fn start_with(
+        spawn: impl FnOnce(Receiver<pb::GameplayBatch>, Sender<IngestEvent>) -> std::io::Result<JoinHandle<()>>,
+    ) -> (Self, Receiver<IngestEvent>) {
         let (tx, rx) = sync_channel(QUEUE);
         let (ev_tx, ev_rx) = channel();
-        let (url, key, pins) = (url.to_owned(), server_key.to_owned(), tls_pins.to_vec());
-        let thread = std::thread::Builder::new()
-            .name("carthago-gs-ingest".into())
-            .spawn(move || run(&url, &key, &pins, rx, ev_tx))
-            .expect("spawn gameplay stream");
-        (Self { tx: Some(tx), thread: Some(thread) }, ev_rx)
+        match spawn(rx, ev_tx.clone()) {
+            Ok(thread) => (Self { tx: Some(tx), thread: Some(thread) }, ev_rx),
+            Err(e) => {
+                let _ = ev_tx.send(IngestEvent::Disconnected(format!("gameplay stream thread not started: {e}")));
+                (Self { tx: None, thread: None }, ev_rx)
+            }
+        }
     }
 
     /// Queues a batch. Never blocks; a full queue returns the batch to the caller.
     pub fn send(&self, batch: pb::GameplayBatch) -> Result<(), Box<pb::GameplayBatch>> {
-        let tx = self.tx.as_ref().expect("sender lives until drop");
+        let Some(tx) = &self.tx else { return Err(Box::new(batch)) };
         tx.try_send(batch).map_err(|e| match e {
             TrySendError::Full(b) | TrySendError::Disconnected(b) => Box::new(b),
         })
@@ -478,6 +491,20 @@ fn run(url: &str, key: &str, pins: &[Pin], rx: Receiver<pb::GameplayBatch>, ev: 
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn a_stream_that_cannot_start_reports_it_and_returns_batches() {
+        let (stream, events) = GameplayStream::start_with(|_, _| Err(std::io::Error::other("no threads left")));
+        match events.try_recv() {
+            Ok(IngestEvent::Disconnected(why)) => assert!(why.contains("no threads left"), "{why}"),
+            other => panic!("expected a Disconnected event, got {other:?}"),
+        }
+        let batch = pb::GameplayBatch { match_id: "m".into(), batch_seq: 1, ..Default::default() };
+        let back = stream.send(batch.clone()).expect_err("nothing can deliver the batch");
+        assert_eq!(*back, batch);
+        drop(stream);
+        assert!(events.try_recv().is_err());
+    }
 
     #[test]
     fn recorder_packs_tracks_windows_and_players() {
