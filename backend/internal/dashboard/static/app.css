@@ -97,7 +97,7 @@ td.num, th.num { text-align: right; }
 td.num { font-family: var(--mono); font-size: 13px; }
 td.sum { max-width: 560px; }
 /* Clock time first, in mono so a column of times lines up; how long ago after it. */
-td.when { white-space: nowrap; }
+td.when, td a.mono { white-space: nowrap; }
 td.when .muted { margin-left: 4px; }
 td.det .n { display: inline-block; min-width: 3ch; margin-right: 8px; text-align: right; }
 /* A player's own page does not need the player column in its session table. */
@@ -122,7 +122,7 @@ table.compact td { padding: 6px 12px; }
 .bad { color: var(--act); font-weight: 500; }
 
 /* Tags label a thing (a boot flag, a mitigation, a segment); they are not statuses. */
-.tag { display: inline-block; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 12px; line-height: 18px; color: var(--text-2); white-space: nowrap; }
+.tag { display: inline-block; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 12px; line-height: 16px; color: var(--text-2); white-space: nowrap; }
 .tag.bad { border-color: var(--act-line); color: var(--act); font-weight: 400; }
 .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 
