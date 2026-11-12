@@ -23,7 +23,7 @@ for the missing kernel access in four ways:
 ![Carthago Watchdog studio dashboard](docs/images/dashboard-overview.png)
 
 <sub>The studio dashboard with synthetic demo traffic: live sessions by trust level, flagged
-players ranked by risk, and the evidence behind each detection.</sub>
+players ranked by risk, and the latest detections with the finding behind each one.</sub>
 
 ---
 
