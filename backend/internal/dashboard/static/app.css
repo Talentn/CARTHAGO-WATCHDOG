@@ -21,7 +21,7 @@
   --accent: #f5b14c; --accent-hi: #f8c373; --on-accent: #1a1205;
   --act: #ec5d5e; --act-line: rgb(236 93 94 / 0.45);
   --verified: #4cc38a; --attested: #2e8f66; --claimed: #7d8595; --unverified: #4c525f;
-  --wall: #2a2f3a;
+  --wall: #343a47;
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: dark;
@@ -133,14 +133,23 @@ table.compact td { padding: 6px 12px; }
 .trust.t2 { --pip-1: var(--text-2); --pip-2: var(--text-2); }
 .trust.t3 { --pip-1: var(--text-2); --pip-2: var(--text-2); --pip-3: var(--text-2); }
 
-.trustbar { width: 100%; height: 16px; border-radius: 8px; background: var(--raised); display: block; overflow: hidden; }
-/* One ramp, grey for software-only trust to green for hardware-attested. */
-rect.t0, .legend i.t0 { fill: var(--unverified); background: var(--unverified); }
-rect.t1, .legend i.t1 { fill: var(--claimed); background: var(--claimed); }
-rect.t2, .legend i.t2 { fill: var(--attested); background: var(--attested); }
-rect.t3, .legend i.t3 { fill: var(--verified); background: var(--verified); }
-.legend { list-style: none; padding: 0; margin: 12px 0 0; display: flex; gap: 8px 24px; flex-wrap: wrap; }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; }
+/* Trust chart: a ladder from software-only trust in grey to hardware-attested in green. The
+   segments are stroked in the card colour, which leaves a gap between them, so they read
+   apart without colour vision. The key under the bar repeats each level's colour as a rule
+   above its name, pips, count and meaning. */
+.trustbar { display: block; width: 100%; height: 24px; border-radius: 4px; background: var(--raised); }
+.trustbar rect { stroke: var(--card); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.trustbar .t0 { fill: var(--unverified); }
+.trustbar .t1 { fill: var(--claimed); }
+.trustbar .t2 { fill: var(--attested); }
+.trustbar .t3 { fill: var(--verified); }
+.ladder { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 24px; }
+.ladder li { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 2px solid var(--unverified); }
+.ladder li.t1 { border-color: var(--claimed); }
+.ladder li.t2 { border-color: var(--attested); }
+.ladder li.t3 { border-color: var(--verified); }
+.ladder b { font: 400 20px/28px var(--mono); margin-right: 4px; }
+.ladder small { line-height: 16px; }
 
 dl.kv { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; margin: 0; }
 dl.kv dt { color: var(--muted); }
@@ -185,21 +194,22 @@ button.primary:active { transform: scale(0.98); }
 .replay { display: block; max-width: 100%; height: auto; background: var(--inset); border: 1px solid var(--line); border-radius: 8px; }
 .rp-floor { fill: var(--page); }
 .rp-wall { fill: var(--wall); stroke: var(--line-2); stroke-width: 1; }
-.rp-ray { stroke: var(--accent); stroke-width: 1.2; stroke-opacity: .55; }
-.rp-viewer { fill: none; stroke: var(--text); stroke-width: 2.5; stroke-linejoin: round; }
+.rp-ray { stroke: var(--accent); stroke-width: 1; stroke-opacity: 0.5; }
+.rp-viewer { fill: none; stroke: var(--text); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .rp-viewer-dot { fill: var(--text); }
 .rp-start { fill: var(--page); stroke: var(--text); stroke-width: 1.5; }
-.rp-target { fill: none; stroke: var(--act); stroke-width: 2.5; stroke-dasharray: 5 3; }
+.rp-target { fill: none; stroke: var(--act); stroke-width: 2; stroke-dasharray: 5 3; }
 .rp-target-dot, .rp-item { fill: var(--act); }
-.rp-scale { stroke: var(--muted); stroke-width: 2; }
+.rp-scale { stroke: var(--muted); stroke-width: 1; }
 .rp-label { fill: var(--muted); font: 400 12px var(--mono); }
 /* The replay key has its own class: sharing .legend with the trust bar made it a flex row and
    pushed every swatch away from its label. */
 .replay-key { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 12px; line-height: 16px; margin: 8px 0; }
-.key { display: inline-block; width: 16px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 8px; }
+/* Each swatch in the key is drawn like its line in the replay: solid, thin, dashed, filled. */
+.key { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 8px; }
 .k-viewer { background: var(--text); }
 .k-ray { background: var(--accent); }
-.k-target { background: var(--act); }
+.k-target { background: linear-gradient(90deg, var(--act) 0 5px, transparent 5px 8px, var(--act) 8px 13px, transparent 13px 16px); }
 .k-wall { background: var(--wall); box-shadow: 0 0 0 1px var(--line-2); width: 8px; height: 8px; }
 details { margin-top: 16px; }
 summary { width: max-content; cursor: pointer; font-size: 13px; color: var(--text-2); }
@@ -218,6 +228,7 @@ details p { margin: 0; max-width: 88ch; }
   .kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
   .kpi:last-child:nth-child(odd) { grid-column: span 2; }
   .grid2, .leak-split { grid-template-columns: minmax(0, 1fr); }
+  .ladder { grid-template-columns: 1fr 1fr; }
   dl.kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
   dl.kv dd { margin-bottom: 8px; }
 }

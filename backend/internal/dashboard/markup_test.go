@@ -123,3 +123,33 @@ func TestStatusMarkup(t *testing.T) {
 		}
 	}
 }
+
+// The trust chart's key explains each level in the words trustDesc uses on every other page.
+func TestTrustChartKey(t *testing.T) {
+	f := newFixture(t)
+	c := f.login(t, "demo", "demo-key")
+	home := f.do("GET", "/", c, nil, nil).Body.String()
+	for l := uint32(0); l < 4; l++ {
+		want := `<span class="trust t` + string(rune('0'+l)) + `">` + trustName(l) + `</span>`
+		i := strings.Index(home, want)
+		if i < 0 {
+			t.Fatalf("trust chart key lacks level %d: %s", l, want)
+		}
+		item := home[i:]
+		item = item[:strings.Index(item, "</li>")]
+		if !strings.Contains(item, `<small class="muted">`+trustDesc(l)+`</small>`) {
+			t.Errorf("level %d is described differently from trustDesc: %s", l, item)
+		}
+	}
+	// Two demo sessions: alice at Ranked boot, bob on a software key.
+	for _, want := range []string{
+		`1 of 2 sessions hardware-attested`,
+		`<rect class="t0" x="0" y="0" width="50" height="6">`,
+		`<rect class="t3" x="50" y="0" width="50" height="6">`,
+		`<li class="t3"><span class="trust t3">Ranked boot</span><span><b>1</b> <span class="muted">50%</span></span>`,
+	} {
+		if !strings.Contains(home, want) {
+			t.Errorf("trust chart lacks %s", want)
+		}
+	}
+}
