@@ -200,6 +200,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "carthago-cs16-bridge"
+version = "0.0.1"
+dependencies = [
+ "carthago-cs16-companion",
+ "carthago-server",
+]
+
+[[package]]
 name = "carthago-cs16-companion"
 version = "0.0.1"
 dependencies = [

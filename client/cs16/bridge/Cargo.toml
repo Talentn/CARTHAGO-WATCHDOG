@@ -1,0 +1,11 @@
+[package]
+name = "carthago-cs16-bridge"
+description = "Telemetry bridge for Counter-Strike 1.6: the server plugin's loopback stream to GameplayBatch v1 and v2"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+carthago-server = { path = "../../crates/carthago-server" }
+carthago-cs16-companion = { path = "../companion" }
