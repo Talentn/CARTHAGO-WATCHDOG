@@ -57,7 +57,10 @@ pub struct JobStats {
     /// Steps that exceeded the declared `max_step` (with grace) or the slice hard cap.
     pub overruns: u64,
     pub strikes: u32,
+    /// Set after `quarantine_strikes` overruns or a panic; the job never runs again.
     pub quarantined: bool,
+    /// Panics caught in `begin()` or `step()` (the job is quarantined at the first).
+    pub panics: u64,
     /// Times this job was due but held back by its own share bucket.
     pub share_throttled: u64,
     pub steps: u64,

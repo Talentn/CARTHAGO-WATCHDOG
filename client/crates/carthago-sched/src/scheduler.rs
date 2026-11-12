@@ -1,8 +1,9 @@
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering::Relaxed};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -79,6 +80,14 @@ struct Shared {
     /// Incremented at slice start and end: odd = a slice is running.
     slice_seq: AtomicU64,
     stats: Mutex<SchedStats>,
+}
+
+impl Shared {
+    /// The statistics are plain counters, valid whatever happened to the thread that last
+    /// held the lock, so a poisoned lock is not a reason to panic on the game's thread.
+    fn stats(&self) -> MutexGuard<'_, SchedStats> {
+        self.stats.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 /// Handle owned by the game thread. `tick()` is the only per-frame call.
@@ -183,7 +192,7 @@ impl Scheduler {
     }
 
     pub fn stats(&self) -> SchedStats {
-        let mut s = self.shared.stats.lock().unwrap().clone();
+        let mut s = self.shared.stats().clone();
         s.findings_dropped = self.shared.dropped.load(Relaxed);
         s
     }
@@ -238,6 +247,7 @@ enum SliceEnd {
     Done,
     RunBudget,
     Overrun,
+    Panicked,
 }
 
 fn rand_below(state: &mut u64, n: u64) -> u64 {
@@ -273,7 +283,7 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
     let cpn = clock::cycles_per_ns();
     let mut now = clock::now_ns();
     {
-        let mut st = sh.stats.lock().unwrap();
+        let mut st = sh.stats();
         st.cycles_per_ns = cpn;
         st.worker_init_ns = now - t0;
         st.worker_init_cpu_ns = cycles_to_ns(thread_cycles());
@@ -313,7 +323,7 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
             break;
         }
         now = clock::now_ns();
-        sh.stats.lock().unwrap().worker_cpu_ns = cycles_to_ns(thread_cycles());
+        sh.stats().worker_cpu_ns = cycles_to_ns(thread_cycles());
 
         let a = Activity::from_u8(sh.activity.load(Relaxed));
         if a != activity {
@@ -333,7 +343,7 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
 
         let hitch_until = sh.hitch_until_ns.load(Relaxed);
         if now < hitch_until && !global.is_full() {
-            sh.stats.lock().unwrap().hitch_deferrals += 1;
+            sh.stats().hitch_deferrals += 1;
             park_ns((hitch_until - now).min(idle_max_ns));
             continue;
         }
@@ -351,7 +361,7 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
             if s.bucket.tokens() < min_slice {
                 if !s.throttle_noted {
                     s.throttle_noted = true;
-                    sh.stats.lock().unwrap().jobs[i].share_throttled += 1;
+                    sh.stats().jobs[i].share_throttled += 1;
                 }
                 wake = wake.min(now + s.bucket.ns_until(min_slice));
                 continue;
@@ -366,12 +376,12 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
         }
 
         let Some((i, _, _)) = pick else {
-            sh.stats.lock().unwrap().wakeups += 1;
+            sh.stats().wakeups += 1;
             park_ns(wake.saturating_sub(now));
             continue;
         };
         if global.tokens() < min_slice {
-            let mut st = sh.stats.lock().unwrap();
+            let mut st = sh.stats();
             st.global_throttled += 1;
             st.wakeups += 1;
             drop(st);
@@ -390,20 +400,27 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
         sh.slice_seq.fetch_add(1, Relaxed);
         let w0 = clock::now_ns();
         let c0 = thread_cycles();
-        if !s.in_run {
-            s.job.begin();
-            s.in_run = true;
-            s.run_cpu_ns = 0;
-            s.run_start_ns = w0;
-        }
         let mut c_prev = c0;
         let mut steps = 0u64;
         let mut max_step_seen = 0u64;
         let mut end = SliceEnd::Yield;
-        loop {
-            let r = s.job.step(&ctx);
+        // A panic in one job must not end the worker thread and with it every other scan:
+        // the job is quarantined and the others keep running.
+        if !s.in_run {
+            if catch_unwind(AssertUnwindSafe(|| s.job.begin())).is_err() {
+                end = SliceEnd::Panicked;
+            }
+            s.in_run = true;
+            s.run_cpu_ns = 0;
+            s.run_start_ns = w0;
+        }
+        while !matches!(end, SliceEnd::Panicked) {
+            let Ok(r) = catch_unwind(AssertUnwindSafe(|| s.job.step(&ctx))) else {
+                end = SliceEnd::Panicked;
+                break;
+            };
             let c = thread_cycles();
-            let step_ns = cycles_to_ns(c - c_prev);
+            let step_ns = cycles_to_ns(c.saturating_sub(c_prev));
             c_prev = c;
             steps += 1;
             max_step_seen = max_step_seen.max(step_ns);
@@ -415,26 +432,26 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
                 end = SliceEnd::Done;
                 break;
             }
-            let slice_cpu = cycles_to_ns(c - c0);
+            let slice_cpu = cycles_to_ns(c.saturating_sub(c0));
             if s.run_cpu_ns + slice_cpu > max_run_ns {
                 end = SliceEnd::RunBudget;
                 break;
             }
             if slice_cpu + max_step_ns > slice_budget_ns
-                || (clock::now_ns() - w0) + max_step_ns > slice_target_ns
+                || clock::now_ns().saturating_sub(w0) + max_step_ns > slice_target_ns
                 || sh.stop.load(Relaxed)
             {
                 break;
             }
         }
-        let slice_cpu = cycles_to_ns(thread_cycles() - c0);
-        let w1 = clock::now_ns();
+        let slice_cpu = cycles_to_ns(thread_cycles().saturating_sub(c0));
+        let w1 = clock::now_ns().max(w0);
         sh.slice_seq.fetch_add(1, Relaxed);
         global.charge(slice_cpu);
         s.bucket.charge(slice_cpu);
         s.run_cpu_ns += slice_cpu;
 
-        let mut st = sh.stats.lock().unwrap();
+        let mut st = sh.stats();
         st.slices += 1;
         st.slice_cpu.record(slice_cpu);
         st.slice_wall.record(w1 - w0);
@@ -452,7 +469,7 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
                 s.strikes = s.strikes.saturating_sub(1);
                 js.runs_completed += 1;
                 js.last_pass_cpu_ns = s.run_cpu_ns;
-                js.last_pass_wall_ns = w1 - s.run_start_ns;
+                js.last_pass_wall_ns = w1.saturating_sub(s.run_start_ns);
                 s.next_due_ns = w1 + jittered(period, &mut rng);
             }
             SliceEnd::RunBudget => {
@@ -471,9 +488,14 @@ fn worker_main(cfg: Config, jobs: Vec<Box<dyn Job>>, sh: Arc<Shared>, tx: SyncSe
                     s.next_due_ns = w1 + backoff.as_nanos() as u64;
                 }
             }
+            SliceEnd::Panicked => {
+                s.in_run = false;
+                s.quarantined = true;
+                js.panics += 1;
+            }
         }
         js.strikes = s.strikes;
         js.quarantined = s.quarantined;
     }
-    sh.stats.lock().unwrap().worker_cpu_ns = cycles_to_ns(thread_cycles());
+    sh.stats().worker_cpu_ns = cycles_to_ns(thread_cycles());
 }

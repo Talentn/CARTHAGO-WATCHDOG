@@ -76,3 +76,72 @@ fn greedy_job_is_held_to_global_budget() {
     assert!((st.charged_cpu_ns as f64) >= wall * 0.02 * 0.7, "under-used: {}", st.charged_cpu_ns);
     assert!(st.slice_cpu.max_ns < 3_000_000);
 }
+
+struct Panics {
+    steps: u32,
+    in_begin: bool,
+}
+
+impl Job for Panics {
+    fn name(&self) -> &'static str {
+        "panics"
+    }
+    fn budget(&self) -> JobBudget {
+        JobBudget {
+            period_gameplay: Some(Duration::from_millis(5)),
+            period_idle: None,
+            max_step: Duration::from_micros(200),
+            max_cpu_per_run: Duration::from_millis(50),
+            share: 0.5,
+            priority: 9,
+        }
+    }
+    fn begin(&mut self) {
+        assert!(!self.in_begin, "synthetic panic in begin()");
+    }
+    fn step(&mut self, _: &Ctx<'_>) -> Step {
+        self.steps += 1;
+        assert!(self.steps < 2, "synthetic panic in step()");
+        Step::Continue
+    }
+}
+
+struct Quick;
+
+impl Job for Quick {
+    fn name(&self) -> &'static str {
+        "quick"
+    }
+    fn budget(&self) -> JobBudget {
+        JobBudget {
+            period_gameplay: Some(Duration::from_millis(5)),
+            period_idle: None,
+            max_step: Duration::from_micros(200),
+            max_cpu_per_run: Duration::from_millis(50),
+            share: 0.5,
+            priority: 0,
+        }
+    }
+    fn begin(&mut self) {}
+    fn step(&mut self, _: &Ctx<'_>) -> Step {
+        Step::Done
+    }
+}
+
+/// A scan job that panics is quarantined; the worker thread and the other jobs carry on, and
+/// the game thread can still read the statistics.
+#[test]
+fn panicking_job_is_quarantined_and_the_rest_keep_running() {
+    for in_begin in [false, true] {
+        let s = Scheduler::start(cfg(0.5), vec![Box::new(Panics { steps: 0, in_begin }), Box::new(Quick)]).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let mid = s.stats();
+        std::thread::sleep(Duration::from_millis(300));
+        let st = s.stop();
+        let (bad, good) = (&st.jobs[0], &st.jobs[1]);
+        assert!(bad.quarantined && bad.panics == 1, "in_begin={in_begin}: {bad:?}");
+        assert_eq!(bad.runs_completed, 0);
+        assert!(good.runs_completed > mid.jobs[1].runs_completed && mid.jobs[1].runs_completed > 0, "other job stopped after the panic: {good:?}");
+        assert!(!good.quarantined);
+    }
+}
