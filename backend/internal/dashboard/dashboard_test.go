@@ -97,8 +97,13 @@ func TestRequiresLogin(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Carthago <b>Watchdog</b>") {
 		t.Fatalf("login page: %d", w.Code)
 	}
-	if csp := w.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'none'") || strings.Contains(csp, "unsafe") {
+	csp := w.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "default-src 'none'") || strings.Contains(csp, "unsafe") {
 		t.Fatalf("CSP: %q", csp)
+	}
+	// Fonts are self-hosted: allowed from the dashboard's own origin and nowhere else.
+	if !strings.Contains(csp, "font-src 'self';") || strings.Contains(csp, "http") || strings.Contains(csp, "data:") || strings.Contains(csp, "*") {
+		t.Fatalf("CSP font policy: %q", csp)
 	}
 	if w.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatal("framing allowed")
@@ -202,5 +207,27 @@ func TestStaticAssets(t *testing.T) {
 		if w := f.do("GET", p, nil, nil, nil); w.Code != 200 || w.Body.Len() == 0 {
 			t.Errorf("%s: %d", p, w.Code)
 		}
+	}
+	// The fonts ship with the dashboard, each next to its licence text.
+	css := f.do("GET", "/static/app.css", nil, nil, nil).Body.String()
+	for _, font := range []string{"inter", "jetbrains-mono"} {
+		file := "fonts/" + font + "-latin.woff2"
+		if !strings.Contains(css, `url("`+file+`")`) {
+			t.Errorf("app.css does not load %s", file)
+		}
+		w := f.do("GET", "/static/"+file, nil, nil, nil)
+		if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "wOF2") || w.Header().Get("Content-Type") != "font/woff2" {
+			t.Errorf("%s: %d %q", file, w.Code, w.Header().Get("Content-Type"))
+		}
+		if w.Body.Len() > 32<<10 {
+			t.Errorf("%s is %d bytes; keep the subset small", file, w.Body.Len())
+		}
+		lic := f.do("GET", "/static/fonts/"+font+"-LICENSE.txt", nil, nil, nil)
+		if lic.Code != 200 || !strings.Contains(lic.Body.String(), "SIL OPEN FONT LICENSE Version 1.1") {
+			t.Errorf("%s licence text: %d", font, lic.Code)
+		}
+	}
+	if strings.Contains(css, "http:") || strings.Contains(css, "https:") || strings.Contains(css, "@import") {
+		t.Error("app.css loads something from another origin")
 	}
 }

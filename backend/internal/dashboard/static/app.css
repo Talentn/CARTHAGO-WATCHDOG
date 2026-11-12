@@ -1,3 +1,8 @@
+/* The two fonts ship with the dashboard (fonts/, SIL OFL 1.1), so every PC renders the same
+   text; the CSP allows fonts from this origin only. */
+@font-face { font-family: "Inter"; src: url("fonts/inter-latin.woff2") format("woff2"); font-weight: 400 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/jetbrains-mono-latin.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+
 :root {
   --bg: #0e1015; --panel: #161920; --panel2: #1c2029; --line: #272c37; --text: #e6e8ee; --muted: #8b93a5;
   --accent: #f5b14c; --accent2: #c2410c; --ok: #34d399; --warn: #fbbf24; --bad: #f87171; --crit: #e11d48; --info: #60a5fa;

@@ -105,7 +105,7 @@ players by verifying their token offline and removes them when the gateway sends
 | `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
 | `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
 | `sdk/native/sample` | Minimal C++ game using the SDK (CMake) |
-| `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh` |
+| `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh`, `carthago-subset-fonts.sh` |
 
 ---
 
@@ -287,7 +287,9 @@ observer that can be lied to, never as an authority.
   to sessions of the same tenant.
 - Dashboard logins are per tenant. The tenant comes from an HMAC-signed, `HttpOnly`,
   `SameSite=Strict` cookie, and every query is scoped to it.
-- The dashboard has no JavaScript and sends a strict `Content-Security-Policy`.
+- The dashboard has no JavaScript and sends a strict `Content-Security-Policy`; its
+  stylesheet, logo and fonts are served from the dashboard itself and nothing is loaded
+  from another host.
 - Failed logins are throttled per client IP.
 
 **What user mode can't see, and the answer.** Kernel, DMA and hardware cheats can hide from
@@ -360,3 +362,15 @@ Phases are defined by scope and exit criteria, not dates.
   every cryptographic check passed; evidence lands in `attest-out\` and `attest-reports\`.
 - **Windows build output:** builds put cargo output in `$env:CARGO_TARGET_DIR`. The
   PowerShell scripts default it to a scratch directory.
+- **Dashboard fonts:** `tools/carthago-subset-fonts.sh` rebuilds the two font files in
+  `backend/internal/dashboard/static/fonts` from the pinned upstream releases (needs
+  `fonttools` and `brotli`).
+
+---
+
+## Third-party licences
+
+- **Inter** 4.1, © 2016 The Inter Project Authors, and **JetBrains Mono** 2.304, © 2020 The
+  JetBrains Mono Project Authors: both under the SIL Open Font License 1.1. The dashboard
+  embeds Latin subsets of each as WOFF2 (23.5 KB and 15.1 KB); the licence texts ship beside
+  the files in `backend/internal/dashboard/static/fonts`.
