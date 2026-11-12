@@ -1,5 +1,6 @@
 //! Client side of the Hello/Challenge/Prove handshake and the sealed session channel.
 
+use std::net::TcpStream;
 use std::time::Duration;
 
 use carthago_net::{Pin, Stream};
@@ -55,8 +56,8 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-fn connect(url: &str, pins: &[Pin]) -> Result<WebSocket<Stream>, SessionError> {
-    carthago_net::connect(url, pins, Duration::from_secs(5)).map_err(|e| SessionError::Connect(e.to_string()))
+fn connect(url: &str, pins: &[Pin], on_tcp: &dyn Fn(&TcpStream)) -> Result<WebSocket<Stream>, SessionError> {
+    carthago_net::connect_observed(url, pins, Duration::from_secs(5), on_tcp).map_err(|e| SessionError::Connect(e.to_string()))
 }
 
 fn read_binary(ws: &mut WebSocket<Stream>) -> Result<Vec<u8>, SessionError> {
@@ -94,9 +95,11 @@ pub fn send_heartbeat(ws: &mut WebSocket<Stream>, chan: &mut Channel, hb: pb::He
     send_sealed(ws, chan, pb::ClientMsg { body: Some(pb::client_msg::Body::Heartbeat(hb)), ..Default::default() })
 }
 
-pub fn handshake(p: &Params, device: &DeviceIdentity, log: &dyn Fn(u8, &str)) -> Result<Established, SessionError> {
+/// `on_tcp` receives the connection's socket before any byte is exchanged, so the caller can
+/// shut it down from another thread to end a handshake that is waiting on the gateway.
+pub fn handshake(p: &Params, device: &DeviceIdentity, log: &dyn Fn(u8, &str), on_tcp: &dyn Fn(&TcpStream)) -> Result<Established, SessionError> {
     let t0 = std::time::Instant::now();
-    let mut ws = connect(&p.gateway_url, &p.tls_pins)?;
+    let mut ws = connect(&p.gateway_url, &p.tls_pins, on_tcp)?;
 
     let mut eph = [0u8; 32];
     crate::device::getrandom(&mut eph).map_err(SessionError::Device)?;

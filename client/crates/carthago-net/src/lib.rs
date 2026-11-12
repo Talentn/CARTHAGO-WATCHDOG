@@ -198,6 +198,18 @@ fn plaintext_targets(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
 /// Opens a WebSocket to the gateway. `wss://` performs a pinned TLS 1.3 handshake before
 /// any HTTP is sent; `ws://` is refused unless the host is loopback.
 pub fn connect<R: IntoClientRequest>(request: R, pins: &[Pin], connect_timeout: Duration) -> Result<WebSocket<Stream>, NetError> {
+    connect_observed(request, pins, connect_timeout, &|_| {})
+}
+
+/// [`connect`], handing the TCP socket to `on_tcp` before the first byte is exchanged. The
+/// TLS and WebSocket handshakes block for up to the 30 s socket timeout each; a caller that
+/// keeps a clone of the socket can shut it down from another thread to end them at once.
+pub fn connect_observed<R: IntoClientRequest>(
+    request: R,
+    pins: &[Pin],
+    connect_timeout: Duration,
+    on_tcp: &dyn Fn(&TcpStream),
+) -> Result<WebSocket<Stream>, NetError> {
     let req = request.into_client_request().map_err(|e| NetError::Url(e.to_string()))?;
     let uri = req.uri().clone();
     let host = uri.host().ok_or_else(|| NetError::Url("URL has no host".into()))?.to_owned();
@@ -232,6 +244,7 @@ pub fn connect<R: IntoClientRequest>(request: R, pins: &[Pin], connect_timeout: 
     tcp.set_nodelay(true).ok();
     tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
     tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
+    on_tcp(&tcp);
 
     let stream = match config {
         None => Stream::Plain(tcp),

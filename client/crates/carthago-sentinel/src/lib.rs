@@ -288,9 +288,9 @@ pub extern "C" fn carthago_set_kick_callback(cb: Option<CarthagoKickCb>, user: *
         let Some(rt) = runtime() else { return };
         let user = UserPtr(user);
         rt.set_kick_callback(cb.map(|f| {
-            Box::new(move |reason: &str| {
+            Arc::new(move |reason: &str| {
                 let user = user;
-                if let Ok(c) = CString::new(reason) {
+                if let Ok(c) = CString::new(reason.replace('\0', " ")) {
                     unsafe { f(c.as_ptr(), user.0) };
                 }
             }) as carthago_core::KickFn

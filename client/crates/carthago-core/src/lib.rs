@@ -5,9 +5,11 @@
 pub mod device;
 pub mod session;
 
+use std::net::{Shutdown, TcpStream};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::Relaxed};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -61,10 +63,44 @@ pub struct SessionReady {
 }
 
 pub type ReadyFn = Box<dyn FnOnce(Result<SessionReady, String>) + Send>;
-pub type KickFn = Box<dyn Fn(&str) + Send>;
+pub type KickFn = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Everything behind these locks stays valid if a thread panicked while holding one, so a
+/// poisoned lock is taken over instead of spreading the panic to the game's threads.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `None` only while another thread holds the lock.
+fn try_lock<T>(m: &Mutex<T>) -> Option<MutexGuard<'_, T>> {
+    match m.try_lock() {
+        Ok(g) => Some(g),
+        Err(TryLockError::Poisoned(e)) => Some(e.into_inner()),
+        Err(TryLockError::WouldBlock) => None,
+    }
+}
+
+/// The session callback, called exactly once: with the outcome, or with an error if the
+/// request is dropped unanswered (shutdown, or a panic on the SDK thread), so the game is
+/// never left waiting for it.
+struct Ready(Option<ReadyFn>);
+
+impl Ready {
+    fn call(&mut self, r: Result<SessionReady, String>) {
+        if let Some(f) = self.0.take() {
+            f(r);
+        }
+    }
+}
+
+impl Drop for Ready {
+    fn drop(&mut self) {
+        self.call(Err("session request abandoned".into()));
+    }
+}
 
 enum Cmd {
-    Begin { player_id_hash: String, on_ready: ReadyFn },
+    Begin { player_id_hash: String, on_ready: Ready },
 }
 
 struct Inner {
@@ -83,6 +119,8 @@ struct Inner {
     stop: AtomicBool,
     activity: AtomicU8,
     kick_cb: Mutex<Option<KickFn>>,
+    /// The socket of the session in progress; shutdown closes it to end a blocked read.
+    conn: Mutex<Option<TcpStream>>,
     /// Findings produced outside the scheduler (mitigation outcome), sent with the next heartbeat.
     startup_findings: Mutex<Vec<pb::Finding>>,
     #[cfg(windows)]
@@ -140,6 +178,7 @@ impl Runtime {
             stop: AtomicBool::new(false),
             activity: AtomicU8::new(Activity::Menu as u8),
             kick_cb: Mutex::new(None),
+            conn: Mutex::new(None),
             startup_findings: Mutex::new(Vec::new()),
             #[cfg(windows)]
             input: Mutex::new(None),
@@ -151,8 +190,16 @@ impl Runtime {
     }
 
     pub fn begin_session(&self, player_id_hash: String, on_ready: ReadyFn) -> bool {
-        match self.cmd.lock().unwrap().as_ref() {
-            Some(tx) => tx.send(Cmd::Begin { player_id_hash, on_ready }).is_ok(),
+        match lock(&self.cmd).as_ref() {
+            Some(tx) => match tx.send(Cmd::Begin { player_id_hash, on_ready: Ready(Some(on_ready)) }) {
+                Ok(()) => true,
+                // Not accepted: the caller learns it from the return value, not the callback.
+                Err(e) => {
+                    let Cmd::Begin { mut on_ready, .. } = e.0;
+                    on_ready.0.take();
+                    false
+                }
+            },
             None => false,
         }
     }
@@ -162,7 +209,7 @@ impl Runtime {
     #[inline]
     pub fn tick(&self) {
         self.inner.frames.fetch_add(1, Relaxed);
-        if let Ok(mut g) = self.inner.sched.try_lock() {
+        if let Some(mut g) = try_lock(&self.inner.sched) {
             if let Some(s) = g.as_mut() {
                 s.tick();
             }
@@ -171,26 +218,26 @@ impl Runtime {
 
     pub fn set_activity(&self, a: Activity) {
         self.inner.activity.store(a as u8, Relaxed);
-        if let Some(s) = self.inner.sched.lock().unwrap().as_ref() {
+        if let Some(s) = lock(&self.inner.sched).as_ref() {
             s.set_activity(a);
         }
     }
 
     pub fn token(&self) -> Option<String> {
-        let t = self.inner.token.lock().unwrap();
+        let t = lock(&self.inner.token);
         (!t.is_empty()).then(|| t.clone())
     }
 
     pub fn status(&self) -> Status {
         let i = &self.inner;
-        let (cpu, slices) = i.sched.try_lock().ok().and_then(|g| g.as_ref().map(|s| s.stats())).map_or((0, 0), |s| (s.worker_cpu_ns, s.slices));
+        let (cpu, slices) = try_lock(&i.sched).and_then(|g| g.as_ref().map(|s| s.stats())).map_or((0, 0), |s| (s.worker_cpu_ns, s.slices));
         Status {
             state: i.state.load(Relaxed),
             trust_level: i.trust_level.load(Relaxed),
             attest_flags: i.attest_flags.load(Relaxed),
             heartbeats_sent: i.heartbeats_sent.load(Relaxed),
             heartbeats_acked: i.heartbeats_acked.load(Relaxed),
-            last_ack_age_ms: i.last_ack.lock().unwrap().map_or(u64::MAX, |t| t.elapsed().as_millis() as u64),
+            last_ack_age_ms: lock(&i.last_ack).map_or(u64::MAX, |t| t.elapsed().as_millis() as u64),
             sched_worker_cpu_ns: cpu,
             sched_slices: slices,
             frames: i.frames.load(Relaxed),
@@ -208,21 +255,36 @@ impl Runtime {
     }
 
     pub fn set_kick_callback(&self, cb: Option<KickFn>) {
-        *self.inner.kick_cb.lock().unwrap() = cb;
+        *lock(&self.inner.kick_cb) = cb;
     }
 
+    /// Safe to call from any thread, including from a session or kick callback (which run
+    /// on the SDK thread), and more than once.
     pub fn shutdown(&self) {
         self.inner.stop.store(true, Relaxed);
-        self.cmd.lock().unwrap().take();
-        if let Some(t) = self.thread.lock().unwrap().take() {
-            let _ = t.join();
+        lock(&self.cmd).take();
+        // A handshake waiting on a silent gateway would otherwise hold the join below for
+        // the socket timeout (30 s per read).
+        if let Some(c) = lock(&self.inner.conn).take() {
+            let _ = c.shutdown(Shutdown::Both);
         }
-        if let Some(s) = self.inner.sched.lock().unwrap().take() {
+        if let Some(t) = lock(&self.thread).take() {
+            // Called from a callback: the SDK thread cannot wait for itself. It ends on its
+            // own once the callback returns, because `stop` is set.
+            if t.thread().id() != std::thread::current().id() {
+                let _ = t.join();
+            }
+        }
+        let sched = lock(&self.inner.sched).take();
+        if let Some(s) = sched {
             let _ = s.stop();
         }
         #[cfg(windows)]
-        if let Some(mut m) = self.inner.input.lock().unwrap().take() {
-            m.stop();
+        {
+            let input = lock(&self.inner.input).take();
+            if let Some(mut m) = input {
+                m.stop();
+            }
         }
     }
 }
@@ -254,7 +316,7 @@ fn harden(inner: &Inner) {
     if o.failed != 0 {
         inner.log(LOG_WARN, &format!("mitigation profile {profile:?}: applied {:#x}, refused {:#x}", o.applied, o.failed));
     }
-    inner.startup_findings.lock().unwrap().push(pb::Finding {
+    lock(&inner.startup_findings).push(pb::Finding {
         job: "mitigations".into(),
         code: pb::FindingCode::Mitigations as u32,
         a: o.applied,
@@ -269,7 +331,7 @@ fn start_input_monitor(inner: &Inner) {
         return;
     }
     match carthago_scan::input::InputMonitor::start() {
-        Ok(m) => *inner.input.lock().unwrap() = Some(m),
+        Ok(m) => *lock(&inner.input) = Some(m),
         Err(e) => inner.log(LOG_WARN, &format!("input monitor not started: {e}")),
     }
 }
@@ -281,7 +343,7 @@ fn sdk_thread(inner: Arc<Inner>, rx: Receiver<Cmd>) {
     match Scheduler::start(sched_config(), carthago_scan::phase1_jobs(dirs)) {
         Ok(s) => {
             s.set_activity(Activity::from_u8(inner.activity.load(Relaxed)));
-            *inner.sched.lock().unwrap() = Some(s);
+            *lock(&inner.sched) = Some(s);
         }
         Err(e) => inner.log(LOG_ERROR, &format!("scheduler start failed: {e}")),
     }
@@ -305,9 +367,17 @@ fn sdk_thread(inner: Arc<Inner>, rx: Receiver<Cmd>) {
 
     while let Ok(cmd) = rx.recv() {
         match cmd {
-            Cmd::Begin { player_id_hash, on_ready } => match &device {
-                Some(d) => run_session(&inner, d, player_id_hash, on_ready),
-                None => on_ready(Err("no device identity".into())),
+            Cmd::Begin { player_id_hash, mut on_ready } => match &device {
+                Some(d) => {
+                    // A panic in one session must not end the SDK thread: later sessions
+                    // would then be refused for the rest of the process.
+                    if catch_unwind(AssertUnwindSafe(|| run_session(&inner, d, player_id_hash, &mut on_ready))).is_err() {
+                        inner.set_state(State::Failed);
+                        inner.log(LOG_ERROR, "session ended by an internal error");
+                    }
+                    lock(&inner.conn).take();
+                }
+                None => on_ready.call(Err("no device identity".into())),
             },
         }
         if inner.stop.load(Relaxed) {
@@ -334,7 +404,7 @@ fn heartbeat(inner: &Inner) -> pb::Heartbeat {
         time: Some(pb::TimeSample { qpc_ns: t.qpc_ns, tick_count_ms: t.tick_count_ms, interrupt_time_100ns: t.interrupt_time_100ns }),
         ..Default::default()
     };
-    hb.findings.append(&mut inner.startup_findings.lock().unwrap());
+    hb.findings.append(&mut lock(&inner.startup_findings));
     #[cfg_attr(not(windows), allow(unused_mut))]
     let mut input_cpu_ns = 0;
     #[cfg(windows)]
@@ -343,7 +413,7 @@ fn heartbeat(inner: &Inner) -> pb::Heartbeat {
         hb.input = Some(pb::InputStats { mouse_events: c.mouse_events, injected: c.injected, lower_il_injected: c.lower_il_injected, focused_ms: c.focused_ms });
         input_cpu_ns = carthago_scan::input::thread_cpu_ns();
     }
-    if let Some(s) = inner.sched.lock().unwrap().as_mut() {
+    if let Some(s) = lock(&inner.sched).as_mut() {
         let room = HEARTBEAT_FINDINGS.saturating_sub(hb.findings.len());
         let mut taken = s.take_findings();
         hb.findings.extend(
@@ -374,7 +444,16 @@ fn heartbeat(inner: &Inner) -> pb::Heartbeat {
     hb
 }
 
-fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, on_ready: ReadyFn) {
+/// Tells the game its session was ended. The callback is called without the lock held, so
+/// it may replace or clear itself, or shut the SDK down.
+fn notify_kick(inner: &Inner, reason: &str) {
+    let cb = lock(&inner.kick_cb).clone();
+    if let Some(cb) = cb {
+        cb(reason);
+    }
+}
+
+fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, on_ready: &mut Ready) {
     inner.set_state(State::Connecting);
     let params = session::Params {
         gateway_url: inner.cfg.gateway_url.clone(),
@@ -385,16 +464,22 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
         tls_pins: inner.cfg.tls_pins.clone(),
     };
     let log = |l: u8, m: &str| inner.log(l, m);
-    let mut est = match session::handshake(&params, device, &log) {
+    let on_tcp = |tcp: &TcpStream| {
+        *lock(&inner.conn) = tcp.try_clone().ok();
+        if inner.stop.load(Relaxed) {
+            let _ = tcp.shutdown(Shutdown::Both);
+        }
+    };
+    let mut est = match session::handshake(&params, device, &log, &on_tcp) {
         Ok(e) => e,
         Err(e) => {
             inner.set_state(State::Failed);
             inner.log(LOG_ERROR, &format!("handshake failed: {e}"));
-            on_ready(Err(e.to_string()));
+            on_ready.call(Err(e.to_string()));
             return;
         }
     };
-    *inner.token.lock().unwrap() = est.session.session_token.clone();
+    *lock(&inner.token) = est.session.session_token.clone();
     inner.trust_level.store(est.session.trust_level, Relaxed);
     inner.attest_flags.store(est.session.attest_flags, Relaxed);
     inner.set_state(State::Active);
@@ -405,7 +490,7 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
     for n in &est.session.notes {
         inner.log(LOG_INFO, &format!("gateway note: {n}"));
     }
-    on_ready(Ok(SessionReady { trust_level: est.session.trust_level, attest_flags: est.session.attest_flags, notes: est.session.notes.clone() }));
+    on_ready.call(Ok(SessionReady { trust_level: est.session.trust_level, attest_flags: est.session.attest_flags, notes: est.session.notes.clone() }));
 
     est.ws.get_ref().set_read_timeout(Some(Duration::from_millis(50))).ok();
     let mut rng = (Instant::now().elapsed().as_nanos() as u64) ^ 0x9e37_79b9_7f4a_7c15 ^ std::process::id() as u64;
@@ -441,18 +526,16 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
                 Ok(m) => match m.body {
                     Some(pb::server_msg::Body::HeartbeatAck(ack)) => {
                         inner.heartbeats_acked.fetch_add(1, Relaxed);
-                        *inner.last_ack.lock().unwrap() = Some(Instant::now());
+                        *lock(&inner.last_ack) = Some(Instant::now());
                         if !ack.renewed_token.is_empty() {
-                            *inner.token.lock().unwrap() = ack.renewed_token;
+                            *lock(&inner.token) = ack.renewed_token;
                             inner.log(LOG_INFO, "session token renewed");
                         }
                     }
                     Some(pb::server_msg::Body::Kicked(k)) => {
                         inner.set_state(State::Kicked);
                         inner.log(LOG_WARN, &format!("gateway ended the session: {}", k.reason));
-                        if let Some(cb) = inner.kick_cb.lock().unwrap().as_ref() {
-                            cb(&k.reason);
-                        }
+                        notify_kick(inner, &k.reason);
                         return;
                     }
                     Some(pb::server_msg::Body::Error(e)) => inner.log(LOG_WARN, &format!("gateway error {}: {}", e.code, e.message)),
@@ -494,4 +577,141 @@ pub fn os_build() -> String {
         return String::new();
     }
     String::from_utf16_lossy(&buf[..(size as usize / 2).saturating_sub(1)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::sync::mpsc::RecvTimeoutError;
+
+    fn runtime(gateway_url: String) -> Arc<Runtime> {
+        let key = hex::decode("290184ec194e65f6578796e87f8cd2c3beaa96857a0d883c19ee85b71781a548").unwrap();
+        Arc::new(
+            Runtime::start(Config {
+                tenant_id: "demo".into(),
+                build_id: "test".into(),
+                gateway_url,
+                server_identity: VerifyingKey::from_bytes(&key.try_into().unwrap()).unwrap(),
+                tls_pins: Vec::new(),
+                allow_tpm: false,
+                log: None,
+                mitigations: MitigationProfile::Off,
+                input_monitor: false,
+            })
+            .unwrap(),
+        )
+    }
+
+    /// Runs `f` on its own thread and fails the test if it has not returned in time (a
+    /// deadlock would otherwise hang the whole test run).
+    fn within<T: Send + 'static>(limit: Duration, what: &str, f: impl FnOnce() -> T + Send + 'static) -> T {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || tx.send(f()));
+        match rx.recv_timeout(limit) {
+            Ok(v) => v,
+            Err(RecvTimeoutError::Timeout) => panic!("{what}: still blocked after {limit:?}"),
+            Err(RecvTimeoutError::Disconnected) => panic!("{what}: panicked"),
+        }
+    }
+
+    #[test]
+    fn shutdown_does_not_wait_for_a_silent_gateway() {
+        // Accepts the connection and never answers the WebSocket upgrade.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (accepted_tx, accepted) = channel();
+        std::thread::spawn(move || {
+            let (mut c, _) = listener.accept().unwrap();
+            accepted_tx.send(()).unwrap();
+            let mut buf = [0u8; 4096];
+            while c.read(&mut buf).is_ok_and(|n| n > 0) {}
+        });
+        let rt = runtime(format!("ws://127.0.0.1:{port}/v1/client"));
+        let (ready_tx, ready) = channel();
+        assert!(rt.begin_session("player".into(), Box::new(move |r| ready_tx.send(r.map(|_| ())).unwrap())));
+        accepted.recv_timeout(Duration::from_secs(20)).expect("the client never connected");
+        std::thread::sleep(Duration::from_millis(200));
+
+        let t = Instant::now();
+        let rt2 = rt.clone();
+        within(Duration::from_secs(10), "shutdown during a handshake", move || rt2.shutdown());
+        assert!(t.elapsed() < Duration::from_secs(5), "shutdown took {:?}", t.elapsed());
+        assert!(ready.recv_timeout(Duration::from_secs(1)).expect("on_ready was never called").is_err());
+        assert_eq!(rt.status().state, State::Failed as u32);
+    }
+
+    #[test]
+    fn a_session_callback_may_shut_the_sdk_down() {
+        // Nothing listens on this port: the handshake fails and on_ready runs on the SDK thread.
+        let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let rt = runtime(format!("ws://127.0.0.1:{port}/v1/client"));
+        let (done_tx, done) = channel();
+        let rt2 = rt.clone();
+        assert!(rt.begin_session(
+            "player".into(),
+            Box::new(move |r| {
+                assert!(r.is_err());
+                rt2.shutdown();
+                done_tx.send(()).unwrap();
+            }),
+        ));
+        done.recv_timeout(Duration::from_secs(30)).expect("shutdown from the session callback did not return");
+        assert!(!rt.begin_session("player".into(), Box::new(|_| {})), "a session was accepted after shutdown");
+        within(Duration::from_secs(10), "second shutdown", move || rt.shutdown());
+    }
+
+    #[test]
+    fn the_kick_callback_runs_without_the_lock() {
+        let rt = runtime("ws://127.0.0.1:1/v1/client".into());
+        let (tx, rx) = channel();
+        let rt2 = rt.clone();
+        rt.set_kick_callback(Some(Arc::new(move |reason: &str| {
+            rt2.set_kick_callback(None);
+            tx.send(reason.to_owned()).unwrap();
+        })));
+        let rt2 = rt.clone();
+        within(Duration::from_secs(10), "kick callback that clears itself", move || notify_kick(&rt2.inner, "integrity"));
+        assert_eq!(rx.try_recv().unwrap(), "integrity");
+        notify_kick(&rt.inner, "again");
+        assert!(rx.try_recv().is_err(), "the cleared callback was called again");
+        rt.shutdown();
+    }
+
+    #[test]
+    fn a_dropped_session_request_reports_an_error() {
+        let (tx, rx) = channel();
+        drop(Ready(Some(Box::new(move |r| tx.send(r.map(|_| ())).unwrap()))));
+        assert!(rx.try_recv().unwrap().is_err());
+
+        let (tx, rx) = channel();
+        let mut r = Ready(Some(Box::new(move |r| tx.send(r.map(|_| ())).unwrap())));
+        r.call(Ok(SessionReady { trust_level: 1, attest_flags: 0, notes: Vec::new() }));
+        drop(r);
+        assert!(rx.try_recv().unwrap().is_ok());
+        assert!(rx.try_recv().is_err(), "the callback ran twice");
+    }
+
+    #[test]
+    fn a_poisoned_lock_does_not_panic_the_game_thread() {
+        let rt = runtime("ws://127.0.0.1:1/v1/client".into());
+        let rt2 = rt.clone();
+        let _ = std::thread::spawn(move || {
+            let _sched = rt2.inner.sched.lock().unwrap();
+            let _token = rt2.inner.token.lock().unwrap();
+            let _ack = rt2.inner.last_ack.lock().unwrap();
+            let _cb = rt2.inner.kick_cb.lock().unwrap();
+            panic!("synthetic panic while holding the runtime's locks");
+        })
+        .join();
+        assert!(rt.inner.sched.is_poisoned() && rt.inner.token.is_poisoned());
+        rt.tick();
+        rt.set_activity(Activity::Gameplay);
+        assert_eq!(rt.token(), None);
+        assert_eq!(rt.status().last_ack_age_ms, u64::MAX);
+        rt.set_kick_callback(None);
+        let _ = heartbeat(&rt.inner);
+        rt.shutdown();
+    }
 }
