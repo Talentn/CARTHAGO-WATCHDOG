@@ -17,6 +17,7 @@ type Result struct {
 	Flagged    bool
 	Features   []FeatureResult
 	Moments    []Moment
+	Decoy      *DecoyResult // set when the player was sent decoys
 	cfg        Config
 }
 
@@ -34,13 +35,17 @@ type FeatureResult struct {
 
 // Moment is one concrete episode for a reviewer.
 type Moment struct {
-	Kind       string  `json:"kind"` // tracked_hidden | shot_hidden | approached_hidden | approached_unseen_loot
-	At         string  `json:"at"`   // mm:ss into the match
+	// tracked_hidden | shot_hidden | approached_hidden | approached_unseen_loot, and for
+	// decoys tracked_decoy | snapped_to_decoy | shot_decoy | approached_decoy
+	Kind       string  `json:"kind"`
+	At         string  `json:"at"` // mm:ss into the match
 	Tick       uint32  `json:"tick"`
 	End        uint32  `json:"end_tick"`
 	DurationS  float64 `json:"duration_s,omitempty"`
 	TargetSlot uint32  `json:"target_slot,omitempty"`
 	ItemID     uint32  `json:"item_id,omitempty"`
+	DecoyID    uint32  `json:"decoy_id,omitempty"`
+	SnapDeg    float64 `json:"snap_deg,omitempty"` // crosshair rotation in the half second before
 	SweepDeg   float64 `json:"sweep_deg,omitempty"`
 	MeanErrDeg float64 `json:"mean_err_deg,omitempty"`
 	DistanceM  float64 `json:"distance_m,omitempty"`
@@ -80,6 +85,18 @@ type Explanation struct {
 	ReplayNote string          `json:"replay_note,omitempty"`
 	Knowledge  string          `json:"knowledge_model"`
 	Policy     string          `json:"policy"`
+	Decoys     *DecoyStats     `json:"decoys,omitempty"`
+}
+
+// DecoyStats is the decoy rule's exposure for one player: how many decoys they were sent,
+// how many they reacted to, and how many decoy samples the validity tests set aside.
+type DecoyStats struct {
+	Received     int `json:"received"`
+	Reacted      int `json:"reacted"`
+	MinReactions int `json:"min_reactions"`
+	Samples      int `json:"samples"`
+	Exposed      int `json:"exposed"`
+	Explained    int `json:"explained"`
 }
 
 type MomentText struct {
@@ -163,8 +180,55 @@ func momentText(m Moment, target string) string {
 	case "approached_unseen_loot":
 		return fmt.Sprintf("Headed straight for high-tier loot item %d %s, closing %.0f of %.0f m in %.1f s; it was %s.",
 			m.ItemID, where, m.ClosedM, m.DistanceM, m.DurationS, m.Known)
+	case "tracked_decoy", "snapped_to_decoy":
+		snap := ""
+		if m.Kind == "snapped_to_decoy" {
+			snap = fmt.Sprintf(" The crosshair had turned %.0f° onto it in the half second before.", m.SnapDeg)
+		}
+		return fmt.Sprintf("From %s the crosshair stayed on decoy %d, %s %.0f m away, for %.1f s while it moved through %.0f° of bearing (mean error %.1f°).%s Only this player was sent it; %s.",
+			from, m.DecoyID, where, m.DistanceM, m.DurationS, m.SweepDeg, m.MeanErrDeg, snap, m.Known)
+	case "shot_decoy":
+		return fmt.Sprintf("From %s fired at decoy %d, %s %.0f m away, %.1f° off its position. Only this player was sent it; %s.",
+			from, m.DecoyID, where, m.DistanceM, m.MeanErrDeg, m.Known)
+	case "approached_decoy":
+		return fmt.Sprintf("Moved straight toward decoy %d, %s, closing %.0f of %.0f m in %.1f s. Only this player was sent it; %s.",
+			m.DecoyID, where, m.ClosedM, m.DistanceM, m.DurationS, m.Known)
 	}
 	return m.Kind
+}
+
+// Explain words a decoy result for review, in the same shape as the leak explanation.
+func (r *DecoyResult) Explain(m *Map) Explanation {
+	ex := Explanation{
+		Segment: r.Segment.String(), Calibrated: r.Calibrated, Threshold: r.Threshold.Z, MinExcess: r.Threshold.MinExcess,
+		TargetFPR: r.Threshold.TargetFPR, Score: round2(r.Score),
+		Map:      fmt.Sprintf("%s v%d", m.ID, m.Version),
+		Features: append([]FeatureResult(nil), r.Features...),
+		Knowledge: fmt.Sprintf("A decoy is a fake enemy the game server sent only to this player, placed where nobody on their team could see "+
+			"or hear it; an honest client culls it like any hidden enemy, so nothing on screen or in the audio points at it. A decoy sample "+
+			"is set aside when anyone on the team who was sent it could have seen the spot (%.0f° cone, %.0f m, through the %d occluders of %s v%d), "+
+			"or when a real enemy, or the team's last fix on one, was within %.0f m of it or in line with it. Reactions are compared against the "+
+			"same decoy %s seconds away in time, which is how often the player's habits line up with where it walked. A flag needs the combined "+
+			"score and reactions to at least %d different decoys.",
+			r.cfg.FOVDeg, r.cfg.ViewRange, len(m.occ), m.ID, m.Version, r.cfg.DecoyClearance, shiftsText(r.cfg.ShiftsSec), r.cfg.MinDecoyReactions),
+		Policy: "Flag-only evidence for human review. It never triggers an automatic kick. Decoy reactions are their own evidence family, separate from the information-leak score.",
+		Decoys: &DecoyStats{Received: r.Received, Reacted: r.Reacted, MinReactions: r.cfg.MinDecoyReactions, Samples: r.Samples,
+			Exposed: r.Exposed, Explained: r.Explained},
+	}
+	for i := range ex.Features {
+		f := &ex.Features[i]
+		f.Z, f.RateTrue, f.RateNull = round2(f.Z), round3(f.RateTrue), round3(f.RateNull)
+	}
+	for _, mo := range r.Moments {
+		ex.Moments = append(ex.Moments, MomentText{Moment: mo, Target: fmt.Sprintf("decoy %d", mo.DecoyID), Text: momentText(mo, "")})
+	}
+	if len(r.Moments) > 0 && r.Moments[0].Replay != nil {
+		rp := *r.Moments[0].Replay
+		rp.Min, rp.Max, rp.Occluders = frame(m, rp)
+		ex.Replay = &rp
+		ex.ReplayNote = fmt.Sprintf("Top-down view of the first moment (%s): the player's path, the decoy's path, and where the crosshair pointed.", r.Moments[0].At)
+	}
+	return ex
 }
 
 // frame picks the area to draw and the occluders inside it.

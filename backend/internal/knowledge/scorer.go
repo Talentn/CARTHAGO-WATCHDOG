@@ -43,6 +43,20 @@ type Config struct {
 	MaxMoments     int // explanation moments kept per player
 	MaxPlayers     int
 	Thresholds     map[Segment]Threshold
+
+	// Decoys. A decoy sample does not count closer to the recipient than DecoyMinDist (the
+	// quiet distance of the placement rule) or when a real enemy, or the team's last fix on
+	// one, is within DecoyClearance of it (the rule's keep-alive clearance).
+	DecoyMinDist        float64
+	DecoyMaxDist        float64 // the placement rule's range; positions beyond it are not compared
+	DecoyClearance      float64
+	DecoyPeekM          float64 // a decoy must stay hidden from this far either side of the eye
+	MinDecoyBlocks      int
+	MinDecoyRouteBlocks int
+	MinDecoyShots       int
+	MinDecoyReactions   int // distinct decoys reacted to before a flag
+	MaxDecoys           int // decoys tracked at once per match, ended ones included until trimmed
+	DecoyThresholds     map[Segment]Threshold
 }
 
 func DefaultConfig() Config {
@@ -52,6 +66,8 @@ func DefaultConfig() Config {
 		AlignDeg: 7, ShotAlignDeg: 5, AimRange: 45, RouteRange: 60, MinSpeed: 1.5, MinItemTier: 2,
 		ShiftsSec: []float64{-12, -8, -5, 5, 8, 12}, BlockSec: 4, RouteBlockSec: 10, MinBlocks: 10, MinRouteBlocks: 6, MinShots: 12,
 		MaxMoments: 6, MaxPlayers: 128, Thresholds: DefaultThresholds(),
+		DecoyMinDist: 20, DecoyMaxDist: 40, DecoyClearance: 7, DecoyPeekM: 1.5, MinDecoyBlocks: 6, MinDecoyRouteBlocks: 4, MinDecoyShots: 6, MinDecoyReactions: 2, MaxDecoys: 256,
+		DecoyThresholds: DefaultDecoyThresholds(),
 	}
 }
 
@@ -130,6 +146,8 @@ const (
 	runTrack runKind = iota
 	runRouteEnemy
 	runRouteItem
+	runDecoyTrack
+	runDecoyRoute
 )
 
 type run struct {
@@ -141,6 +159,7 @@ type run struct {
 	startDist, lastDist float64
 	known               string
 	viewerZone, tgtZone string
+	snapDeg             float64 // crosshair rotation in the half second before the run
 }
 
 type pstate struct {
@@ -153,6 +172,7 @@ type pstate struct {
 	runs       map[[2]uint32]*run // (kind, target)
 	moments    []Moment
 	shotTicks  map[uint32]uint32 // target -> tick of the last hidden-shot moment
+	dec        *decoyState       // set once the player received a decoy
 }
 
 type known struct {
@@ -197,6 +217,9 @@ type Scorer struct {
 	spotSeen  map[[2]uint32]uint32 // (team, loot spawn index) -> tick last seen
 	spotVisit map[uint32]uint32    // loot spawn index -> tick anyone last stood on it
 	Dropped   uint64               // samples refused (too many players, out of order)
+
+	decoys     map[uint32]*decoy
+	decoyOrder []uint32
 }
 
 // NewScorer starts a match on a compiled map. mode overrides the map's default when set.
@@ -211,7 +234,8 @@ func NewScorer(cfg Config, m *Map, mode pb.GameMode, tickRate uint32) *Scorer {
 		cfg.Stride = 1
 	}
 	s := &Scorer{cfg: cfg, m: m, mode: mode, rate: float64(tickRate), players: map[uint32]*pstate{},
-		gameVis: map[[2]uint32]bool{}, know: map[[2]uint32]*known{}, itemState: map[uint32]*item{}, itemKnown: map[[2]uint32]bool{}, spotSeen: map[[2]uint32]uint32{}, spotVisit: map[uint32]uint32{}}
+		gameVis: map[[2]uint32]bool{}, know: map[[2]uint32]*known{}, itemState: map[uint32]*item{}, itemKnown: map[[2]uint32]bool{}, spotSeen: map[[2]uint32]uint32{}, spotVisit: map[uint32]uint32{},
+		decoys: map[uint32]*decoy{}}
 	for _, sh := range cfg.ShiftsSec {
 		t := int64(math.Round(sh * s.rate))
 		s.shiftTicks = append(s.shiftTicks, t)
@@ -237,6 +261,9 @@ func (s *Scorer) Buffered() int {
 	n := len(s.sounds) + len(s.team) + len(s.items) + len(s.vis) + len(s.shots)
 	for _, p := range s.players {
 		n += len(p.motion) + len(p.aim)
+	}
+	for _, d := range s.decoys {
+		n += len(d.motion)
 	}
 	return n
 }
@@ -273,6 +300,9 @@ func (s *Scorer) Add(b *pb.GameplayBatch) {
 	}
 	for _, t := range b.Motion {
 		s.addMotion(t)
+	}
+	for _, d := range b.Decoys {
+		s.addDecoy(d)
 	}
 	for _, t := range b.Aim {
 		p := s.player(t.Slot)
@@ -390,14 +420,17 @@ func (s *Scorer) trim() {
 		j := sort.Search(len(p.aim), func(i int) bool { return int64(p.aim[i].tick) >= keep })
 		p.aim = append(p.aim[:0], p.aim[j:]...)
 	}
+	s.trimDecoys(keep)
 }
 
-func (p *pstate) at(t int64, tol int64) (sample, bool) {
-	i := sort.Search(len(p.motion), func(i int) bool { return int64(p.motion[i].tick) >= t })
+func (p *pstate) at(t int64, tol int64) (sample, bool) { return atIn(p.motion, t, tol) }
+
+func atIn(motion []sample, t int64, tol int64) (sample, bool) {
+	i := sort.Search(len(motion), func(i int) bool { return int64(motion[i].tick) >= t })
 	best, bd := -1, tol+1
 	for _, j := range []int{i - 1, i} {
-		if j >= 0 && j < len(p.motion) {
-			if d := abs64(int64(p.motion[j].tick) - t); d < bd {
+		if j >= 0 && j < len(motion) {
+			if d := abs64(int64(motion[j].tick) - t); d < bd {
 				best, bd = j, d
 			}
 		}
@@ -405,7 +438,7 @@ func (p *pstate) at(t int64, tol int64) (sample, bool) {
 	if best < 0 {
 		return sample{}, false
 	}
-	return p.motion[best], true
+	return motion[best], true
 }
 
 func (p *pstate) aimAt(t uint32) (Vec3, bool) {
@@ -616,6 +649,9 @@ func (s *Scorer) process(t uint32) {
 		}
 		s.scoreAim(t, block, v, lv, seen)
 		s.scoreRoute(t, int64(t)/s.routeTicks, v, lv, seen)
+		if v.p.dec != nil {
+			s.scoreDecoys(t, block, int64(t)/s.routeTicks, v, lv, seen)
+		}
 	}
 	s.scoreShots(t, block, lv, seen)
 }
@@ -777,6 +813,10 @@ func (s *Scorer) endRun(p *pstate, kind runKind, target uint32) {
 	}
 	delete(p.runs, key)
 	dur := float64(r.last-r.start+s.cfg.Stride) / s.rate
+	if kind == runDecoyTrack || kind == runDecoyRoute {
+		s.endDecoyRun(p, kind, target, r, dur)
+		return
+	}
 	var m Moment
 	switch kind {
 	case runTrack:
@@ -822,8 +862,8 @@ func (s *Scorer) scoreRoute(t uint32, block int64, v live, lv []live, seen map[[
 	speed := vel.Len()
 	if speed < s.cfg.MinSpeed {
 		for k := range v.p.runs {
-			if runKind(k[0]) != runTrack {
-				s.endRun(v.p, runKind(k[0]), k[1])
+			if kind := runKind(k[0]); kind == runRouteEnemy || kind == runRouteItem {
+				s.endRun(v.p, kind, k[1])
 			}
 		}
 		return
@@ -961,6 +1001,9 @@ func (s *Scorer) scoreShots(t uint32, block int64, lv []live, seen map[[2]uint32
 				hidden = append(hidden, e)
 			}
 		}
+		if !engaged && v.p.dec != nil {
+			s.decoyShot(t, block, v, sh, lv, seen)
+		}
 		if engaged || len(hidden) == 0 {
 			continue
 		}
@@ -1015,9 +1058,16 @@ func (s *Scorer) capture(p *pstate, m Moment) *Replay {
 	from := int64(m.Tick) - int64(2*s.rate)
 	to := int64(m.End) + int64(s.rate)
 	r := &Replay{}
-	var tgt *pstate
-	if m.Kind != "approached_unseen_loot" {
-		tgt = s.players[m.TargetSlot]
+	var tgt func(t, tol int64) (sample, bool)
+	switch {
+	case m.DecoyID != 0:
+		if d := s.decoys[m.DecoyID]; d != nil {
+			tgt = func(t, tol int64) (sample, bool) { return atIn(d.motion, t, tol) }
+		}
+	case m.Kind != "approached_unseen_loot":
+		if tp := s.players[m.TargetSlot]; tp != nil {
+			tgt = tp.at
+		}
 	}
 	for t := from; t <= to; t += step {
 		vs, ok := p.at(t, step)
@@ -1026,7 +1076,7 @@ func (s *Scorer) capture(p *pstate, m Moment) *Replay {
 		}
 		r.Viewer = append(r.Viewer, Vec2{vs.pos.X, vs.pos.Y})
 		if tgt != nil {
-			if ts, ok := tgt.at(t, step); ok {
+			if ts, ok := tgt(t, step); ok {
 				r.Target = append(r.Target, Vec2{ts.pos.X, ts.pos.Y})
 			}
 		}
@@ -1034,7 +1084,7 @@ func (s *Scorer) capture(p *pstate, m Moment) *Replay {
 			if d, ok := p.aimAt(uint32(t)); ok {
 				l := 12.0
 				if tgt != nil {
-					if ts, ok := tgt.at(t, step); ok {
+					if ts, ok := tgt(t, step); ok {
 						l = ts.pos.Dist(vs.pos)
 					}
 				}
@@ -1094,6 +1144,9 @@ func (s *Scorer) result(p *pstate) Result {
 	res.Moments = p.moments
 	for i := range res.Moments {
 		res.Moments[i].At = s.clock(res.Moments[i].Tick)
+	}
+	if p.dec != nil {
+		res.Decoy = s.decoyResult(p, seg)
 	}
 	return res
 }

@@ -71,6 +71,32 @@ func DefaultThresholds() map[Segment]Threshold {
 	}
 }
 
+// DefaultDecoyThresholds are the decoy rule's version 1 segments, with the same target
+// false-flag rate. On top of Z, a flag needs reactions to Config.MinDecoyReactions distinct
+// decoys.
+func DefaultDecoyThresholds() map[Segment]Threshold {
+	shooter, extraction := pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER, pb.GameMode_GAME_MODE_EXTRACTION
+	mouse, pad := pb.InputDevice_INPUT_DEVICE_MOUSE_KEYBOARD, pb.InputDevice_INPUT_DEVICE_CONTROLLER
+	return map[Segment]Threshold{
+		{shooter, mouse}:    {Z: 4.0, MinExcess: 0.06, TargetFPR: TargetFPR},
+		{shooter, pad}:      {Z: 4.5, MinExcess: 0.08, TargetFPR: TargetFPR},
+		{extraction, mouse}: {Z: 4.0, MinExcess: 0.06, TargetFPR: TargetFPR},
+		{extraction, pad}:   {Z: 4.5, MinExcess: 0.08, TargetFPR: TargetFPR},
+	}
+}
+
+func (c *Config) decoyCalibrated(s Segment) bool {
+	_, ok := c.DecoyThresholds[s]
+	return ok
+}
+
+func (c *Config) decoyThreshold(s Segment) Threshold {
+	if t, ok := c.DecoyThresholds[s]; ok {
+		return t
+	}
+	return FallbackThreshold
+}
+
 // FallbackThreshold applies to segments without their own calibration.
 var FallbackThreshold = Threshold{Z: 5.0, MinExcess: 0.10, TargetFPR: TargetFPR}
 

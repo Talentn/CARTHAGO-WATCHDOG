@@ -260,6 +260,26 @@ func (o *occluder) blocks(a, b Vec3) bool {
 	return math.Max(za, zb) >= o.zMin && math.Min(za, zb) <= o.zMax
 }
 
+// HiddenWithMargin reports whether target is out of sight from eye, at its own height and
+// chestDrop lower, and also from points margin metres to either side of eye across the line
+// of sight: what a player could see by peeking or strafing half a step.
+func (m *Map) HiddenWithMargin(eye, target Vec3, chestDrop, margin float64) bool {
+	chest := Vec3{target.X, target.Y, target.Z - chestDrop}
+	d := Vec3{target.X - eye.X, target.Y - eye.Y, 0}
+	l := d.Len()
+	eyes := []Vec3{eye}
+	if margin > 0 && l > 1e-6 {
+		side := Vec3{-d.Y / l * margin, d.X / l * margin, 0}
+		eyes = append(eyes, eye.Add(side), eye.Sub(side))
+	}
+	for _, e := range eyes {
+		if m.LineOfSight(e, target) || m.LineOfSight(e, chest) {
+			return false
+		}
+	}
+	return true
+}
+
 // ZoneName names the area a point is in, or "" outside every zone.
 func (m *Map) ZoneName(p Vec3) string {
 	for _, z := range m.zones {
