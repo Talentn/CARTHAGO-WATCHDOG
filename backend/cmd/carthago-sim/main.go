@@ -299,17 +299,18 @@ func main() {
 	matchSeconds := flag.Int("match-seconds", 1800, "simulated match length for -scenario-out and -calibrate")
 	seed := flag.Uint64("seed", 11, "simulation seed")
 	calibrate := flag.Int("calibrate", 0, "simulate this many matches per mode, print the per-segment calibration and exit")
+	decoys := flag.Bool("decoys", false, "send every scenario or calibration player its own decoys")
 	flag.Parse()
 
 	if *calibrate > 0 {
-		rows := synth.Calibrate([]pb.GameMode{pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER, pb.GameMode_GAME_MODE_EXTRACTION}, *calibrate, *matchSeconds, *seed, knowledge.DefaultConfig())
+		rows := synth.Calibrate([]pb.GameMode{pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER, pb.GameMode_GAME_MODE_EXTRACTION}, *calibrate, *matchSeconds, *seed, knowledge.DefaultConfig(), *decoys)
 		if err := synth.WriteCalibration(os.Stdout, rows); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 	if *scenarioOut != "" {
-		if err := writeScenario(*scenarioOut, *mode, *roles, *firstSlot, *matchID, *matchSeconds, *seed); err != nil {
+		if err := writeScenario(*scenarioOut, *mode, *roles, *firstSlot, *matchID, *matchSeconds, *seed, *decoys); err != nil {
 			log.Fatalf("scenario: %v", err)
 		}
 		return
@@ -417,7 +418,7 @@ func seedAttested(path, tenant string, n int) error {
 // the same rating, or the server's MMR-relative headshot test sees a mismatched baseline.
 func slotMMR(slot int) int { return 1300 + 100*((slot-1)%5) }
 
-func writeScenario(path, modeName, roleList string, firstSlot int, matchID string, seconds int, seed uint64) error {
+func writeScenario(path, modeName, roleList string, firstSlot int, matchID string, seconds int, seed uint64, decoys bool) error {
 	mode, err := synth.ParseMode(modeName)
 	if err != nil {
 		return err
@@ -443,7 +444,7 @@ func writeScenario(path, modeName, roleList string, firstSlot int, matchID strin
 	for i := range players {
 		players[i].MMR = int32(slotMMR(int(players[i].Slot)))
 	}
-	spec := synth.Spec{MatchID: matchID, Mode: mode, TickRate: 64, Seconds: seconds, Seed: seed, Players: players}
+	spec := synth.Spec{MatchID: matchID, Mode: mode, TickRate: 64, Seconds: seconds, Seed: seed, Players: players, Decoys: decoys}
 	f, err := os.Create(path)
 	if err != nil {
 		return err

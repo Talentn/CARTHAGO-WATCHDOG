@@ -43,6 +43,58 @@ type CalibrationRow struct {
 	HonestP99 float64
 	HonestMax float64
 	InfP10    float64 // tenth percentile of informed scores
+
+	// Decoy rule, filled when the run had decoys on. Every player is sent decoys, so
+	// every honest player-match is a decoy trial.
+	Decoy DecoyRow
+}
+
+// DecoyRow is the decoy rule's half of a calibration row.
+type DecoyRow struct {
+	Threshold knowledge.Threshold
+	Honest    int
+	FalsePos  int
+	Informed  int
+	Caught    int
+	Subtle    int
+	SubtleHit int
+	HonestP99 float64
+	HonestMax float64
+	InfP10    float64
+	Received  float64 // mean decoys sent per player-match
+	Exposed   int     // decoy samples a recipient could have seen; 0 when placement is right
+}
+
+func (r DecoyRow) Recall() float64       { return ratio(r.Caught, r.Informed) }
+func (r DecoyRow) SubtleRecall() float64 { return ratio(r.SubtleHit, r.Subtle) }
+
+// FPRBound is the 95% one-sided upper bound on a false-flag rate after falsePos flags in
+// honest trials (Poisson): with no flags it is about 3/honest, so showing a 1e-3 rate takes
+// about 3,000 honest player-matches per segment.
+func FPRBound(falsePos, honest int) float64 {
+	if honest == 0 {
+		return 1
+	}
+	cdf := func(lambda float64) float64 {
+		term, sum := math.Exp(-lambda), 0.0
+		for i := 0; i <= falsePos; i++ {
+			if i > 0 {
+				term *= lambda / float64(i)
+			}
+			sum += term
+		}
+		return sum
+	}
+	lo, hi := 0.0, float64(falsePos)+50
+	for range 100 {
+		mid := (lo + hi) / 2
+		if cdf(mid) > 0.05 {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return math.Min(1, hi/float64(honest))
 }
 
 func (r CalibrationRow) FPR() float64 { return ratio(r.FalsePos, r.Honest) }
@@ -68,7 +120,7 @@ var calibrationRoles = [][]Role{
 // Calibrate simulates matches per mode and reports, per segment, how often
 // honest players flag and how often informed ones do. Every third player uses
 // a controller with aim assist.
-func Calibrate(modes []pb.GameMode, matches, seconds int, seed uint64, cfg knowledge.Config) []CalibrationRow {
+func Calibrate(modes []pb.GameMode, matches, seconds int, seed uint64, cfg knowledge.Config, decoys bool) []CalibrationRow {
 	type job struct {
 		mode pb.GameMode
 		i    int
@@ -92,7 +144,7 @@ func Calibrate(modes []pb.GameMode, matches, seconds int, seed uint64, cfg knowl
 					}
 				}
 				spec := Spec{MatchID: fmt.Sprintf("cal-%d-%d", j.mode, j.i), Mode: j.mode, TickRate: 64, Seconds: seconds,
-					Seed: seed + uint64(j.i)*7919 + uint64(j.mode)*104729, Players: ps}
+					Seed: seed + uint64(j.i)*7919 + uint64(j.mode)*104729, Players: ps, Decoys: decoys}
 				results <- out{spec, Score(spec, cfg)}
 			}
 		}()
@@ -111,6 +163,10 @@ func Calibrate(modes []pb.GameMode, matches, seconds int, seed uint64, cfg knowl
 	rows := map[knowledge.Segment]*CalibrationRow{}
 	honest := map[knowledge.Segment][]float64{}
 	informed := map[knowledge.Segment][]float64{}
+	dHonest := map[knowledge.Segment][]float64{}
+	dInformed := map[knowledge.Segment][]float64{}
+	dReceived := map[knowledge.Segment]int{}
+	dTrials := map[knowledge.Segment]int{}
 	for o := range results {
 		roles := map[uint32]Role{}
 		for _, p := range o.spec.Players {
@@ -121,6 +177,25 @@ func Calibrate(modes []pb.GameMode, matches, seconds int, seed uint64, cfg knowl
 			if row == nil {
 				row = &CalibrationRow{Segment: r.Segment, Threshold: r.Threshold}
 				rows[r.Segment] = row
+			}
+			if d := r.Decoy; d != nil {
+				row.Decoy.Threshold = d.Threshold
+				row.Decoy.Exposed += d.Exposed
+				dReceived[r.Segment] += d.Received
+				dTrials[r.Segment]++
+				switch roles[r.Slot] {
+				case RoleInformed:
+					row.Decoy.Informed++
+					row.Decoy.Caught += b2i(d.Flagged)
+					dInformed[r.Segment] = append(dInformed[r.Segment], d.Score)
+				case RoleSubtle:
+					row.Decoy.Subtle++
+					row.Decoy.SubtleHit += b2i(d.Flagged)
+				default:
+					row.Decoy.Honest++
+					row.Decoy.FalsePos += b2i(d.Flagged)
+					dHonest[r.Segment] = append(dHonest[r.Segment], d.Score)
+				}
 			}
 			switch roles[r.Slot] {
 			case RoleInformed:
@@ -141,6 +216,11 @@ func Calibrate(modes []pb.GameMode, matches, seconds int, seed uint64, cfg knowl
 	for seg, row := range rows {
 		row.HonestP50, row.HonestP99, row.HonestMax = quantile(honest[seg], 0.5), quantile(honest[seg], 0.99), quantile(honest[seg], 1)
 		row.InfP10 = quantile(informed[seg], 0.1)
+		if n := dTrials[seg]; n > 0 {
+			row.Decoy.HonestP99, row.Decoy.HonestMax = quantile(dHonest[seg], 0.99), quantile(dHonest[seg], 1)
+			row.Decoy.InfP10 = quantile(dInformed[seg], 0.1)
+			row.Decoy.Received = float64(dReceived[seg]) / float64(n)
+		}
 		list = append(list, *row)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Segment.String() < list[j].Segment.String() })
@@ -171,6 +251,21 @@ func WriteCalibration(w io.Writer, rows []CalibrationRow) error {
 		fmt.Fprintf(tw, "%s\t%.1f\t%.2f\t%.0e\t%d\t%d\t%.4f\t%.2f\t%.2f\t%.2f\t%d\t%.2f\t%.2f\t%.2f\n",
 			r.Segment, r.Threshold.Z, r.Threshold.MinExcess, r.Threshold.TargetFPR, r.Honest, r.FalsePos, r.FPR(),
 			r.HonestP50, r.HonestP99, r.HonestMax, r.Informed, r.Recall(), r.InfP10, r.SubtleRecall())
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if len(rows) == 0 || rows[0].Decoy.Honest == 0 {
+		return nil
+	}
+	fmt.Fprintln(w, "\ndecoy_reaction")
+	tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "segment\tz\tdecoys_per_player\thonest\tfalse_pos\tfpr_95_bound\thonest_needed\thonest_p99\thonest_max\tinformed\trecall\tinformed_p10\tsubtle_recall\texposed_samples")
+	for _, r := range rows {
+		d := r.Decoy
+		fmt.Fprintf(tw, "%s\t%.1f\t%.1f\t%d\t%d\t%.4f\t%.0f\t%.2f\t%.2f\t%d\t%.2f\t%.2f\t%.2f\t%d\n",
+			r.Segment, d.Threshold.Z, d.Received, d.Honest, d.FalsePos, FPRBound(d.FalsePos, d.Honest), math.Ceil(3/d.Threshold.TargetFPR),
+			d.HonestP99, d.HonestMax, d.Informed, d.Recall(), d.InfP10, d.SubtleRecall(), d.Exposed)
 	}
 	return tw.Flush()
 }

@@ -13,17 +13,27 @@ import (
 // Encoder packs frames into GameplayBatches the way carthago-server's MatchRecorder does:
 // delta-encoded motion every MotionStride ticks, one aim track per player per batch.
 type Encoder struct {
-	spec    Spec
-	seq     uint64
-	sentMap bool
-	sentPl  bool
-	from    uint32
-	tick    uint32
-	motion  map[uint32]*motionTrack
-	order   []uint32
-	aim     map[uint32]*pb.AimTrack
-	cmds    map[uint32]uint32
-	b       pb.GameplayBatch
+	spec      Spec
+	seq       uint64
+	sentMap   bool
+	sentPl    bool
+	from      uint32
+	tick      uint32
+	motion    map[uint32]*motionTrack
+	order     []uint32
+	aim       map[uint32]*pb.AimTrack
+	cmds      map[uint32]uint32
+	b         pb.GameplayBatch
+	decoys    map[uint32]*decoyTrack
+	dorder    []uint32
+	spawned   map[uint32]uint32 // decoy -> first replicated tick, kept across batches
+	despawned map[uint32]uint32
+	ended     map[uint32]bool
+}
+
+type decoyTrack struct {
+	t    *pb.DecoyTrack
+	last [6]int32
 }
 
 type motionTrack struct {
@@ -35,7 +45,46 @@ func NewEncoder(spec Spec) *Encoder {
 	if spec.MotionStride == 0 {
 		spec.MotionStride = 1
 	}
-	return &Encoder{spec: spec, motion: map[uint32]*motionTrack{}, aim: map[uint32]*pb.AimTrack{}, cmds: map[uint32]uint32{}}
+	return &Encoder{spec: spec, motion: map[uint32]*motionTrack{}, aim: map[uint32]*pb.AimTrack{}, cmds: map[uint32]uint32{},
+		decoys: map[uint32]*decoyTrack{}, spawned: map[uint32]uint32{}, despawned: map[uint32]uint32{}, ended: map[uint32]bool{}}
+}
+
+func (e *Encoder) decoy(f *Frame, d DecoyFrame) {
+	if d.Replicated {
+		e.spawned[d.ID] = f.Tick
+	}
+	dt := e.decoys[d.ID]
+	if dt == nil {
+		dt = &decoyTrack{t: &pb.DecoyTrack{DecoyId: d.ID, Team: d.Team, Recipients: d.Recipients, ClonedFromSlot: d.Cloned,
+			SpawnTick: e.spawned[d.ID], DespawnTick: e.despawned[d.ID], Track: &pb.MotionTrack{Stride: e.spec.MotionStride}}}
+		e.decoys[d.ID] = dt
+		e.dorder = append(e.dorder, d.ID)
+	}
+	dt.t.SpawnTick = e.spawned[d.ID]
+	if d.Unreplicated {
+		e.despawned[d.ID] = f.Tick
+		dt.t.DespawnTick = f.Tick
+	}
+	if d.Ended {
+		e.ended[d.ID] = true
+		return
+	}
+	if f.Tick%e.spec.MotionStride != 0 {
+		return
+	}
+	vals := [6]int32{round(d.Pos.X * 100), round(d.Pos.Y * 100), round(d.Pos.Z * 100), round(d.Vel.X * 100), round(d.Vel.Y * 100), round(d.Vel.Z * 100)}
+	tr := dt.t.Track
+	delta := vals
+	if len(tr.XCm) == 0 {
+		tr.FirstTick = f.Tick
+	} else {
+		for i := range delta {
+			delta[i] = vals[i] - dt.last[i]
+		}
+	}
+	dt.last = vals
+	tr.XCm, tr.YCm, tr.ZCm = append(tr.XCm, delta[0]), append(tr.YCm, delta[1]), append(tr.ZCm, delta[2])
+	tr.VxCmS, tr.VyCmS, tr.VzCmS = append(tr.VxCmS, delta[3]), append(tr.VyCmS, delta[4]), append(tr.VzCmS, delta[5])
 }
 
 func round(v float64) int32 { return int32(math.Round(v)) }
@@ -79,6 +128,9 @@ func (e *Encoder) Frame(f *Frame) {
 	e.b.Items = append(e.b.Items, f.Items...)
 	e.b.Visibility = append(e.b.Visibility, f.Vis...)
 	e.b.Shots = append(e.b.Shots, f.Shots...)
+	for _, d := range f.Decoys {
+		e.decoy(f, d)
+	}
 }
 
 func (e *Encoder) Flush(over bool) *pb.GameplayBatch {
@@ -113,6 +165,16 @@ func (e *Encoder) Flush(over bool) *pb.GameplayBatch {
 			b.Commands = append(b.Commands, &pb.CommandWindow{Slot: slot, TickFrom: e.from, TickTo: e.tick, Commands: n})
 		}
 	}
+	for _, id := range e.dorder {
+		dt := e.decoys[id]
+		b.Decoys = append(b.Decoys, dt.t)
+		if e.ended[id] {
+			delete(e.spawned, id)
+			delete(e.despawned, id)
+			delete(e.ended, id)
+		}
+	}
+	e.decoys, e.dorder = map[uint32]*decoyTrack{}, e.dorder[:0]
 	// A new batch's tracks start absolute again.
 	for slot := range e.motion {
 		delete(e.motion, slot)
@@ -212,6 +274,11 @@ func ints(xs []int32) string {
 //	o <item_id> <x> <y> <z> <tier> <removed 0|1>
 //	v <observer> <target> <visible 0|1>
 //	f <slot> <target_slot> <hit 0|1> <headshot 0|1> <distance>
+//	dc <decoy_id> <team> <cloned_from_slot> <recipient,recipient,...>   (created, unreplicated)
+//	dr <decoy_id>                                                       (replicated from this tick)
+//	du <decoy_id>                                                       (no longer replicated)
+//	dp <decoy_id> <x> <y> <z> <vx> <vy> <vz>                            (position this tick)
+//	de <decoy_id>                                                       (ended, no position)
 //
 // The role is for the operator's log only; gs-stub never sends it.
 func WriteScenario(w io.Writer, spec Spec) error {
@@ -255,6 +322,25 @@ func WriteScenario(w io.Writer, spec Spec) error {
 		}
 		for _, s := range f.Shots {
 			fmt.Fprintf(bw, "f %d %d %d %d %d\n", s.Slot, s.TargetSlot, b01(s.Hit), b01(s.Headshot), round(float64(s.DistanceM)*100))
+		}
+		for _, d := range f.Decoys {
+			switch {
+			case d.Ended:
+				fmt.Fprintf(bw, "de %d\n", d.ID)
+				continue
+			case d.Created:
+				rs := make([]string, len(d.Recipients))
+				for i, r := range d.Recipients {
+					rs[i] = fmt.Sprint(r)
+				}
+				fmt.Fprintf(bw, "dc %d %d %d %s\n", d.ID, d.Team, d.Cloned, strings.Join(rs, ","))
+			case d.Replicated:
+				fmt.Fprintf(bw, "dr %d\n", d.ID)
+			case d.Unreplicated:
+				fmt.Fprintf(bw, "du %d\n", d.ID)
+			}
+			fmt.Fprintf(bw, "dp %d %d %d %d %d %d %d\n", d.ID, round(d.Pos.X*100), round(d.Pos.Y*100), round(d.Pos.Z*100),
+				round(d.Vel.X*100), round(d.Vel.Y*100), round(d.Vel.Z*100))
 		}
 	})
 	return bw.Flush()
