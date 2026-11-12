@@ -19,6 +19,10 @@ import (
 // RuleInformationLeak is the evidence rule of the knowledge-aware wallhack scorer.
 const RuleInformationLeak = "information_leak"
 
+// RuleDecoyReaction is the evidence rule for reactions to decoys only the player was sent.
+// It is its own evidence family: flag-only, never integrity evidence, never a kick.
+const RuleDecoyReaction = "decoy_reaction"
+
 // maxCachedMaps bounds compiled maps held in memory; a miss reloads from the store.
 const maxCachedMaps = 64
 
@@ -187,35 +191,39 @@ func (p *Pipeline) leakEvidence(tenant string, ms *matchState, v *v2State, b *pb
 		return fmt.Sprintf("slot %d", slot)
 	}
 	var evs []store.Evidence
-	for _, r := range v.scorer.Finish() {
-		if s := v.summaries[r.Slot]; s != nil {
-			s.LeakScored, s.LeakScore, s.LeakFlagged = true, math.Round(r.Score*100)/100, r.Flagged
-		}
-		if !r.Flagged {
-			continue
-		}
-		ex := r.Explain(v.scorer.Map(), name)
+	evidence := func(r knowledge.Result, rule string, z, th float64, summary string, ex knowledge.Explanation) {
 		raw, err := json.Marshal(struct {
 			Slot     uint32 `json:"slot"`
 			BatchSeq uint64 `json:"batch_seq"`
 			knowledge.Explanation
 		}{r.Slot, b.BatchSeq, ex})
 		if err != nil {
-			continue
+			return
 		}
 		sev := analyzer.SeverityMedium
-		if r.Score >= 2*r.Threshold.Z {
+		if z >= 2*th {
 			sev = analyzer.SeverityHigh
 		}
 		ev := store.Evidence{
 			TenantID: tenant, PlayerHash: name(r.Slot), MatchID: b.MatchId, Source: store.SourceGameplay,
-			Rule: RuleInformationLeak, Severity: int(sev), Score: math.Min(1, r.Score/(2*r.Threshold.Z)),
-			Integrity: false, Summary: r.Summary(), Raw: string(raw), ObservedAt: at,
+			Rule: rule, Severity: int(sev), Score: math.Min(1, z/(2*th)),
+			Integrity: false, Summary: summary, Raw: string(raw), ObservedAt: at,
 		}
 		if s, ok := ms.sessions[r.Slot]; ok {
 			ev.SessionID = s.SessionID
 		}
 		evs = append(evs, ev)
+	}
+	for _, r := range v.scorer.Finish() {
+		if s := v.summaries[r.Slot]; s != nil {
+			s.LeakScored, s.LeakScore, s.LeakFlagged = true, math.Round(r.Score*100)/100, r.Flagged
+		}
+		if r.Flagged {
+			evidence(r, RuleInformationLeak, r.Score, r.Threshold.Z, r.Summary(), r.Explain(v.scorer.Map(), name))
+		}
+		if d := r.Decoy; d != nil && d.Flagged {
+			evidence(r, RuleDecoyReaction, d.Score, d.Threshold.Z, d.Summary(), d.Explain(v.scorer.Map()))
+		}
 	}
 	return evs
 }
