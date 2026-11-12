@@ -1,9 +1,9 @@
 {{define "decoy"}}
 <div>
   <dl class="kv">
-    <dt>Combined score</dt><dd><b>z = {{fixed 2 .Score}}</b> <small class="muted">flags at z ≥ {{fixed 1 .Threshold}} with an excess of at least {{fixed 2 .MinExcess}} over the controls{{with .Decoys}}, after reactions to at least {{.MinReactions}} different decoys{{end}}</small></dd>
+    <dt>Combined score</dt><dd><span class="mono">z = {{fixed 2 .Score}}</span> <small class="muted">flags at z ≥ {{fixed 1 .Threshold}} with an excess of at least {{fixed 2 .MinExcess}} over the controls{{with .Decoys}}, after reactions to at least {{.MinReactions}} different decoys{{end}}</small></dd>
     <dt>Segment</dt><dd><span class="tags"><span class="tag mono">{{.Segment}}</span>{{if not .Calibrated}}<span class="tag bad">uncalibrated segment: fallback threshold</span>{{end}}</span></dd>
-    {{with .Decoys}}<dt>Decoys</dt><dd>reacted to <b>{{.Reacted}}</b> of {{.Received}} sent only to this player <small class="muted">({{.Samples}} samples; {{.Explained}} set aside because a real enemy could explain them, {{.Exposed}} because the decoy was in sight)</small></dd>{{end}}
+    {{with .Decoys}}<dt>Decoys</dt><dd>reacted to <span class="mono">{{.Reacted}}</span> of <span class="mono">{{.Received}}</span> sent only to this player <small class="muted">({{.Samples}} samples; {{.Explained}} set aside because a real enemy could explain them, {{.Exposed}} because the decoy was in sight)</small></dd>{{end}}
     <dt>Target false-flag rate</dt><dd>{{fixed 1 (pctOf .TargetFPR)}}% of honest player-matches <small class="muted">(threshold set per segment)</small></dd>
     <dt>Map</dt><dd class="mono">{{.Map}}</dd>
   </dl>
@@ -12,33 +12,39 @@
   <table class="compact">
     <thead><tr><th>Feature</th><th>Measures</th><th class="num">z</th><th class="num">On the decoy</th><th class="num">On controls</th><th class="num">Samples</th><th>Counts</th></tr></thead>
     <tbody>{{range .Features}}<tr>
-      <td class="mono">{{.Name}}</td><td>{{.Label}}</td><td class="num"><b>{{fixed 2 .Z}}</b></td>
+      <td class="mono">{{.Name}}</td><td>{{.Label}}</td><td class="num">{{fixed 2 .Z}}</td>
       <td class="num">{{fixed 3 .RateTrue}}</td><td class="num">{{fixed 3 .RateNull}}</td><td class="num">{{.Samples}}</td>
       <td>{{if .Scored}}scored{{else if .Eligible}}<span class="muted">reported only</span>{{else}}<span class="muted">too few samples</span>{{end}}</td>
     </tr>{{end}}</tbody>
   </table>
+  <div class="leak-split">
   {{if .Moments}}
+  <div>
   <h3>Moments</h3>
   <ol class="moments">{{range .Moments}}
     <li><span class="at"><span class="mono">{{.At}}</span><span class="mono muted">{{.Kind}}</span></span>{{.Text}}</li>
   {{end}}</ol>
+  </div>
   {{end}}
   {{with .SVG}}
+  <div>
   <h3>Replay</h3>
   <svg class="replay" viewBox="-8 -8 {{add2 .W 16}} {{add2 .H 34}}" width="{{add2 .W 16}}" role="img" aria-label="Top-down replay of the first decoy moment">
     <rect class="rp-floor" x="0" y="0" width="{{.W}}" height="{{.H}}"/>
     {{range .Occluders}}<polygon class="rp-wall" points="{{.}}"/>{{end}}
     {{range .Rays}}<line class="rp-ray" x1="{{.A.X}}" y1="{{.A.Y}}" x2="{{.B.X}}" y2="{{.B.Y}}"/>{{end}}
-    <polyline class="rp-decoy" points="{{.Target}}"/><circle class="rp-decoy-dot" cx="{{.TargetEnd.X}}" cy="{{.TargetEnd.Y}}" r="4.5"/>
+    <polyline class="rp-decoy" points="{{.Target}}"/><circle class="rp-decoy-dot" cx="{{.TargetEnd.X}}" cy="{{.TargetEnd.Y}}" r="4"/>
     <polyline class="rp-viewer" points="{{.Viewer}}"/>
     <circle class="rp-start" cx="{{.Start.X}}" cy="{{.Start.Y}}" r="3.5"/>
     <circle class="rp-viewer-dot" cx="{{.End.X}}" cy="{{.End.Y}}" r="4.5"/>
     <line class="rp-scale" x1="0" y1="{{add2 .H 14}}" x2="{{.ScaleBar}}" y2="{{add2 .H 14}}"/>
-    <text class="rp-label" x="{{add2 .ScaleBar 6}}" y="{{add2 .H 18}}">10 m</text>
+    <text class="rp-label" x="{{add2 .ScaleBar 8}}" y="{{add2 .H 18}}">10 m</text>
   </svg>
   <p class="replay-key"><span><span class="key k-viewer"></span>flagged player</span><span><span class="key k-ray"></span>crosshair direction</span><span><span class="key k-decoy"></span>decoy (sent only to this player, never visible to them)</span><span><span class="key k-wall"></span>occluder</span></p>
+  {{with $.ReplayNote}}<p class="replay-note">{{.}}</p>{{end}}
+  </div>
   {{end}}
-  {{with .ReplayNote}}<p class="muted">{{.}}</p>{{end}}
+  </div>
   <details><summary>Knowledge model</summary><p class="muted">{{.Knowledge}}</p></details>
 </div>
 {{end}}

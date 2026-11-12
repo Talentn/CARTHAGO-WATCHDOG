@@ -58,6 +58,16 @@ func TestDecoyReactionExplanation(t *testing.T) {
 			t.Errorf("evidence page lacks %q", want)
 		}
 	}
+	// The card is laid out like the leak card: moments beside the replay, the replay's own
+	// key, and no pills.
+	for _, want := range []string{`<div class="leak-split">`, `<p class="replay-key">`, `<span class="key k-decoy"></span>decoy`, `<p class="replay-note">`, `<span class="tag mono">`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("decoy card lacks %s", want)
+		}
+	}
+	if strings.Contains(body, `class="pill`) || strings.Contains(body, "Knowledge model:") {
+		t.Error("decoy card still carries the old pills or repeats the knowledge sentence under each moment")
+	}
 	if strings.Contains(body, "Raw finding") || strings.Contains(body, "style=") || strings.Contains(body, "<script") {
 		t.Error("decoy evidence fell back to raw JSON, or needs inline style or script")
 	}
