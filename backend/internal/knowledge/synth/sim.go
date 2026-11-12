@@ -466,12 +466,12 @@ func (s *sim) think(p *simPlayer) {
 		}
 	case role == RoleSound:
 		var best *heard
-		for _, h := range p.heard {
-			if s.now-h.at < 2.5 {
+		bestSlot := uint32(0)
+		for slot, h := range p.heard {
+			// Ties go to the lower slot: map order is random and the simulation must replay.
+			if s.now-h.at < 2.5 && (best == nil || h.at > best.at || (h.at == best.at && slot < bestSlot)) {
 				h := h
-				if best == nil || h.at > best.at {
-					best = &h
-				}
+				best, bestSlot = &h, slot
 			}
 		}
 		if best != nil {
