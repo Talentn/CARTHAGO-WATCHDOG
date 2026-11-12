@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -120,8 +121,33 @@ func TestHandshakeGate(t *testing.T) {
 	if g.total != 0 || len(g.perIP) != 0 {
 		t.Fatalf("gate not empty: %d %v", g.total, g.perIP)
 	}
-	if remoteIP("203.0.113.9:4411") != "203.0.113.9" || remoteIP("[2001:db8::1]:80") != "2001:db8::1" {
+	if remoteIP("203.0.113.9:4411") != "203.0.113.9" || remoteIP("[::ffff:203.0.113.9]:4411") != "203.0.113.9" {
 		t.Fatal("remoteIP")
+	}
+	// One IPv6 subscriber owns a whole /64: all of its addresses share one budget.
+	if a, b := remoteIP("[2001:db8:1:2:aaaa::1]:80"), remoteIP("[2001:db8:1:2:bbbb::9]:443"); a != b || a != "2001:db8:1:2::/64" {
+		t.Fatalf("IPv6 addresses of one /64 counted separately: %q %q", a, b)
+	}
+	if remoteIP("[2001:db8:1:3::1]:80") == remoteIP("[2001:db8:1:2::1]:80") {
+		t.Fatal("different /64s share a budget")
+	}
+}
+
+// The start-rate table must not grow without bound when handshakes arrive from more
+// addresses than it can hold.
+func TestHandshakeGateTableIsBounded(t *testing.T) {
+	g := newHandshakeGate(1<<30, 4)
+	now := time.Unix(1_700_000_000, 0)
+	g.now = func() time.Time { return now }
+	for i := range maxStartBuckets + 5000 {
+		ip := fmt.Sprintf("10.%d.%d.%d", i>>16, i>>8&255, i&255)
+		if !g.acquire(ip) {
+			t.Fatalf("address %d refused", i)
+		}
+		g.release(ip)
+	}
+	if n := len(g.started); n > maxStartBuckets {
+		t.Fatalf("start-rate table holds %d addresses (limit %d)", n, maxStartBuckets)
 	}
 }
 

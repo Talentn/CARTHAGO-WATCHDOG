@@ -65,11 +65,24 @@ func newHandshakeGate(max, maxPerIP int) *handshakeGate {
 		burst: float64(2 * maxPerIP), perSecond: float64(maxPerIP) / 16, now: time.Now}
 }
 
+// maxStartBuckets bounds the per-address start-rate table.
+const maxStartBuckets = 50_000
+
+// remoteIP is the key handshakes are counted under: the IPv4 address, or the /64 of an IPv6
+// address (one subscriber holds a whole /64, so counting single IPv6 addresses limits nothing).
 func remoteIP(remoteAddr string) string {
-	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
 		return host
 	}
-	return remoteAddr
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
 func (h *handshakeGate) acquire(ip string) bool {
@@ -81,11 +94,17 @@ func (h *handshakeGate) acquire(ip string) bool {
 	now := h.now()
 	b := h.started[ip]
 	if b == nil {
-		if len(h.started) >= 50_000 {
+		if len(h.started) >= maxStartBuckets {
 			for k, o := range h.started {
 				if now.Sub(o.last).Seconds()*h.perSecond >= h.burst {
 					delete(h.started, k)
 				}
+			}
+			// Nothing has refilled: the table is full of addresses seen moments ago. Start it
+			// again rather than grow without bound; the limits on handshakes in progress
+			// still hold.
+			if len(h.started) >= maxStartBuckets {
+				clear(h.started)
 			}
 		}
 		b = &startBucket{tokens: h.burst, last: now}
