@@ -37,6 +37,11 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		return err
 	}
+	// A database written by a newer gateway may have columns and meanings this version does
+	// not know; running on it could corrupt it quietly.
+	if v > len(migrations.SQLite) {
+		return fmt.Errorf("database schema version %d is newer than this gateway understands (%d); upgrade the gateway or restore a matching database", v, len(migrations.SQLite))
+	}
 	for i, m := range migrations.SQLite {
 		if i < v {
 			continue

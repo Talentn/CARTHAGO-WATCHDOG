@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,5 +98,30 @@ func TestSQLiteMigratesPhase0Database(t *testing.T) {
 			t.Fatalf("migrated device %+v %v", d, err)
 		}
 		s.Close()
+	}
+}
+
+// A database from a newer gateway is refused rather than opened and written with an older
+// idea of the schema.
+func TestSQLiteRefusesNewerSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "newer.db")
+	s, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations.SQLite)+1)); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if s, err := OpenSQLite(path); err == nil {
+		s.Close()
+		t.Fatal("opened a database with a newer schema version")
+	} else if !strings.Contains(err.Error(), "newer than this gateway") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
