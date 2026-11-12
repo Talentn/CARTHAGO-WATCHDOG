@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -110,7 +111,20 @@ func TestTLS12ClientRejected(t *testing.T) {
 }
 
 func TestIsLoopbackListen(t *testing.T) {
-	for addr, want := range map[string]bool{"127.0.0.1:8750": true, "[::1]:8750": true, "localhost:1": true, "0.0.0.0:8750": false, ":8750": false, "10.0.0.5:443": false} {
+	real := lookupIP
+	t.Cleanup(func() { lookupIP = real })
+	// A name is loopback only if everything it resolves to is.
+	lookupIP = func(host string) ([]net.IP, error) {
+		switch host {
+		case "localhost":
+			return []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, nil
+		case "rebound":
+			return []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("203.0.113.7")}, nil
+		}
+		return nil, errors.New("no such host")
+	}
+	for addr, want := range map[string]bool{"127.0.0.1:8750": true, "[::1]:8750": true, "localhost:1": true, "0.0.0.0:8750": false, ":8750": false,
+		"10.0.0.5:443": false, "rebound:8750": false, "unknown-host:8750": false, "no-port": false} {
 		if IsLoopbackListen(addr) != want {
 			t.Errorf("%s: want %v", addr, want)
 		}

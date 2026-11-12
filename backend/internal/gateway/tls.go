@@ -92,15 +92,27 @@ func LoadOrCreateDevCert(dir string) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(certPath, keyPath)
 }
 
-// IsLoopbackListen reports whether a listen address only accepts local connections.
+var lookupIP = net.LookupIP
+
+// IsLoopbackListen reports whether a listen address only accepts local connections. A host
+// name counts only if every address it resolves to is loopback: "localhost" is whatever the
+// hosts file says it is.
 func IsLoopbackListen(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
+	if err != nil || host == "" {
 		return false
 	}
-	if host == "localhost" {
-		return true
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	ips, err := lookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			return false
+		}
+	}
+	return true
 }
