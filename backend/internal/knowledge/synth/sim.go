@@ -422,12 +422,15 @@ func (s *sim) think(p *simPlayer) {
 			want, tracking, tau = &a, e, 0.1
 		}
 	case role == RoleSound:
+		// Two sounds can share a tick, and map order is random: the lower slot wins the
+		// tie, so that a seed always plays the same match.
 		var best *heard
-		for _, h := range p.heard {
+		var bestSlot uint32
+		for slot, h := range p.heard {
 			if s.now-h.at < 2.5 {
 				h := h
-				if best == nil || h.at > best.at {
-					best = &h
+				if best == nil || h.at > best.at || (h.at == best.at && slot < bestSlot) {
+					best, bestSlot = &h, slot
 				}
 			}
 		}
