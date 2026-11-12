@@ -148,6 +148,7 @@ pub unsafe extern "C" fn carthago_init(cfg: *const CarthagoConfig) -> i32 {
             log,
             mitigations: mitigation_profile(cfg.flags),
             input_monitor: cfg.flags & CARTHAGO_FLAG_NO_INPUT_MONITOR == 0,
+            jobs: None,
         };
         match Runtime::start(config) {
             Ok(rt) => {
