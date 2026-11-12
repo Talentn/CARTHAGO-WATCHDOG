@@ -3,9 +3,10 @@
 // analyzer state (so it needs no locks) and writes evidence, telemetry and match progress.
 //
 // The queue is bounded. A full queue drops heartbeat analysis (the heartbeat itself was
-// already acknowledged; only its telemetry is lost and counted) and answers gameplay batches
-// with "busy" so the game server retries the same batch_seq later. Nothing on the client's
-// heartbeat path ever waits on the database.
+// already acknowledged; only its telemetry is lost, counted, and logged once a minute) and
+// answers gameplay batches with "busy" so the game server retries the same batch_seq later.
+// Heartbeat analysis never waits on the database here; the gateway's session manager does
+// write the session row once per heartbeat on the connection's own goroutine.
 package pipeline
 
 import (
@@ -45,7 +46,10 @@ type Config struct {
 	// ClientIdle and MatchIdle bound how long analyzer state is kept without traffic.
 	ClientIdle time.Duration
 	MatchIdle  time.Duration
-	Now        func() time.Time
+	// MaxMatchesPerTenant bounds the matches one tenant may have open at once (a match is
+	// open until its match_over batch or MatchIdle without traffic).
+	MaxMatchesPerTenant int
+	Now                 func() time.Time
 }
 
 func (c *Config) defaults() {
@@ -63,6 +67,9 @@ func (c *Config) defaults() {
 	}
 	if c.MatchIdle == 0 {
 		c.MatchIdle = 30 * time.Minute
+	}
+	if c.MaxMatchesPerTenant == 0 {
+		c.MaxMatchesPerTenant = 4096
 	}
 	if c.Now == nil {
 		c.Now = time.Now
@@ -86,13 +93,16 @@ type Pipeline struct {
 	dropped atomic.Uint64
 
 	// worker-owned
-	clients map[string]*clientState
-	matches map[[2]string]*matchState
+	clients       map[string]*clientState
+	matches       map[[2]string]*matchState
+	openMatches   map[string]int // per tenant
+	droppedLogged uint64
 }
 
 type clientState struct {
 	an            analyzer.ClientState
 	seen          map[string]bool
+	flooded       bool
 	findingsTotal uint64
 	mitApplied    uint64
 	mitFailed     uint64
@@ -106,8 +116,9 @@ type matchState struct {
 	lastSeen time.Time
 }
 
-// maxSeenPerSession caps client-evidence dedupe keys per session; a client spraying unique
-// findings cannot grow server memory without bound.
+// maxSeenPerSession caps the distinct pieces of client evidence recorded per session, whatever
+// their severity: a client spraying unique findings can grow neither server memory nor the
+// evidence table without bound. The session gets one low-severity note when the cap is hit.
 const maxSeenPerSession = 1024
 
 func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker, log *slog.Logger) *Pipeline {
@@ -115,7 +126,7 @@ func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker
 	p := &Pipeline{
 		cfg: cfg, st: st, sessions: sessions, kick: kick, log: log,
 		q: make(chan func(), cfg.QueueSize), stop: make(chan struct{}), done: make(chan struct{}),
-		clients: map[string]*clientState{}, matches: map[[2]string]*matchState{},
+		clients: map[string]*clientState{}, matches: map[[2]string]*matchState{}, openMatches: map[string]int{},
 	}
 	go p.run()
 	return p
@@ -215,10 +226,17 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		if cs.seen[key] {
 			return
 		}
-		if len(cs.seen) >= maxSeenPerSession && e.Severity == analyzer.SeverityInfo {
-			return
+		if len(cs.seen) >= maxSeenPerSession {
+			if cs.flooded {
+				return
+			}
+			cs.flooded = true
+			e = analyzer.Evidence{Rule: "evidence_flood", Severity: analyzer.SeverityLow, Score: 0.5,
+				Summary: fmt.Sprintf("more than %d distinct findings in one session; further ones are not recorded", maxSeenPerSession)}
+			raw = ""
+		} else {
+			cs.seen[key] = true
 		}
-		cs.seen[key] = true
 		evs = append(evs, store.Evidence{
 			TenantID: sess.TenantID, PlayerHash: sess.PlayerHash, SessionID: sess.SessionID, Source: store.SourceClient,
 			Rule: e.Rule, Severity: int(e.Severity), Score: e.Score, Integrity: e.Integrity, Summary: e.Summary, Raw: raw, ObservedAt: at,
@@ -236,7 +254,12 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			continue
 		}
 		raw, _ := json.Marshal(map[string]any{"job": f.Job, "code": pb.FindingCode(f.Code).String(), "a": fmt.Sprintf("%#x", f.A), "b": fmt.Sprintf("%#x", f.B), "detail": f.Detail})
-		add(fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail), e, string(raw))
+		key := fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail)
+		if e.Severity == analyzer.SeverityInfo {
+			// One informational row per rule and module, not one per address.
+			key = fmt.Sprintf("i|%d|%s", f.Code, f.Detail)
+		}
+		add(key, e, string(raw))
 	}
 	for _, e := range p.cfg.Rules.Heartbeat(&cs.an, hb, at) {
 		add("h|"+e.Rule, e, "")
@@ -296,15 +319,20 @@ func telemetry(id string, hb *pb.Heartbeat, cs *clientState, at time.Time) *stor
 
 func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (bool, error) {
 	ctx := context.Background()
+	key := [2]string{tenant, b.MatchId}
+	ms := p.matches[key]
+	// Refused before the batch advances the match, so it can be sent again later.
+	if ms == nil && p.openMatches[tenant] >= p.cfg.MaxMatchesPerTenant {
+		return false, fmt.Errorf("tenant has %d matches open (limit %d); end matches with match_over", p.openMatches[tenant], p.cfg.MaxMatchesPerTenant)
+	}
 	fresh, err := p.st.AdvanceMatch(ctx, tenant, b.MatchId, b.BatchSeq, at, b.MatchOver)
 	if err != nil || !fresh {
 		return false, err
 	}
-	key := [2]string{tenant, b.MatchId}
-	ms := p.matches[key]
 	if ms == nil {
 		ms = &matchState{m: analyzer.NewMatch(p.cfg.Rules), reported: map[string]bool{}, sessions: map[uint32]store.Session{}}
 		p.matches[key] = ms
+		p.openMatches[tenant]++
 	}
 	ms.lastSeen = at
 	for _, mp := range b.Players {
@@ -354,9 +382,19 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 		}
 	}
 	if b.MatchOver {
-		delete(p.matches, key)
+		p.closeMatch(key)
 	}
 	return true, nil
+}
+
+func (p *Pipeline) closeMatch(key [2]string) {
+	if _, open := p.matches[key]; !open {
+		return
+	}
+	delete(p.matches, key)
+	if p.openMatches[key[0]]--; p.openMatches[key[0]] <= 0 {
+		delete(p.openMatches, key[0])
+	}
 }
 
 func (p *Pipeline) prune() {
@@ -368,7 +406,11 @@ func (p *Pipeline) prune() {
 	}
 	for k, m := range p.matches {
 		if now.Sub(m.lastSeen) > p.cfg.MatchIdle {
-			delete(p.matches, k)
+			p.closeMatch(k)
 		}
+	}
+	if d := p.dropped.Load(); d != p.droppedLogged {
+		p.log.Warn("heartbeat analyses dropped: the analysis queue was full", "since_last_report", d-p.droppedLogged, "total", d, "queue_size", p.cfg.QueueSize)
+		p.droppedLogged = d
 	}
 }
