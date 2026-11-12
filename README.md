@@ -36,7 +36,7 @@ players ranked by risk, and the evidence behind each detection.</sub>
 | **Pinned transport** | Clients and game servers reach the gateway over rustls TLS 1.3 only, accepting the server only if the SHA-256 of its public key (SPKI) matches a pinned value, with a backup pin for rotation. The handshake is also signed by a gateway identity key pinned in the client, and after it every message rides an AEAD channel whose keys are bound to the handshake transcript, with strict sequence numbers. |
 | **Heartbeat deadlines** | A client that stops reporting is kicked by the server. The game server's watch channel delivers the kick even when it starts watching late. |
 | **Client integrity scans** | Module inventory; executable memory with no backing image; thread start addresses; timing and loader API integrity; graphics-module `.text` compared with disk; external process handles; overlay windows; debugger signals; known-vulnerable drivers; time-source samples; injected-input counters. Plus a mitigation-policy profile applied at startup. |
-| **Server-side detections** | Snap-and-lock aim; headshot rate against an MMR baseline (binomial z-test); time-to-damage against the lobby (robust z-score); sustained command rate; trigger-interval regularity; time-source divergence; scanner stalls. Client findings are classified against an allowlist of common overlays and capture tools (Steam, Discord, OBS, RTSS, NVIDIA). |
+| **Server-side detections** | Snap-and-lock aim; headshot rate against an MMR baseline (exact binomial test); time-to-damage against the lobby (robust z-score); sustained command rate; trigger-interval regularity; time-source divergence; scanner stalls. Client findings are classified against an allowlist of common overlays and capture tools (Steam, Discord, OBS, RTSS, NVIDIA). |
 | **Studio dashboard** | Sessions and trust levels, flagged players ranked by severity × confidence, a per-player history and the raw evidence for every verdict. Read-only, tenant-isolated, and served on its own listener. |
 | **No false-ban defaults** | Behavioural evidence is advisory and goes to review. Automatic kicks can be enabled only for critical client-integrity evidence, and are off by default. |
 
@@ -140,11 +140,15 @@ go run ./cmd/carthago-gateway -data gateway-data
 Useful flags: `-tenant id=server-key` and `-dashboard-key id=login-key` (both repeatable),
 `-store memory`, `-auto-kick` (critical integrity evidence only),
 `-dashboard-listen ""` (disables the dashboard), `-dashboard-secure-cookie` (behind HTTPS),
-and `-hb-interval` / `-hb-timeout`. For `wss://`, pass `-tls-cert` / `-tls-key` or
+`-hb-interval` / `-hb-timeout`, `-max-handshakes` / `-max-handshakes-per-ip` (raise the
+per-address limit behind a proxy or load balancer, where every player shares one address),
+and `-dashboard-host` (the host names the dashboard answers to). For `wss://`, pass `-tls-cert` / `-tls-key` or
 `-tls-dev-cert` (a self-signed certificate kept in `-data`), plus `-tls-backup-pin` for the next
 key. The pins are published in `public-keys.json` as `tls_spki_sha256`; the gateway refuses
-plaintext on non-loopback addresses. `-ek-roots-dir` adds extra EK root CAs (for example a
-development swtpm CA).
+plaintext on non-loopback addresses, and it does not start there with the demo keys or with a
+dashboard that is served without `-dashboard-secure-cookie`. `-ek-roots-dir` adds extra EK
+root CAs (for example a development swtpm CA); a TPM certified by such a root reaches trust 2
+and 3 exactly like one certified by a manufacturer, so keep test roots off production gateways.
 
 To fill the dashboard with synthetic traffic:
 
@@ -216,6 +220,11 @@ let (kicks, events) = KickListener::start("wss://gateway.example.com/v1/gs", SER
 kicks.watch(&claims.session_id);                       // events yields GsEvent::Kick { session_id, reason, .. }
 ```
 
+If the connection to the gateway is lost, the session state becomes
+`CARTHAGO_STATE_DISCONNECTED` and the SDK does not reconnect by itself: poll
+`carthago_get_status` and call `carthago_begin_session` again. Callbacks run on the SDK's
+thread and may call any SDK function, including `carthago_shutdown`.
+
 For the behavioural rules, record gameplay with `MatchRecorder` (view angles, shots,
 visibility changes, command counts, trigger timestamps) and send each flushed batch through
 `GameplayStream` (it takes the same pins). `send` never blocks the tick.
@@ -232,7 +241,10 @@ visibility changes, command counts, trigger timestamps) and send each flushed ba
 
 ## Performance budgets
 
-Overhead is a product feature, and the budgets are enforced by design rather than hoped for.
+Overhead is a product feature. The CPU and slice budgets are enforced by the scheduler at run
+time. The others are design targets: the frame-time budget in particular has not been
+demonstrated on real hardware yet, and none of the numbers below is re-measured by the
+automated tests (the scheduler's enforcement tests need native Windows).
 
 | Budget | Target | How it is held |
 | --- | --- | --- |
@@ -264,7 +276,8 @@ observer that can be lied to, never as an authority.
 - The handshake proves possession of that key over a transcript signed by the pinned
   gateway identity.
 - Trust levels 2 and 3 require the EK certificate to match the TPM and to chain to a bundled
-  TPM vendor root; an invalid or expired chain caps the session at trust 1.
+  TPM vendor root (or a root the operator added with `-ek-roots-dir`), checked in the same
+  handshake; an invalid or expired chain caps the session at trust 1.
 - TPM evidence raises the session's trust level. Studios gate ranked queues on the trust
   level carried in the token.
 
@@ -292,13 +305,20 @@ server-side behavioural rules, while attestation closes the cheap kernel paths (
 signing, kernel debugging, HVCI off).
 
 **False bans.** Statistical evidence is flag-for-review only. The overlay and capture-tool
-allowlist keeps common software from being flagged. Automatic action is opt-in and limited
-to critical integrity evidence.
+allowlist keeps common software from being flagged; it matches file names only, so it is a
+false-positive filter, not a security boundary. Automatic action is opt-in and limited to
+critical integrity evidence, which today means two things: a writable executable region
+that carries a PE header, and a clock that runs at a different rate from the kernel's in two
+consecutive measurement windows. Graphics hooks, injected input, external handles and
+vulnerable drivers never kick.
 
 **Privacy.**
 - The client reports codes, addresses, sizes and module or process *base names*, never
   memory contents, full paths, screenshots or keystrokes.
-- Only derived attestation booleans are stored, not raw boot logs.
+- Raw boot logs and EK certificates are not stored. What is kept from attestation: the
+  device and attestation public keys, a SHA-256 of the TPM's endorsement key (a stable
+  hardware identifier, used to bind the device), the EK chain status and the derived
+  boot-state flags.
 - Player identifiers are studio-side HMACs of platform IDs.
 
 ---

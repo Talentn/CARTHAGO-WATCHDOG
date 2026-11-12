@@ -1,5 +1,6 @@
 /* carthago_sentinel.h: Carthago Sentinel, the Carthago Watchdog client SDK C ABI, version 1. Mirrors client/crates/carthago-sentinel.
- * Hand-written for Phase 0; cbindgen generates it (and is diffed against it) from Phase 1.
+ * Hand-written: no generator or test checks it against the Rust source yet, so a change to
+ * either side has to be mirrored by hand.
  *
  * Threading: carthago_tick may be called from the game thread every frame; it never blocks.
  * Callbacks run on the SDK's own thread; keep them short and thread-safe. A callback may call

@@ -20,8 +20,8 @@ One WebSocket (`/v1/client`). Every binary message is one frame whose first byte
 | `0x02` Challenge | protobuf `Challenge`, plaintext |
 | `0x03` Sealed | `seq` (u64 BE) followed by ChaCha20-Poly1305 ciphertext and tag of a `ClientMsg` or `ServerMsg` |
 
-Phase 0 runs `ws://` on loopback. TLS 1.3 with SPKI pinning goes on top in Phase 1 (§5.1). The
-handshake doesn't depend on TLS: the server identity key is pinned in the client, and all
+`ws://` is accepted on loopback only; everywhere else the socket is `wss://`, TLS 1.3 with SPKI
+pinning (§5.1). The handshake doesn't depend on TLS: the server identity key is pinned in the client, and all
 traffic after the Challenge is AEAD under ephemeral keys.
 
 ## Handshake
@@ -86,7 +86,7 @@ leeway on `iat` and `exp`. The TTL is 15 minutes, and the gateway renews the tok
 | 3 `quote_verified` | the quote is bound to this handshake and the WBCL replays to it |
 | 4-9 | from the verified log: Secure Boot on, HVCI on, test-signing off, kernel debug off, boot debug off, code integrity on |
 | 10 `ek_cert_matches` | an EK certificate for this EK was found (NV or the manufacturer service) |
-| 11 `ek_chain_verified` | the EK certificate chains to a bundled manufacturer root (Intel, AMD, Infineon, STMicro, Nuvoton) |
+| 11 `ek_chain_verified` | the EK certificate chains, in this handshake, to a bundled manufacturer root (Intel, AMD, Infineon, STMicro, Nuvoton) or to a root the operator added with `-ek-roots-dir` |
 | 12 `ek_chain_unknown_vendor` | an EK certificate exists, but no issuer path reaches a bundled root (unbundled vendor, self-issued, or missing intermediate) |
 | 13 `ek_chain_invalid` | the EK certificate does not certify this EK, or a signature, CA constraint or validity period on its chain fails |
 
@@ -100,7 +100,8 @@ holds (bits 0-11). Bit 13 caps the level at 1 whatever else is set. A software k
 
 `/v1/gs` WebSocket, authenticated with `Authorization: Bearer <tenant server key>`. It carries
 `GsClientMsg{Watch|Unwatch}` and `GsServerMsg{Kick|WatchAck}`, one protobuf message per binary
-frame. The gateway pushes `Kick` when a watched session misses its heartbeat deadline.
+frame. The gateway pushes `Kick` when a watched session misses its heartbeat deadline, breaks
+the protocol, or (with `-auto-kick`) produces critical integrity evidence.
 
 ## Heartbeat telemetry (Phase 1)
 
@@ -123,3 +124,18 @@ server sends one `GameplayBatch` per binary frame (per-match slots, view-angle t
 visibility transitions, command counts, semi-auto trigger timestamps) and the gateway answers
 each with an `IngestAck`. `batch_seq` must increase per match; a duplicate or older batch is
 acknowledged with `accepted=false` and dropped.
+
+## Limits
+
+The gateway refuses what exceeds these; the SDKs stay well inside them.
+
+- Client frames: Hello 512 KiB, Prove 4 MiB, anything after the handshake 128 KiB. Gameplay
+  batches: 1 MiB. The client and the game-server SDK refuse gateway messages above 1 MiB.
+- Hello: `player_id_hash` is 1-128 bytes of printable ASCII without spaces; `sdk_version`,
+  `build_id` and the environment strings are at most 128 bytes; at most 8 EK certificates
+  and 16 chain certificates of at most 16 KiB each.
+- Heartbeat: at most 128 findings with a `detail` of at most 64 bytes, and 64 coverage
+  entries. A session that sends more is ended.
+- Gameplay batch: `tick_rate` at most 1000; slots 0-255; `session_id` and `player_hash` at
+  most 128 bytes; yaw and pitch tracks of equal length. A batch that breaks these is
+  refused in its `IngestAck` and does not advance the match.
