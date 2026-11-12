@@ -35,6 +35,8 @@ body { margin: 0; background: var(--page); color: var(--text); font: 400 14px/20
 /* Links keep the text colour: amber on every id would stop it meaning "keep watching". */
 a { color: inherit; text-decoration: underline 1px var(--line-3); text-underline-offset: 3px; }
 a:hover { text-decoration-color: var(--accent); }
+/* One focus ring for links, buttons, inputs and the disclosure, visible on every surface. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 h1 { margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; }
 h2 { margin: 0 0 12px; font-size: 14px; line-height: 20px; font-weight: 500; }
 h3 { margin: 24px 0 8px; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--text-2); }
@@ -51,11 +53,11 @@ a.mono, span.mono { line-height: 1; }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; text-decoration: none; }
 .brand b { color: var(--accent); font-weight: 600; }
 .top nav { display: flex; gap: 4px; flex: 1; }
-.top nav a { color: var(--muted); padding: 6px 12px; border-radius: 8px; text-decoration: none; }
+.top nav a { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 8px; color: var(--muted); text-decoration: none; }
 .top nav a:hover { color: var(--text); }
 .top nav a.on { color: var(--text); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
 .who { display: flex; align-items: center; gap: 16px; font-size: 13px; }
-.tenant { background: var(--raised); border: 1px solid var(--line); padding: 4px 8px; border-radius: 999px; line-height: 16px; }
+.tenant { color: var(--text-2); }
 .who form { margin: 0; }
 button.link { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; padding: 0; }
 button.link:hover { color: var(--text); }
@@ -72,7 +74,7 @@ main.wrap { padding-top: 24px; padding-bottom: 32px; }
 .kpi + .kpi { border-left: 1px solid var(--line); }
 .kpi > span:first-child { color: var(--muted); font-size: 13px; }
 .kpi b { font: 400 28px/32px var(--mono); }
-.kpi b.small { font: 400 16px/32px var(--sans); }
+.kpi .trust { font-size: 16px; line-height: 32px; }
 .kpi small { color: var(--muted); line-height: 16px; }
 .kpi.warn b { color: var(--accent); }
 
@@ -86,7 +88,7 @@ table { width: 100%; border-collapse: collapse; }
 /* Cells keep 12px of side padding; the table is pulled out by the same amount so cell text
    starts on the card title's left edge. Rows are 36px. */
 .card table { width: calc(100% + 24px); margin: 0 -12px; }
-th { text-align: left; font-weight: 400; color: var(--muted); font-size: 12px; line-height: 16px; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { text-align: left; font-weight: 400; color: var(--muted); font-size: 12px; line-height: 16px; padding: 8px 12px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
 td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr:hover td { background: var(--raised); }
 tbody tr:last-child td { border-bottom: 0; }
@@ -104,20 +106,32 @@ table.compact td { padding: 6px 12px; }
 
 /* Marks: a dot and a word, so nothing depends on colour alone. Red is "act on this", amber
    is "keep watching", everything else is neutral. */
-.sev, .tier, .state { display: inline-block; white-space: nowrap; text-transform: capitalize; }
-.sev::before, .tier::before, .state::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--muted); }
-.sev-info, .sev-none, .tier-clear, .st-closed { color: var(--muted); }
-.sev-info::before, .sev-none::before, .tier-clear::before, .st-closed::before { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.sev, .tier, .state, .mark { display: inline-block; white-space: nowrap; }
+.sev, .tier, .state { text-transform: capitalize; }
+.sev::before, .tier::before, .state::before, .mark::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--muted); }
+.sev-info, .sev-none, .tier-clear, .st-closed, .mark-clear { color: var(--muted); }
+.sev-info::before, .sev-none::before, .tier-clear::before, .st-closed::before, .mark-clear::before { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .sev-low { color: var(--text-2); }
-.sev-medium::before, .tier-watch::before { background: var(--accent); }
+.sev-medium::before, .tier-watch::before, .mark-watch::before { background: var(--accent); }
 .sev-high::before, .sev-critical::before, .tier-review::before, .st-kicked::before { background: var(--act); }
 .sev-critical { color: var(--act); font-weight: 500; }
 .tier-review { font-weight: 500; }
 .st-active::before { background: var(--text-2); }
 
-.trust, .pill { display: inline-block; font-size: 12px; line-height: 16px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; color: var(--text-2); background: var(--raised); border: 1px solid var(--line); }
-dd .pill { margin: 2px 0; }
-.pill.bad { color: var(--act); border-color: var(--act-line); }
+.bad { color: var(--act); font-weight: 500; }
+
+/* Tags label a thing (a boot flag, a mitigation, a segment); they are not statuses. */
+.tag { display: inline-block; padding: 0 6px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 12px; line-height: 18px; color: var(--text-2); white-space: nowrap; }
+.tag.bad { border-color: var(--act-line); color: var(--act); font-weight: 400; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* Trust pips: three bars filled to the trust level (0 to 3), beside the level's name. The
+   same mark is used wherever a trust level appears. */
+.trust { white-space: nowrap; --pip-1: var(--line-2); --pip-2: var(--line-2); --pip-3: var(--line-2); }
+.trust::before { content: ""; display: inline-block; width: 18px; height: 10px; margin-right: 8px; background: linear-gradient(90deg, var(--pip-1) 0 4px, transparent 4px 7px, var(--pip-2) 7px 11px, transparent 11px 14px, var(--pip-3) 14px 18px); }
+.trust.t1 { --pip-1: var(--text-2); }
+.trust.t2 { --pip-1: var(--text-2); --pip-2: var(--text-2); }
+.trust.t3 { --pip-1: var(--text-2); --pip-2: var(--text-2); --pip-3: var(--text-2); }
 
 .trustbar { width: 100%; height: 16px; border-radius: 8px; background: var(--raised); display: block; overflow: hidden; }
 /* One ramp, grey for software-only trust to green for hardware-attested. */
@@ -134,13 +148,13 @@ dl.kv dd { margin: 0; }
 /* The finding is the headline of an evidence record. */
 .lead { font-size: 20px; line-height: 28px; margin: 0 0 16px; max-width: 80ch; }
 pre { margin: 0; background: var(--inset); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; overflow-x: auto; font: 400 13px/20px var(--mono); font-variant-ligatures: none; }
-.tabs { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
-.tabs a { padding: 4px 12px; border-radius: 6px; font-size: 13px; color: var(--muted); text-decoration: none; }
-.tabs a.on { background: var(--raised); color: var(--text); }
+.tabs { display: inline-flex; gap: 2px; padding: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.tabs a { display: inline-flex; align-items: center; height: 26px; padding: 0 12px; border-radius: 6px; font-size: 13px; color: var(--muted); text-decoration: none; }
 .tabs a:hover { color: var(--text); }
+.tabs a.on { color: var(--text); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
 
 .login { min-height: 100vh; display: grid; place-items: center; padding: 24px 24px 12vh; }
-.login-card { width: 100%; max-width: 376px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 32px; }
+.login-card { width: 100%; max-width: 376px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 32px; }
 .login-brand { text-align: center; margin-bottom: 24px; }
 .login-brand h1 { margin-top: 12px; }
 .login-brand h1 b { color: var(--accent); font-weight: 600; }
@@ -148,24 +162,27 @@ pre { margin: 0; background: var(--inset); border: 1px solid var(--line); border
 .stack { display: flex; flex-direction: column; gap: 16px; }
 label { display: flex; flex-direction: column; gap: 8px; line-height: 16px; color: var(--text-2); font-size: 13px; }
 input { background: var(--inset); border: 1px solid var(--line-2); color: var(--text); border-radius: 8px; height: 40px; padding: 0 12px; font: 400 14px var(--sans); }
-input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+input:hover { border-color: var(--line-3); }
+input:focus-visible { outline-offset: 0; border-color: transparent; }
 button.primary { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 8px; height: 40px; padding: 0 16px; font: 500 14px var(--sans); cursor: pointer; }
 button.primary:hover { background: var(--accent-hi); }
+button.primary:active { transform: scale(0.98); }
 .alert { background: var(--raised); border: 1px solid var(--act-line); padding: 8px 12px; border-radius: 8px; margin: 0 0 16px; }
 
 /* Information-leak explanation */
-.leak .policy { background: var(--raised); color: var(--text-2); padding: 12px 16px; border-radius: 6px; margin: 16px 0 0; }
+.policy { margin: 16px 0 0; padding: 12px 16px; background: var(--raised); border-radius: 8px; font-size: 13px; color: var(--text-2); }
 /* Moments and the replay sit side by side when there is room: read a moment, see it drawn. */
 .leak-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 0 32px; align-items: start; }
 .moments { margin: 0; padding-left: 24px; }
 .moments li { margin: 0 0 12px; padding-left: 4px; color: var(--text-2); }
+.moments li::marker { font-family: var(--mono); font-size: 13px; color: var(--muted); }
 .moments .at { display: block; color: var(--text); }
 .moments .at .muted { margin-left: 8px; }
 .replay-note { margin: 0; font-size: 13px; color: var(--muted); }
 .moments li:last-child { margin-bottom: 0; }
 /* Replay: the flagged player's path in the text colour, where the crosshair pointed in amber
    (what to look at), the hidden target in red and dashed. */
-.replay { display: block; max-width: 100%; height: auto; background: var(--inset); border: 1px solid var(--line); border-radius: 10px; }
+.replay { display: block; max-width: 100%; height: auto; background: var(--inset); border: 1px solid var(--line); border-radius: 8px; }
 .rp-floor { fill: var(--page); }
 .rp-wall { fill: var(--wall); stroke: var(--line-2); stroke-width: 1; }
 .rp-ray { stroke: var(--accent); stroke-width: 1.2; stroke-opacity: .55; }
@@ -184,7 +201,11 @@ button.primary:hover { background: var(--accent-hi); }
 .k-ray { background: var(--accent); }
 .k-target { background: var(--act); }
 .k-wall { background: var(--wall); box-shadow: 0 0 0 1px var(--line-2); width: 8px; height: 8px; }
-details summary { cursor: pointer; font-size: 13px; color: var(--text-2); margin: 12px 0 8px; }
+details { margin-top: 16px; }
+summary { width: max-content; cursor: pointer; font-size: 13px; color: var(--text-2); }
+summary:hover { color: var(--text); }
+details[open] > summary { margin-bottom: 8px; }
+details p { margin: 0; max-width: 88ch; }
 
 @media (max-width: 720px) {
   .wrap { padding: 0 16px; }

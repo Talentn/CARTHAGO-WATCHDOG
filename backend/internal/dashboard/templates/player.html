@@ -8,7 +8,7 @@
   <div class="kpi"><span>Risk</span><b>{{risk $r.Risk}}</b><small>each finding's severity weighted by its confidence</small></div>
   <div class="kpi"><span>Evidence</span><b>{{$r.EvidenceCount}}</b><small>{{$r.Integrity}} from client integrity scans</small></div>
   <div class="kpi"><span>Sessions</span><b>{{$r.Sessions}}</b><small>{{if $r.Sessions}}latest started {{ago $r.LastSeen}}{{else}}none recorded{{end}}</small></div>
-  <div class="kpi"><span>Latest trust</span>{{if $r.Sessions}}<b class="small">{{trust $r.TrustLevel}}</b><small>{{trustDesc $r.TrustLevel}}</small>{{else}}<b>—</b><small>no session</small>{{end}}</div>
+  <div class="kpi"><span>Latest trust</span>{{if $r.Sessions}}<span class="trust t{{$r.TrustLevel}}">{{trust $r.TrustLevel}}</span><small>{{trustDesc $r.TrustLevel}}</small>{{else}}<b>—</b><small>no session</small>{{end}}</div>
 </section>
 <section class="card"><h2>Evidence</h2>{{template "evidencetable" $d.Evidence}}</section>
 <section class="card no-player"><h2>Sessions</h2>{{template "sessiontable" $d.Sessions}}</section>

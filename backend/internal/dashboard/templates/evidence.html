@@ -2,7 +2,7 @@
 {{$e := .Data}}
 <div class="head">
   <h1>Evidence #{{$e.ID}}</h1>
-  <span class="sev sev-{{sev $e.Severity}}">{{sev $e.Severity}}</span>{{if $e.Integrity}} <span class="pill">integrity</span>{{end}}
+  <span class="sev sev-{{sev $e.Severity}}">{{sev $e.Severity}}</span>{{if $e.Integrity}} <span class="tag">integrity</span>{{end}}
 </div>
 <section class="card">
   <p class="lead">{{$e.Summary}}</p>

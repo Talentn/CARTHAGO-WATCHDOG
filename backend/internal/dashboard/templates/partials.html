@@ -28,7 +28,7 @@
   {{range .}}
   <tr>
     <td><a class="mono" href="/evidence/{{.ID}}">{{.ID}}</a></td>
-    <td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>{{if .Integrity}} <span class="pill">integrity</span>{{end}}</td>
+    <td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>{{if .Integrity}} <span class="tag">integrity</span>{{end}}</td>
     <td class="mono">{{.Rule}}</td>
     <td>{{.Source}}{{if .MatchID}} <span class="mono muted">{{short .MatchID}}</span>{{end}}</td>
     <td class="sum">{{.Summary}}</td>
@@ -42,10 +42,10 @@
 {{end}}
 
 {{define "leak"}}
-<div class="leak">
+<div>
   <dl class="kv">
     <dt>Combined score</dt><dd><span class="mono">z = {{fixed 2 .Score}}</span> <small class="muted">flags at z ≥ {{fixed 1 .Threshold}} with an excess of at least {{fixed 2 .MinExcess}} over the controls</small></dd>
-    <dt>Segment</dt><dd><span class="pill">{{.Segment}}</span>{{if .AimAssist}} <span class="pill">aim assist</span>{{end}}{{if not .Calibrated}} <span class="pill bad">uncalibrated segment: fallback threshold</span>{{end}}</dd>
+    <dt>Segment</dt><dd><span class="tags"><span class="tag mono">{{.Segment}}</span>{{if .AimAssist}}<span class="tag">aim assist</span>{{end}}{{if not .Calibrated}}<span class="tag bad">uncalibrated segment: fallback threshold</span>{{end}}</span></dd>
     <dt>Target false-flag rate</dt><dd>{{fixed 1 (pctOf .TargetFPR)}}% of honest player-matches <small class="muted">(threshold set per segment)</small></dd>
     <dt>Map</dt><dd class="mono">{{.Map}}</dd>
   </dl>
@@ -56,7 +56,7 @@
     <tbody>{{range .Features}}<tr>
       <td class="mono">{{.Name}}</td><td>{{.Label}}</td><td class="num">{{fixed 2 .Z}}</td>
       <td class="num">{{fixed 3 .RateTrue}}</td><td class="num">{{fixed 3 .RateNull}}</td><td class="num">{{.Samples}}</td>
-      <td>{{if .Scored}}<span class="pill ok">scored</span>{{else if .Eligible}}<span class="pill">reported only</span>{{else}}<span class="pill">too few samples</span>{{end}}</td>
+      <td>{{if .Scored}}scored{{else if .Eligible}}<span class="muted">reported only</span>{{else}}<span class="muted">too few samples</span>{{end}}</td>
     </tr>{{end}}</tbody>
   </table>
   <div class="leak-split">
@@ -99,7 +99,7 @@
     <td class="mono">{{short .MatchID}}</td><td class="num">{{.Slot}}</td><td class="mono">{{.Mode}}</td><td class="mono">{{.MapID}}{{if .MapVersion}} v{{.MapVersion}}{{end}}</td>
     <td><span class="mono">{{.Device}}</span>{{if .AimAssist}} <small class="muted">aim assist</small>{{end}}</td>
     <td class="num">{{.Batches}}</td><td class="num">{{.MotionSamples}}</td><td class="num">{{.Sounds}}</td><td class="num">{{.Shots}}</td><td class="num">{{.DroppedEvents}}</td>
-    <td>{{if not .LeakScored}}<span class="muted">match in progress</span>{{else if .LeakFlagged}}<span class="sev sev-medium">flagged · z {{fixed 2 .LeakScore}}</span>{{else}}<span class="pill ok">clear · z {{fixed 2 .LeakScore}}</span>{{end}}</td>
+    <td>{{if not .LeakScored}}<span class="muted">match in progress</span>{{else if .LeakFlagged}}<span class="mark mark-watch">flagged · z {{fixed 2 .LeakScore}}</span>{{else}}<span class="mark mark-clear">clear · z {{fixed 2 .LeakScore}}</span>{{end}}</td>
   </tr>{{end}}</tbody>
 </table>
 {{else}}<p class="empty">No telemetry v2 gameplay linked to this session</p>{{end}}
