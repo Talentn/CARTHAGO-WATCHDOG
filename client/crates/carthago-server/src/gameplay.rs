@@ -229,6 +229,22 @@ impl MatchRecorder {
         }
     }
 
+    /// Marks a slot as driven by the game's own AI. Its telemetry is analysed and shown, and
+    /// never counts toward a player's risk. The gateway ignores the mark on a slot that names
+    /// a verified session.
+    pub fn bot(&mut self, slot: u32, bot: bool) {
+        let p = self.players.entry(slot).or_insert_with(|| pb::MatchPlayer { slot, ..Default::default() });
+        if p.bot != bot {
+            p.bot = bot;
+            self.players_dirty = true;
+        }
+    }
+
+    /// `n` user commands received from `slot` at once (see [`MatchRecorder::command`]).
+    pub fn commands(&mut self, slot: u32, n: u32) {
+        *self.commands.entry(slot).or_default() += n;
+    }
+
     /// Sets the current server tick. Command windows end at the tick current at flush.
     pub fn set_tick(&mut self, tick: u32) {
         if self.window_from == 0 && self.tick == 0 {
