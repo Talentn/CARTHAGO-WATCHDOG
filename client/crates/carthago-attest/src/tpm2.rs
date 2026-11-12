@@ -73,6 +73,12 @@ impl<'a> Reader<'a> {
 }
 
 /// Fixed TPM properties (`TPM_PT_FIXED` group), keyed by property tag.
+/// The handle that follows the 10-byte header of a successful response. A TPM (or a TBS
+/// filter in front of it) that answers success with a shorter body is an error, not a panic.
+fn response_handle(resp: &[u8], what: &'static str) -> Result<u32> {
+    Reader::new(resp.get(10..).unwrap_or_default(), what).u32()
+}
+
 pub(crate) fn fixed_properties(ch: Channel) -> Result<BTreeMap<u32, u32>> {
     let mut props = BTreeMap::new();
     let mut next = PT_FIXED;
@@ -242,7 +248,7 @@ fn ek_policy_session(ch: Channel, nonce_caller: [u8; 16]) -> Result<u32> {
     body.extend_from_slice(&ALG_NULL.to_be_bytes());
     body.extend_from_slice(&ALG_SHA256.to_be_bytes());
     let resp = ch.submit("TPM2_StartAuthSession", &command(ST_NO_SESSIONS, CC_START_AUTH_SESSION, &body))?;
-    let session = u32::from_be_bytes(resp[10..14].try_into().unwrap());
+    let session = response_handle(&resp, "TPM2_StartAuthSession")?;
 
     let mut body = Vec::new();
     body.extend_from_slice(&RH_ENDORSEMENT.to_be_bytes());
@@ -307,7 +313,13 @@ pub(crate) fn certify_with_ek(
     u16_prefixed(&mut body, &private);
     u16_prefixed(&mut body, object_public);
     let resp = ch.submit("TPM2_Load(EK parent)", &command(ST_SESSIONS, CC_LOAD, &body)).inspect_err(|_| flush(ch, session))?;
-    let hmac_key = u32::from_be_bytes(resp[10..14].try_into().unwrap());
+    let hmac_key = match response_handle(&resp, "TPM2_Load(EK parent)") {
+        Ok(h) => h,
+        Err(e) => {
+            flush(ch, session);
+            return Err(e);
+        }
+    };
 
     let result = (|| {
         let mut body = Vec::new();
@@ -486,4 +498,19 @@ pub(crate) fn nv_read(ch: Channel, index: u32, public: NvPublic, chunk: u16) -> 
         out.extend_from_slice(data);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_short_success_response_is_an_error() {
+        let mut resp = vec![0x80, 0x01, 0, 0, 0, 14, 0, 0, 0, 0, 0x02, 0x00, 0x00, 0x07];
+        assert_eq!(response_handle(&resp, "test").unwrap(), 0x0200_0007);
+        for len in [0, 9, 10, 13] {
+            resp.truncate(len);
+            assert!(response_handle(&resp, "test").is_err(), "{len} bytes");
+        }
+    }
 }
