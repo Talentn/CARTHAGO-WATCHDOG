@@ -2,7 +2,7 @@
 {{$d := .Data}}{{$r := $d.Row}}
 <div class="head">
   <h1>Player <span class="mono">{{short $r.PlayerHash}}</span></h1>
-  {{if $r.Bot}}<span class="pill" title="AI-driven slot: shown for reference, never counted toward risk">bot</span>{{else}}<span class="tier tier-{{tier $r.Risk}}">{{tier $r.Risk}}</span>{{end}}
+  {{if $r.Bot}}<span class="pill" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{else}}<span class="tier tier-{{tier $r.Risk}}">{{tier $r.Risk}}</span>{{end}}
 </div>
 {{if $r.Bot}}<p class="muted note">This is a bot slot reported by the game server. Its evidence shows how the rules read machine aim; it is excluded from risk and from the flagged list.</p>{{end}}
 <section class="kpis">

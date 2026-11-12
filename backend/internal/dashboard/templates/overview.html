@@ -43,7 +43,7 @@
   <ul class="feed">
     {{range $d.Recent}}
     <li><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>
-      <div><a href="/evidence/{{.ID}}"><b>{{.Rule}}</b></a> · <a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>{{if .Bot}} <span class="pill" title="AI-driven slot: shown for reference, never counted toward risk">bot</span>{{end}}
+      <div><a href="/evidence/{{.ID}}"><b>{{.Rule}}</b></a> · <a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>{{if .Bot}} <span class="pill" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{end}}
       <p>{{.Summary}}</p></div>
       <time class="muted">{{ago .ObservedAt}}</time></li>
     {{end}}

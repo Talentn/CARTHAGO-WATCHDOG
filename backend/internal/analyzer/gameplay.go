@@ -25,7 +25,7 @@ type Player struct {
 	SessionID  string
 	PlayerHash string
 	MMR        int32
-	Bot        bool // the game server says this slot is AI-driven
+	Bot        bool // the game server says this slot is computer-controlled
 
 	lastTick           uint32
 	lastYaw, lastPitch float64

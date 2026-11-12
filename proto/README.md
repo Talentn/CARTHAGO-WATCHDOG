@@ -139,7 +139,7 @@ is v1). `buf breaking` against the v1 schema passes.
 | Field | Content |
 | --- | --- |
 | `MatchPlayer.team`, `input_device`, `aim_assist` | Team membership; mouse and keyboard, controller or touch; whether the game assists this player's aim |
-| `MatchPlayer.bot` | The slot is driven by the game's own AI. Its telemetry is analysed and shown, labelled, and never counted toward a player's risk; ignored for a slot that names a verified session |
+| `MatchPlayer.bot` | The slot is controlled by the game itself (a bot). Its telemetry is analysed and shown, labelled, and never counted toward a player's risk; ignored for a slot that names a verified session |
 | `mode` | `GAME_MODE_COMPETITIVE_SHOOTER` or `GAME_MODE_EXTRACTION` |
 | `map` (`MapRef`) | `map_id` and `version` of the geometry the match is played on |
 | `map_geometry` | The geometry itself (occluder prisms, named zones, loot spawns), sent once with a match's first batch |

@@ -229,7 +229,7 @@ impl MatchRecorder {
         }
     }
 
-    /// Marks a slot as driven by the game's own AI. Its telemetry is analysed and shown, and
+    /// Marks a slot as controlled by the game itself (a bot). Its telemetry is analysed and shown, and
     /// never counts toward a player's risk. The gateway ignores the mark on a slot that names
     /// a verified session.
     pub fn bot(&mut self, slot: u32, bot: bool) {

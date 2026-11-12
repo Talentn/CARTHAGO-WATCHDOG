@@ -2,7 +2,7 @@
 {{$e := .Data}}
 <div class="head">
   <h1>Evidence #{{$e.ID}}</h1>
-  <span class="sev sev-{{sev $e.Severity}}">{{sev $e.Severity}}</span>{{if $e.Integrity}} <span class="pill">integrity</span>{{end}}{{if $e.Bot}} <span class="pill" title="AI-driven slot: shown for reference, never counted toward risk">bot</span>{{end}}
+  <span class="sev sev-{{sev $e.Severity}}">{{sev $e.Severity}}</span>{{if $e.Integrity}} <span class="pill">integrity</span>{{end}}{{if $e.Bot}} <span class="pill" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{end}}
 </div>
 <section class="card">
   <p class="lead">{{$e.Summary}}</p>

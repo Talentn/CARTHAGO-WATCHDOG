@@ -19,7 +19,7 @@ type Evidence struct {
 	Severity   int
 	Score      float64
 	Integrity  bool
-	// Bot marks gameplay evidence about an AI-driven slot. It is kept so a studio can see how
+	// Bot marks gameplay evidence about an Computer-controlled slot. It is kept so a studio can see how
 	// the rules read machine aim, and is excluded from every risk and flag count.
 	Bot        bool
 	Summary    string
@@ -71,7 +71,7 @@ type PlayerRow struct {
 	Integrity     int     // integrity (client-tamper) evidence count
 	Risk          float64 // see RiskWeight
 	TopRule       string  // rule of the highest-severity evidence
-	Bot           bool    // an AI-driven slot: evidence is shown, risk stays 0
+	Bot           bool    // an Computer-controlled slot: evidence is shown, risk stays 0
 }
 
 // Overview is the dashboard's headline numbers for a tenant.

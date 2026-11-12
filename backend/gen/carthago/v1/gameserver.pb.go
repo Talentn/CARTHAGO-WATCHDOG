@@ -618,7 +618,7 @@ type MatchPlayer struct {
 	Team        uint32      `protobuf:"varint,5,opt,name=team,proto3" json:"team,omitempty"`
 	InputDevice InputDevice `protobuf:"varint,6,opt,name=input_device,json=inputDevice,proto3,enum=carthago.v1.InputDevice" json:"input_device,omitempty"`
 	AimAssist   bool        `protobuf:"varint,7,opt,name=aim_assist,json=aimAssist,proto3" json:"aim_assist,omitempty"` // the game applies aim assistance to this player
-	// The slot is driven by the game's own AI, not a person. Its telemetry is analysed like
+	// The slot is controlled by the game itself (a bot), not a person. Its telemetry is analysed like
 	// anyone's (bots are a useful reference for what machine aim looks like), but evidence
 	// about it is labelled and never counts toward a player's risk. Ignored for a slot that
 	// names a verified session.

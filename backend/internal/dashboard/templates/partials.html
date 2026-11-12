@@ -28,7 +28,7 @@
   {{range .}}
   <tr>
     <td><a href="/evidence/{{.ID}}">{{.ID}}</a></td>
-    <td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>{{if .Integrity}} <span class="pill">integrity</span>{{end}}{{if .Bot}} <span class="pill" title="AI-driven slot: shown for reference, never counted toward risk">bot</span>{{end}}</td>
+    <td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>{{if .Integrity}} <span class="pill">integrity</span>{{end}}{{if .Bot}} <span class="pill" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{end}}</td>
     <td><b>{{.Rule}}</b></td>
     <td>{{.Source}}{{if .MatchID}} <small class="muted mono">{{short .MatchID}}</small>{{end}}</td>
     <td class="sum">{{.Summary}}</td>
