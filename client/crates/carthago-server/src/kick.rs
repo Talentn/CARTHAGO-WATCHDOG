@@ -35,14 +35,25 @@ impl KickListener {
     /// `server_key` is the tenant's server API key; `tls_pins` are the gateway's pinned TLS
     /// keys (SHA-256 of the SPKI), required for `wss://`.
     pub fn start(url: &str, server_key: &str, tls_pins: &[Pin]) -> (Self, Receiver<GsEvent>) {
+        let (url, key, pins) = (url.to_owned(), server_key.to_owned(), tls_pins.to_vec());
+        Self::start_with(move |cmd_rx, ev_tx| {
+            std::thread::Builder::new().name("carthago-gs-kick".into()).spawn(move || run(&url, &key, &pins, cmd_rx, ev_tx))
+        })
+    }
+
+    /// A listener whose thread could not be started (the process is out of threads or
+    /// memory) reports [`GsEvent::Disconnected`] once and stays disconnected; it does not
+    /// take the game server down.
+    fn start_with(spawn: impl FnOnce(Receiver<Cmd>, Sender<GsEvent>) -> std::io::Result<JoinHandle<()>>) -> (Self, Receiver<GsEvent>) {
         let (cmd_tx, cmd_rx) = channel();
         let (ev_tx, ev_rx) = channel();
-        let (url, key, pins) = (url.to_owned(), server_key.to_owned(), tls_pins.to_vec());
-        let thread = std::thread::Builder::new()
-            .name("carthago-gs-kick".into())
-            .spawn(move || run(&url, &key, &pins, cmd_rx, ev_tx))
-            .expect("spawn kick listener");
-        (Self { cmd: Some(cmd_tx), thread: Some(thread) }, ev_rx)
+        match spawn(cmd_rx, ev_tx.clone()) {
+            Ok(thread) => (Self { cmd: Some(cmd_tx), thread: Some(thread) }, ev_rx),
+            Err(e) => {
+                let _ = ev_tx.send(GsEvent::Disconnected(format!("kick listener thread not started: {e}")));
+                (Self { cmd: None, thread: None }, ev_rx)
+            }
+        }
     }
 
     pub fn watch(&self, session_id: &str) {
@@ -145,5 +156,23 @@ fn run(url: &str, key: &str, pins: &[Pin], cmd: Receiver<Cmd>, ev: Sender<GsEven
             }
         }
         let _ = ev.send(GsEvent::Disconnected("connection lost".into()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_listener_without_a_thread_reports_it_and_stays_usable() {
+        let (listener, events) = KickListener::start_with(|_, _| Err(std::io::Error::other("no threads left")));
+        match events.try_recv() {
+            Ok(GsEvent::Disconnected(why)) => assert!(why.contains("no threads left"), "{why}"),
+            other => panic!("expected a Disconnected event, got {other:?}"),
+        }
+        listener.watch("session");
+        listener.unwatch("session");
+        drop(listener);
+        assert!(events.try_recv().is_err());
     }
 }
