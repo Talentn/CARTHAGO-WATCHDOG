@@ -54,6 +54,10 @@ func TestInformationLeakExplanation(t *testing.T) {
 	if strings.Contains(body, "style=") || strings.Contains(body, "<script") {
 		t.Error("page needs inline style or script, which the CSP blocks")
 	}
+	// Each moment's sentence already says what the team knew; the page must not say it twice.
+	if strings.Contains(body, "Knowledge model:") {
+		t.Error("moments repeat the knowledge-model line")
+	}
 
 	w = f.do("GET", "/sessions/cccc3333", c, nil, nil)
 	body = w.Body.String()

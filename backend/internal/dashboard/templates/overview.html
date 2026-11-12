@@ -2,11 +2,11 @@
 {{$d := .Data}}
 <div class="head"><h1>Overview</h1><span class="muted">last 24 hours</span></div>
 <section class="kpis">
-  <div class="kpi"><span>Online now</span><b>{{$d.O.OnlineSessions}}</b><small>sessions heartbeating</small></div>
-  <div class="kpi"><span>Sessions</span><b>{{$d.O.Sessions}}</b><small>{{$d.O.Players}} players</small></div>
-  <div class="kpi{{if $d.O.FlaggedPlayers}} warn{{end}}"><span>Flagged players</span><b>{{$d.O.FlaggedPlayers}}</b><small>risk ≥ watch</small></div>
-  <div class="kpi"><span>Detections</span><b>{{$d.O.Evidence}}</b><small>above info</small></div>
-  <div class="kpi"><span>Matches analysed</span><b>{{$d.O.Matches}}</b><small>gameplay ingest</small></div>
+  <div class="kpi"><span>Online now</span><b>{{$d.O.OnlineSessions}}</b><small>sessions with a recent heartbeat</small></div>
+  <div class="kpi"><span>Sessions</span><b>{{$d.O.Sessions}}</b><small>from {{$d.O.Players}} players</small></div>
+  <div class="kpi{{if $d.O.FlaggedPlayers}} warn{{end}}"><span>Flagged players</span><b>{{$d.O.FlaggedPlayers}}</b><small>at Watch or Review</small></div>
+  <div class="kpi"><span>Detections</span><b>{{$d.O.Evidence}}</b><small>low severity or higher</small></div>
+  <div class="kpi"><span>Matches analysed</span><b>{{$d.O.Matches}}</b><small>from game-server telemetry</small></div>
 </section>
 
 <section class="card">
@@ -34,7 +34,7 @@
     {{end}}
     </tbody>
   </table>
-  {{else}}<p class="empty">No flagged players.</p>{{end}}
+  {{else}}<p class="empty">No flagged players</p>{{end}}
 </section>
 
 <section class="card">
@@ -48,7 +48,7 @@
       <time class="muted">{{ago .ObservedAt}}</time></li>
     {{end}}
   </ul>
-  {{else}}<p class="empty">Nothing detected yet.</p>{{end}}
+  {{else}}<p class="empty">Nothing detected yet</p>{{end}}
 </section>
 </div>
 

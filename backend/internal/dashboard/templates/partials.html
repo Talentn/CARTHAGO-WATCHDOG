@@ -17,7 +17,7 @@
   {{end}}
   </tbody>
 </table>
-{{else}}<p class="empty">No sessions yet.</p>{{end}}
+{{else}}<p class="empty">No sessions yet</p>{{end}}
 {{end}}
 
 {{define "evidencetable"}}
@@ -38,7 +38,7 @@
   {{end}}
   </tbody>
 </table>
-{{else}}<p class="empty">No evidence.</p>{{end}}
+{{else}}<p class="empty">No evidence</p>{{end}}
 {{end}}
 
 {{define "leak"}}
@@ -62,7 +62,7 @@
   {{if .Moments}}
   <h3>Moments</h3>
   <ol class="moments">{{range .Moments}}
-    <li><span class="mono">{{.At}}</span> <span class="pill">{{.Kind}}</span> {{.Text}}<br><small class="muted">Knowledge model: {{.Known}}</small></li>
+    <li><span class="mono">{{.At}}</span> <span class="pill">{{.Kind}}</span> {{.Text}}</li>
   {{end}}</ol>
   {{end}}
   {{with .SVG}}
@@ -96,5 +96,5 @@
     <td>{{if not .LeakScored}}<span class="muted">match in progress</span>{{else if .LeakFlagged}}<span class="sev sev-medium">flagged · z {{fixed 2 .LeakScore}}</span>{{else}}<span class="pill ok">clear · z {{fixed 2 .LeakScore}}</span>{{end}}</td>
   </tr>{{end}}</tbody>
 </table>
-{{else}}<p class="empty">No telemetry v2 gameplay linked to this session.</p>{{end}}
+{{else}}<p class="empty">No telemetry v2 gameplay linked to this session</p>{{end}}
 {{end}}

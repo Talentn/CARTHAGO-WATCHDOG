@@ -14,10 +14,10 @@
   <nav>
     <a href="/"{{if eq .Nav "overview"}} class="on"{{end}}>Overview</a>
     <a href="/sessions"{{if eq .Nav "sessions"}} class="on"{{end}}>Sessions</a>
-    <a href="/players"{{if eq .Nav "players"}} class="on"{{end}}>Flagged players</a>
+    <a href="/players"{{if eq .Nav "players"}} class="on"{{end}}>Players</a>
   </nav>
   <div class="who">
-    <span class="tenant" title="Studio">{{.Tenant}}</span>
+    <span class="tenant"><span class="muted">Studio</span> {{.Tenant}}</span>
     <form method="post" action="/logout"><button type="submit" class="link">Sign out</button></form>
   </div>
 </header>

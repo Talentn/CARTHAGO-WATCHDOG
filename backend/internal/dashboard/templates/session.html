@@ -6,7 +6,7 @@
 </div>
 <div class="grid2">
 <section class="card">
-  <h2>Identity &amp; trust</h2>
+  <h2>Identity and trust</h2>
   <dl class="kv">
     <dt>Session id</dt><dd class="mono wrapall">{{$s.SessionID}}</dd>
     <dt>Player</dt><dd><a class="mono" href="/players/{{path $s.PlayerHash}}">{{$s.PlayerHash}}</a></dd>
@@ -31,7 +31,7 @@
     <dt>Mitigations</dt><dd>{{range mitig .MitigationsApplied}}<span class="pill ok">{{.}}</span> {{else}}<span class="muted">none applied</span>{{end}}{{range mitig .MitigationsFailed}} <span class="pill bad">{{.}} refused</span>{{end}}</dd>
     <dt>Updated</dt><dd>{{ago .UpdatedAt}}</dd>
   </dl>
-  {{else}}<p class="empty">No heartbeat telemetry recorded.</p>{{end}}
+  {{else}}<p class="empty">No heartbeat telemetry recorded</p>{{end}}
 </section>
 </div>
 {{if $d.Coverage}}

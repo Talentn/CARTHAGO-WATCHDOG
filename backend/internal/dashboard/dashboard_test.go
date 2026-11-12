@@ -151,7 +151,8 @@ func TestPagesRenderTenantScoped(t *testing.T) {
 		}
 	}
 	home := f.do("GET", "/", c, nil, nil).Body.String()
-	for _, want := range []string{"Carthago <b>Watchdog</b>", "Flagged players", "code_patch", "Ranked boot", "&lt;script&gt;"} {
+	for _, want := range []string{"Carthago <b>Watchdog</b>", "Flagged players", "code_patch", "Ranked boot", "&lt;script&gt;",
+		`<a href="/players">Players</a>`, `<span class="muted">Studio</span> demo`, "sessions with a recent heartbeat", "at Watch or Review"} {
 		if !strings.Contains(home, want) {
 			t.Errorf("overview missing %q", want)
 		}
