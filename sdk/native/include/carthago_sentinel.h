@@ -2,7 +2,12 @@
  * Hand-written for Phase 0; cbindgen generates it (and is diffed against it) from Phase 1.
  *
  * Threading: carthago_tick may be called from the game thread every frame; it never blocks.
- * Callbacks run on the SDK's own thread; keep them short and thread-safe. */
+ * Callbacks run on the SDK's own thread; keep them short and thread-safe. A callback may call
+ * any function of this header, including carthago_shutdown and carthago_set_kick_callback.
+ *
+ * Strings are NUL-terminated UTF-8. tenant_id, build_id and player_id_hash are at most 128
+ * bytes, gateway_url and tls_pins_hex at most 2048; player_id_hash is printable ASCII
+ * without spaces. Anything else is refused with CARTHAGO_ERR_INVALID_ARG. */
 #ifndef CARTHAGO_SENTINEL_H
 #define CARTHAGO_SENTINEL_H
 
@@ -103,7 +108,9 @@ typedef struct CarthagoStatus {
 
 /* Returns immediately; scheduler and device identity start on the SDK thread. */
 CarthagoResult carthago_init(const CarthagoConfig* cfg);
-/* Handshake with the gateway; on_ready runs on the SDK thread when it completes. */
+/* Handshake with the gateway; on_ready runs on the SDK thread, exactly once per call that
+ * returned CARTHAGO_OK: when the handshake completes or fails, or when the request is
+ * abandoned by carthago_shutdown. */
 CarthagoResult carthago_begin_session(const char* player_id_hash, CarthagoSessionCb on_ready, void* user);
 /* Copies the session token to forward to the game server. *len: in = buffer size,
  * out = token length (or the required size incl. NUL on CARTHAGO_ERR_BUFFER_TOO_SMALL). */

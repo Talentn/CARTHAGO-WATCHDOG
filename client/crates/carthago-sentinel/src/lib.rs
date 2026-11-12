@@ -2,7 +2,7 @@
 //! Every export catches panics; no Rust ownership crosses the boundary; callbacks run on
 //! SDK-owned threads.
 
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{c_char, c_void, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, RwLock};
 
@@ -91,15 +91,57 @@ fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
 }
 
-unsafe fn str_arg(p: *const c_char) -> Option<String> {
+/// Longest accepted string arguments. The gateway refuses longer identifiers, and nothing
+/// sensible is longer, so an oversized (or unterminated) string is refused here rather than
+/// copied into every Hello and log line.
+const MAX_ID: usize = 128;
+const MAX_URL: usize = 2048;
+const MAX_PINS: usize = 2048;
+
+/// A NUL-terminated UTF-8 argument of at most `max` bytes; `None` if it is null, longer, or
+/// not UTF-8. At most `max + 1` bytes are read, so a missing terminator is not followed.
+unsafe fn str_arg(p: *const c_char, max: usize) -> Option<String> {
     if p.is_null() {
         return None;
     }
-    unsafe { CStr::from_ptr(p) }.to_str().ok().map(str::to_owned)
+    let len = (0..=max).find(|&i| unsafe { *p.add(i) } == 0)?;
+    let bytes = unsafe { std::slice::from_raw_parts(p.cast::<u8>(), len) };
+    std::str::from_utf8(bytes).ok().map(str::to_owned)
+}
+
+/// The player id hash is sent to the gateway, logged and shown in the dashboard: printable
+/// ASCII without spaces, the rule the gateway enforces (it would refuse the session).
+fn is_id(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| (0x21..0x7f).contains(&b))
+}
+
+/// Tenant and build names end up in log lines: no control characters.
+fn is_name(s: &str) -> bool {
+    !s.chars().any(char::is_control)
+}
+
+/// Copies the caller's config without reading past the `struct_size` it declares: fields a
+/// caller built against an older header does not have read as zero (null).
+unsafe fn read_config(p: *const CarthagoConfig) -> Result<CarthagoConfig, i32> {
+    if p.is_null() {
+        return Err(CARTHAGO_ERR_INVALID_ARG);
+    }
+    let [abi_version, struct_size] = unsafe { p.cast::<[u32; 2]>().read_unaligned() };
+    if abi_version != CARTHAGO_ABI_VERSION || (struct_size as usize) < CARTHAGO_CONFIG_MIN_SIZE {
+        return Err(CARTHAGO_ERR_ABI_MISMATCH);
+    }
+    let mut cfg = std::mem::MaybeUninit::<CarthagoConfig>::zeroed();
+    let n = (struct_size as usize).min(size_of::<CarthagoConfig>());
+    // SAFETY: the caller declared `struct_size` readable bytes; all-zero is a valid value
+    // for every field (integers, null pointers, a `None` callback).
+    unsafe {
+        std::ptr::copy_nonoverlapping(p.cast::<u8>(), cfg.as_mut_ptr().cast::<u8>(), n);
+        Ok(cfg.assume_init())
+    }
 }
 
 fn runtime() -> Option<Arc<Runtime>> {
-    RT.read().ok()?.clone()
+    RT.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// # Safety
@@ -107,17 +149,25 @@ fn runtime() -> Option<Arc<Runtime>> {
 #[no_mangle]
 pub unsafe extern "C" fn carthago_init(cfg: *const CarthagoConfig) -> i32 {
     guard(CARTHAGO_ERR_INTERNAL, || {
-        let Some(cfg) = (unsafe { cfg.as_ref() }) else { return CARTHAGO_ERR_INVALID_ARG };
-        if cfg.abi_version != CARTHAGO_ABI_VERSION || (cfg.struct_size as usize) < CARTHAGO_CONFIG_MIN_SIZE {
-            return CARTHAGO_ERR_ABI_MISMATCH;
-        }
-        let pins_hex = if (cfg.struct_size as usize) >= size_of::<CarthagoConfig>() { unsafe { str_arg(cfg.tls_pins_hex) } } else { None };
-        let Ok(tls_pins) = carthago_net::parse_pins(pins_hex.as_deref().unwrap_or("")) else { return CARTHAGO_ERR_INVALID_ARG };
+        let cfg = match unsafe { read_config(cfg) } {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+        let pins_hex = if cfg.tls_pins_hex.is_null() {
+            String::new()
+        } else {
+            let Some(p) = (unsafe { str_arg(cfg.tls_pins_hex, MAX_PINS) }) else { return CARTHAGO_ERR_INVALID_ARG };
+            p
+        };
+        let Ok(tls_pins) = carthago_net::parse_pins(&pins_hex) else { return CARTHAGO_ERR_INVALID_ARG };
         let (Some(tenant_id), Some(build_id), Some(gateway_url), Some(key_hex)) = (unsafe {
-            (str_arg(cfg.tenant_id), str_arg(cfg.build_id), str_arg(cfg.gateway_url), str_arg(cfg.server_identity_key_hex))
+            (str_arg(cfg.tenant_id, MAX_ID), str_arg(cfg.build_id, MAX_ID), str_arg(cfg.gateway_url, MAX_URL), str_arg(cfg.server_identity_key_hex, MAX_ID))
         }) else {
             return CARTHAGO_ERR_INVALID_ARG;
         };
+        if tenant_id.is_empty() || !is_name(&tenant_id) || !is_name(&build_id) {
+            return CARTHAGO_ERR_INVALID_ARG;
+        }
         let Some(server_identity) = hex::decode(key_hex.trim())
             .ok()
             .and_then(|b| <[u8; 32]>::try_from(b).ok())
@@ -166,7 +216,7 @@ pub unsafe extern "C" fn carthago_init(cfg: *const CarthagoConfig) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn carthago_begin_session(player_id_hash: *const c_char, on_ready: Option<CarthagoSessionCb>, user: *mut c_void) -> i32 {
     guard(CARTHAGO_ERR_INTERNAL, || {
-        let Some(player) = (unsafe { str_arg(player_id_hash) }).filter(|p| !p.is_empty()) else { return CARTHAGO_ERR_INVALID_ARG };
+        let Some(player) = (unsafe { str_arg(player_id_hash, MAX_ID) }).filter(|p| is_id(p)) else { return CARTHAGO_ERR_INVALID_ARG };
         let Some(rt) = runtime() else { return CARTHAGO_ERR_NOT_INITIALIZED };
         let user = UserPtr(user);
         let ok = rt.begin_session(
@@ -218,10 +268,13 @@ pub unsafe extern "C" fn carthago_get_session_token(buf: *mut c_char, len: *mut 
 #[no_mangle]
 pub extern "C" fn carthago_tick() {
     guard((), || {
-        if let Ok(g) = RT.try_read() {
-            if let Some(rt) = g.as_ref() {
-                rt.tick();
-            }
+        let g = match RT.try_read() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        if let Some(rt) = g.as_ref() {
+            rt.tick();
         }
     })
 }
@@ -258,13 +311,16 @@ pub extern "C" fn carthago_heartbeat_now() -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn carthago_get_status(out: *mut CarthagoStatus) -> i32 {
     guard(CARTHAGO_ERR_INTERNAL, || {
-        let Some(out) = (unsafe { out.as_mut() }) else { return CARTHAGO_ERR_INVALID_ARG };
-        if (out.struct_size as usize) < size_of::<CarthagoStatus>() {
+        if out.is_null() {
+            return CARTHAGO_ERR_INVALID_ARG;
+        }
+        // Only the size field is read before it is known how much the caller allocated.
+        if (unsafe { out.cast::<u32>().read_unaligned() } as usize) < size_of::<CarthagoStatus>() {
             return CARTHAGO_ERR_ABI_MISMATCH;
         }
         let Some(rt) = runtime() else { return CARTHAGO_ERR_NOT_INITIALIZED };
         let s = rt.status();
-        *out = CarthagoStatus {
+        let status = CarthagoStatus {
             struct_size: size_of::<CarthagoStatus>() as u32,
             state: s.state,
             trust_level: s.trust_level,
@@ -277,6 +333,7 @@ pub unsafe extern "C" fn carthago_get_status(out: *mut CarthagoStatus) -> i32 {
             sched_slices: s.sched_slices,
             frames: s.frames,
         };
+        unsafe { out.write_unaligned(status) };
         CARTHAGO_OK
     })
 }
@@ -322,6 +379,7 @@ pub extern "C" fn carthago_dev_suppress_heartbeats(on: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CStr;
 
     fn cfg(key: &CStr) -> CarthagoConfig {
         CarthagoConfig {
@@ -384,6 +442,42 @@ mod tests {
             c.tls_pins_hex = c"not-hex".as_ptr();
             assert_eq!(carthago_init(&c), CARTHAGO_OK);
             carthago_shutdown();
+            // The same caller's struct really is shorter: only its own bytes are read.
+            let old = std::slice::from_raw_parts((&raw const c).cast::<u8>(), CARTHAGO_CONFIG_MIN_SIZE).to_vec();
+            let copy = read_config(old.as_ptr().cast()).ok().unwrap();
+            assert!(copy.tls_pins_hex.is_null() && copy.tenant_id == c.tenant_id && copy.flags == c.flags);
+
+            // Oversized or unprintable strings are refused before anything is started.
+            let long = CString::new("a".repeat(MAX_ID + 1)).unwrap();
+            let longest = CString::new("a".repeat(MAX_ID)).unwrap();
+            for bad in [long.as_c_str(), c"line\nbreak", c""] {
+                let mut c = cfg(good_key);
+                c.tenant_id = bad.as_ptr();
+                assert_eq!(carthago_init(&c), CARTHAGO_ERR_INVALID_ARG, "tenant {bad:?}");
+            }
+            let mut c = cfg(good_key);
+            c.build_id = long.as_ptr();
+            assert_eq!(carthago_init(&c), CARTHAGO_ERR_INVALID_ARG);
+            let url = CString::new(format!("ws://127.0.0.1:1/{}", "a".repeat(MAX_URL))).unwrap();
+            let mut c = cfg(good_key);
+            c.gateway_url = url.as_ptr();
+            assert_eq!(carthago_init(&c), CARTHAGO_ERR_INVALID_ARG);
+            let mut c = cfg(good_key);
+            c.tenant_id = longest.as_ptr();
+            assert_eq!(carthago_init(&c), CARTHAGO_OK);
+            for bad in [long.as_c_str(), c"has space", c"\x01"] {
+                assert_eq!(carthago_begin_session(bad.as_ptr(), None, std::ptr::null_mut()), CARTHAGO_ERR_INVALID_ARG, "player {bad:?}");
+            }
+            carthago_shutdown();
+            assert_eq!(str_arg(c"abc".as_ptr(), 3).as_deref(), Some("abc"));
+            assert_eq!(str_arg(c"abcd".as_ptr(), 3), None);
+            assert_eq!(str_arg(std::ptr::null(), 3), None);
+
+            // A status struct smaller than the current one is not written to.
+            let mut small = [u32::MAX; 2];
+            small[0] = 8;
+            assert_eq!(carthago_get_status(small.as_mut_ptr().cast()), CARTHAGO_ERR_ABI_MISMATCH);
+            assert_eq!(small, [8, u32::MAX]);
             let mut c = cfg(good_key);
             let pins = CString::new(format!("{},{}", "ab".repeat(32), "cd".repeat(32))).unwrap();
             c.tls_pins_hex = pins.as_ptr();
