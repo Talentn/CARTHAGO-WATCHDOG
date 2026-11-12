@@ -77,7 +77,7 @@ func (m *Memory) Overview(_ context.Context, tenant string, since, online time.T
 	o.Players = len(players)
 	risk := map[string]float64{}
 	for _, e := range m.ev().evidence {
-		if e.TenantID != tenant || e.Severity <= 0 {
+		if e.TenantID != tenant || e.Severity <= 0 || e.Bot {
 			continue
 		}
 		if !e.ObservedAt.Before(since) {
@@ -108,7 +108,7 @@ func (m *Memory) ListSessions(_ context.Context, tenant string, f SessionFilter)
 		}
 		r := SessionRow{Session: s, MaxSeverity: -1}
 		for _, e := range m.ev().evidence {
-			if e.SessionID == s.SessionID && e.Severity > 0 {
+			if e.SessionID == s.SessionID && e.Severity > 0 && !e.Bot {
 				r.EvidenceCount++
 				r.MaxSeverity = max(r.MaxSeverity, e.Severity)
 			}
@@ -189,17 +189,23 @@ func (m *Memory) ListPlayers(_ context.Context, tenant string, f PlayerFilter) (
 		}
 	}
 	topScore := map[string][2]float64{}
+	human := map[string]bool{}
 	for _, e := range m.ev().evidence {
 		if e.TenantID != tenant || e.Severity <= 0 {
 			continue
 		}
 		r := row(e.PlayerHash)
+		if !e.Bot {
+			human[e.PlayerHash] = true
+		}
 		r.EvidenceCount++
 		r.MaxSeverity = max(r.MaxSeverity, e.Severity)
 		if e.Integrity {
 			r.Integrity++
 		}
-		r.Risk += riskOf(e.Severity, e.Score)
+		if !e.Bot {
+			r.Risk += riskOf(e.Severity, e.Score)
+		}
 		if e.ObservedAt.After(r.LastSeen) {
 			r.LastSeen = e.ObservedAt
 		}
@@ -209,6 +215,7 @@ func (m *Memory) ListPlayers(_ context.Context, tenant string, f PlayerFilter) (
 	}
 	var out []PlayerRow
 	for _, r := range rows {
+		r.Bot = r.EvidenceCount > 0 && r.Sessions == 0 && !human[r.PlayerHash]
 		if f.FlaggedOnly && r.Risk < FlaggedRisk {
 			continue
 		}

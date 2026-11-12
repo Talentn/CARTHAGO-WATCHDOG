@@ -18,15 +18,15 @@ func (s *SQLite) AddEvidence(ctx context.Context, evs []Evidence) error {
 		return err
 	}
 	defer tx.Rollback()
-	st, err := tx.PrepareContext(ctx, `INSERT INTO evidence (tenant_id, player_hash, session_id, match_id, source, rule, severity, score, integrity, summary, raw, observed_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	st, err := tx.PrepareContext(ctx, `INSERT INTO evidence (tenant_id, player_hash, session_id, match_id, source, rule, severity, score, integrity, summary, raw, observed_ms, bot)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
 	for i := range evs {
 		e := &evs[i]
-		res, err := st.ExecContext(ctx, e.TenantID, e.PlayerHash, e.SessionID, e.MatchID, e.Source, e.Rule, e.Severity, e.Score, e.Integrity, e.Summary, e.Raw, ms(e.ObservedAt))
+		res, err := st.ExecContext(ctx, e.TenantID, e.PlayerHash, e.SessionID, e.MatchID, e.Source, e.Rule, e.Severity, e.Score, e.Integrity, e.Summary, e.Raw, ms(e.ObservedAt), e.Bot)
 		if err != nil {
 			return err
 		}
@@ -72,7 +72,7 @@ func (s *SQLite) Overview(ctx context.Context, tenant string, since, online time
 			(SELECT COUNT(*) FROM sessions WHERE tenant_id = ?1 AND state = 'active' AND last_heartbeat_ms >= ?3),
 			(SELECT COUNT(*) FROM sessions WHERE tenant_id = ?1 AND created_ms >= ?2),
 			(SELECT COUNT(DISTINCT player_hash) FROM sessions WHERE tenant_id = ?1 AND created_ms >= ?2),
-			(SELECT COUNT(*) FROM evidence WHERE tenant_id = ?1 AND observed_ms >= ?2 AND severity > 0),
+			(SELECT COUNT(*) FROM evidence WHERE tenant_id = ?1 AND observed_ms >= ?2 AND severity > 0 AND NOT bot),
 			(SELECT COUNT(*) FROM matches WHERE tenant_id = ?1 AND updated_ms >= ?2)`,
 		tenant, ms(since), ms(online))
 	if err := row.Scan(&o.OnlineSessions, &o.Sessions, &o.Players, &o.Evidence, &o.Matches); err != nil {
@@ -95,7 +95,7 @@ func (s *SQLite) Overview(ctx context.Context, tenant string, since, online time
 	if err := rows.Err(); err != nil {
 		return o, err
 	}
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT player_hash FROM evidence WHERE tenant_id = ? AND severity > 0
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT player_hash FROM evidence WHERE tenant_id = ? AND severity > 0 AND NOT bot
 		GROUP BY player_hash HAVING SUM(score * `+riskCase+`) >= ?)`, tenant, FlaggedRisk).Scan(&o.FlaggedPlayers)
 	return o, err
 }
@@ -115,7 +115,7 @@ const sessionCols = `s.session_id, s.tenant_id, s.player_hash, s.device_id, s.tr
 
 func (s *SQLite) ListSessions(ctx context.Context, tenant string, f SessionFilter) ([]SessionRow, error) {
 	q := `SELECT ` + sessionCols + `, COUNT(e.id), COALESCE(MAX(e.severity), -1)
-		FROM sessions s LEFT JOIN evidence e ON e.session_id = s.session_id AND e.severity > 0
+		FROM sessions s LEFT JOIN evidence e ON e.session_id = s.session_id AND e.severity > 0 AND NOT e.bot
 		WHERE s.tenant_id = ?`
 	args := []any{tenant}
 	if f.PlayerHash != "" {
@@ -165,12 +165,12 @@ func (s *SQLite) GetTelemetry(ctx context.Context, tenant, sessionID string) (*T
 	return &t, nil
 }
 
-const evidenceCols = `id, tenant_id, player_hash, session_id, match_id, source, rule, severity, score, integrity, summary, raw, observed_ms`
+const evidenceCols = `id, tenant_id, player_hash, session_id, match_id, source, rule, severity, score, integrity, summary, raw, observed_ms, bot`
 
 func scanEvidence(sc interface{ Scan(...any) error }) (Evidence, error) {
 	var e Evidence
 	var at int64
-	err := sc.Scan(&e.ID, &e.TenantID, &e.PlayerHash, &e.SessionID, &e.MatchID, &e.Source, &e.Rule, &e.Severity, &e.Score, &e.Integrity, &e.Summary, &e.Raw, &at)
+	err := sc.Scan(&e.ID, &e.TenantID, &e.PlayerHash, &e.SessionID, &e.MatchID, &e.Source, &e.Rule, &e.Severity, &e.Score, &e.Integrity, &e.Summary, &e.Raw, &at, &e.Bot)
 	e.ObservedAt = fromMS(at)
 	return e, err
 }
@@ -222,11 +222,11 @@ func (s *SQLite) ListPlayers(ctx context.Context, tenant string, f PlayerFilter)
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		WITH s AS (SELECT player_hash, COUNT(*) AS n, MAX(created_ms) AS last FROM sessions WHERE tenant_id = ?1 GROUP BY player_hash),
-		     e AS (SELECT player_hash, COUNT(*) AS n, MAX(severity) AS maxsev, SUM(integrity) AS integ, SUM(score * `+riskCase+`) AS risk, MAX(observed_ms) AS last
+		     e AS (SELECT player_hash, COUNT(*) AS n, MAX(severity) AS maxsev, SUM(integrity) AS integ, SUM(CASE WHEN bot THEN 0 ELSE score * `+riskCase+` END) AS risk, MAX(observed_ms) AS last, MIN(bot) AS bot
 		           FROM evidence WHERE tenant_id = ?1 AND severity > 0 GROUP BY player_hash),
 		     p AS (SELECT player_hash FROM s UNION SELECT player_hash FROM e)
 		SELECT p.player_hash, COALESCE(s.n, 0), MAX(COALESCE(s.last, 0), COALESCE(e.last, 0)), COALESCE(e.n, 0), COALESCE(e.maxsev, -1),
-		       COALESCE(e.integ, 0), COALESCE(e.risk, 0),
+		       COALESCE(e.integ, 0), COALESCE(e.risk, 0), COALESCE(e.bot, 0) AND s.n IS NULL,
 		       (SELECT trust_level FROM sessions x WHERE x.tenant_id = ?1 AND x.player_hash = p.player_hash ORDER BY x.created_ms DESC LIMIT 1),
 		       (SELECT rule FROM evidence y WHERE y.tenant_id = ?1 AND y.player_hash = p.player_hash AND y.severity > 0 ORDER BY y.severity DESC, y.score DESC LIMIT 1)
 		FROM p LEFT JOIN s ON s.player_hash = p.player_hash LEFT JOIN e ON e.player_hash = p.player_hash
@@ -242,7 +242,7 @@ func (s *SQLite) ListPlayers(ctx context.Context, tenant string, f PlayerFilter)
 		var last int64
 		var trust sql.NullInt64
 		var rule sql.NullString
-		if err := rows.Scan(&r.PlayerHash, &r.Sessions, &last, &r.EvidenceCount, &r.MaxSeverity, &r.Integrity, &r.Risk, &trust, &rule); err != nil {
+		if err := rows.Scan(&r.PlayerHash, &r.Sessions, &last, &r.EvidenceCount, &r.MaxSeverity, &r.Integrity, &r.Risk, &r.Bot, &trust, &rule); err != nil {
 			return nil, err
 		}
 		r.LastSeen, r.TrustLevel, r.TopRule = fromMS(last), uint32(trust.Int64), rule.String

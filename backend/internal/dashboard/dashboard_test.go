@@ -204,3 +204,32 @@ func TestStaticAssets(t *testing.T) {
 		}
 	}
 }
+
+func TestBotEvidenceIsLabelledAndNotFlagged(t *testing.T) {
+	f := newFixture(t)
+	st := f.srv.st.(*store.Memory)
+	st.AddEvidence(context.Background(), []store.Evidence{
+		{TenantID: "demo", PlayerHash: "bot:Hawk", MatchID: "m1", Source: store.SourceGameplay, Rule: "angle_snap", Severity: 3, Score: 0.99, Bot: true, Summary: "24 snap-and-lock aim movements", ObservedAt: f.now},
+	})
+	c := f.login(t, "demo", "demo-key")
+	if body := f.do("GET", "/players", c, nil, nil).Body.String(); strings.Contains(body, "bot:Hawk") {
+		t.Error("a bot is on the flagged list")
+	}
+	all := f.do("GET", "/players?all=1", c, nil, nil).Body.String()
+	if !strings.Contains(all, "/players/bot:Hawk") || !strings.Contains(all, ">bot</span>") {
+		t.Error("all players: the bot row or its label is missing")
+	}
+	page := f.do("GET", "/players/bot:Hawk", c, nil, nil)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "excluded from risk") || !strings.Contains(page.Body.String(), "angle_snap") {
+		t.Errorf("bot player page: %d", page.Code)
+	}
+	ev := f.do("GET", "/evidence/4", c, nil, nil)
+	if ev.Code != 200 || !strings.Contains(ev.Body.String(), "not evidence against anyone") {
+		t.Errorf("bot evidence page: %d", ev.Code)
+	}
+	// The overview's detection feed shows it, labelled; the flagged card and count do not.
+	home := f.do("GET", "/", c, nil, nil).Body.String()
+	if !strings.Contains(home, ">bot</span>") || strings.Count(home, "/players/bot:Hawk") != 1 {
+		t.Error("overview: the bot belongs in the detection feed only, with its label")
+	}
+}

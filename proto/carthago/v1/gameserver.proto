@@ -54,6 +54,11 @@ message MatchPlayer {
   uint32 team = 5;
   InputDevice input_device = 6;
   bool aim_assist = 7; // the game applies aim assistance to this player
+  // The slot is driven by the game's own AI, not a person. Its telemetry is analysed like
+  // anyone's (bots are a useful reference for what machine aim looks like), but evidence
+  // about it is labelled and never counts toward a player's risk. Ignored for a slot that
+  // names a verified session.
+  bool bot = 8;
 }
 
 // View angles in degrees for consecutive ticks starting at first_tick.

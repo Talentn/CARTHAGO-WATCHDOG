@@ -25,6 +25,7 @@ type Player struct {
 	SessionID  string
 	PlayerHash string
 	MMR        int32
+	Bot        bool // the game server says this slot is AI-driven
 
 	lastTick           uint32
 	lastYaw, lastPitch float64
@@ -64,7 +65,7 @@ func (m *Match) Add(b *pb.GameplayBatch) {
 	}
 	for _, mp := range b.Players {
 		p := m.player(mp.Slot)
-		p.SessionID, p.PlayerHash, p.MMR = mp.SessionId, mp.PlayerHash, mp.Mmr
+		p.SessionID, p.PlayerHash, p.MMR, p.Bot = mp.SessionId, mp.PlayerHash, mp.Mmr, mp.Bot
 	}
 	for _, t := range b.Aim {
 		m.player(t.Slot).addAim(t, m.cfg.SnapDeg, m.cfg.SnapSettleDeg)

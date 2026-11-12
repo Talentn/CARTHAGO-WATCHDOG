@@ -12,7 +12,7 @@
   {{range $d.Rows}}
   <tr>
     <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
-    <td><span class="tier tier-{{tier .Risk}}">{{tier .Risk}}</span></td>
+    <td>{{if .Bot}}<span class="pill" title="AI-driven slot: shown for reference, never counted toward risk">bot</span>{{else}}<span class="tier tier-{{tier .Risk}}">{{tier .Risk}}</span>{{end}}</td>
     <td class="num">{{risk .Risk}}</td>
     <td class="num">{{.EvidenceCount}}{{if ge .MaxSeverity 0}} <span class="sev sev-{{sev .MaxSeverity}}">{{sev .MaxSeverity}}</span>{{end}}</td>
     <td class="num">{{.Integrity}}</td>
