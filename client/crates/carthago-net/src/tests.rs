@@ -148,3 +148,32 @@ fn spki_pin_matches_key_pair() {
     let want: Pin = Sha256::digest(ck.signing_key.subject_public_key_info()).into();
     assert_eq!(spki_pin(ck.cert.der()).unwrap(), want);
 }
+
+#[test]
+fn plaintext_goes_to_loopback_addresses_only() {
+    let addrs: Vec<SocketAddr> = ["203.0.113.7:8750", "127.0.0.1:8750", "[::1]:8750", "10.0.0.5:8750"].iter().map(|a| a.parse().unwrap()).collect();
+    let kept = plaintext_targets(addrs);
+    assert_eq!(kept, vec!["127.0.0.1:8750".parse::<SocketAddr>().unwrap(), "[::1]:8750".parse().unwrap()]);
+    // A "localhost" that resolves elsewhere leaves nothing to connect to.
+    assert!(plaintext_targets(vec!["203.0.113.7:8750".parse().unwrap()]).is_empty());
+}
+
+#[test]
+fn oversized_gateway_message_is_refused() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut ws = tungstenite::accept(tcp).unwrap();
+        let _ = ws.send(Message::Binary(vec![0u8; 1024].into()));
+        let _ = ws.send(Message::Binary(vec![0u8; MAX_MESSAGE + 1].into()));
+        let _ = ws.flush();
+        let _ = ws.read();
+    });
+    let mut ws = connect(format!("ws://127.0.0.1:{port}/v1/client"), &[], Duration::from_secs(5)).unwrap();
+    assert!(matches!(ws.read(), Ok(Message::Binary(b)) if b.len() == 1024));
+    match ws.read() {
+        Err(tungstenite::Error::Capacity(_)) => {}
+        other => panic!("expected a capacity error for a message above {MAX_MESSAGE} bytes, got {:?}", other.map(|m| m.len())),
+    }
+}

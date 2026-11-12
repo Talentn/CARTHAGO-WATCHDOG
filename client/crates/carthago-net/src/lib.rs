@@ -9,7 +9,7 @@
 //! `ws://` stays available for loopback development only.
 
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,7 +19,13 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{CertificateError, ClientConfig, ClientConnection, DigitallySignedStruct, OtherError, SignatureScheme, StreamOwned};
 use sha2::{Digest, Sha256};
 use tungstenite::client::IntoClientRequest;
+use tungstenite::protocol::WebSocketConfig;
 use tungstenite::WebSocket;
+
+/// Largest WebSocket message accepted from the gateway. Its messages (Challenge, Session,
+/// heartbeat acks, kicks, ingest acks) are a few kilobytes; the library default of 64 MiB
+/// would let a peer make the game process buffer more than the client's whole memory budget.
+pub const MAX_MESSAGE: usize = 1 << 20;
 
 /// SHA-256 of a DER `SubjectPublicKeyInfo`.
 pub type Pin = [u8; 32];
@@ -183,6 +189,12 @@ fn is_loopback(host: &str) -> bool {
     host.eq_ignore_ascii_case("localhost") || host.trim_matches(|c| c == '[' || c == ']').parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
+/// The addresses a plaintext connection may go to. "localhost" is only a name: a hosts file
+/// or resolver can point it anywhere, so what counts is the address it resolved to.
+fn plaintext_targets(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    addrs.into_iter().filter(|a| a.ip().is_loopback()).collect()
+}
+
 /// Opens a WebSocket to the gateway. `wss://` performs a pinned TLS 1.3 handshake before
 /// any HTTP is sent; `ws://` is refused unless the host is loopback.
 pub fn connect<R: IntoClientRequest>(request: R, pins: &[Pin], connect_timeout: Duration) -> Result<WebSocket<Stream>, NetError> {
@@ -198,7 +210,13 @@ pub fn connect<R: IntoClientRequest>(request: R, pins: &[Pin], connect_timeout: 
     let config = if tls { Some(pinned_config(pins)?) } else { None };
     let port = uri.port_u16().unwrap_or(if tls { 443 } else { 80 });
     let bare = host.trim_matches(|c| c == '[' || c == ']').to_owned();
-    let addrs: Vec<_> = (bare.as_str(), port).to_socket_addrs().map_err(|err| NetError::Connect { addr: format!("{bare}:{port}"), err })?.collect();
+    let mut addrs: Vec<_> = (bare.as_str(), port).to_socket_addrs().map_err(|err| NetError::Connect { addr: format!("{bare}:{port}"), err })?.collect();
+    if !tls {
+        addrs = plaintext_targets(addrs);
+        if addrs.is_empty() {
+            return Err(NetError::Policy("ws:// host does not resolve to a loopback address; use wss:// with a pinned gateway key"));
+        }
+    }
     let mut last = None;
     let mut tcp = None;
     for addr in &addrs {
@@ -226,7 +244,8 @@ pub fn connect<R: IntoClientRequest>(request: R, pins: &[Pin], connect_timeout: 
             Stream::Tls(Box::new(StreamOwned::new(conn, tcp)))
         }
     };
-    let (ws, _) = tungstenite::client(req, stream).map_err(|e| NetError::WebSocket(e.to_string()))?;
+    let limits = WebSocketConfig::default().max_message_size(Some(MAX_MESSAGE)).max_frame_size(Some(MAX_MESSAGE));
+    let (ws, _) = tungstenite::client::client_with_config(req, stream, Some(limits)).map_err(|e| NetError::WebSocket(e.to_string()))?;
     Ok(ws)
 }
 
