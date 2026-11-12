@@ -4,7 +4,7 @@ use carthago_proto::v1::{FindingCode, WatchedApi};
 use carthago_sched::{Ctx, Job, JobBudget, Step};
 
 use crate::hook::{self, Patch};
-use crate::pe::{first_diff, Dir, DiskImage, Export, Headers, DIR_IAT};
+use crate::pe::{first_diff, section_pages, Dir, DiskImage, Export, Headers, DIR_IAT};
 use crate::seen::{fnv1a, Seen};
 use crate::win::{self, File, Mapped};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -192,12 +192,11 @@ impl TextIntegrity {
                 continue;
             }
             self.pages.clear();
-            for s in m.disk.h.exec_sections() {
-                let mut off = 0;
-                while off < s.vsize {
-                    self.pages.push((s.va + off, PAGE.min(s.vsize - off)));
-                    off += PAGE;
-                }
+            // The headers are the module's own: a section it cannot really have is skipped
+            // with the module instead of being walked.
+            if !m.disk.h.exec_sections().all(|s| section_pages(&m.disk.h, s, PAGE, &mut self.pages)) {
+                self.pages.clear();
+                continue;
             }
             self.masks = vec![m.disk.h.dirs[DIR_IAT]];
             self.page = 0;

@@ -51,6 +51,9 @@ pub const DIR_IAT: usize = 12;
 
 const MAX_SECTIONS: u16 = 96;
 const MAX_RELOCS: usize = 1 << 20;
+/// Largest relocation directory read: enough for `MAX_RELOCS` entries plus block headers.
+/// The size comes from the file, so it bounds an allocation a crafted image would choose.
+const MAX_RELOC_DIR: u32 = 4 << 20;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Dir {
@@ -156,12 +159,15 @@ pub struct DiskImage<R: Reader> {
     /// Sorted RVAs of DIR64 relocations, loaded on demand.
     relocs: Vec<u32>,
     relocs_loaded: bool,
+    /// False until the whole relocation directory has been parsed; without it the bytes of
+    /// a rebased image cannot be predicted.
+    relocs_ok: bool,
 }
 
 impl<R: Reader> DiskImage<R> {
     pub fn open(r: R) -> Option<Self> {
         let h = Headers::parse(&r)?;
-        Some(Self { r, h, relocs: Vec::new(), relocs_loaded: false })
+        Some(Self { r, h, relocs: Vec::new(), relocs_loaded: false, relocs_ok: false })
     }
 
     /// Fills `buf` with what the loader maps at `rva` (before relocation): file bytes, zero
@@ -201,24 +207,26 @@ impl<R: Reader> DiskImage<R> {
         if d.size == 0 {
             return None;
         }
-        let nfuncs = self.u32_rva(d.rva + 20)?;
-        let nnames = self.u32_rva(d.rva + 24)?;
-        let funcs = self.u32_rva(d.rva + 28)?;
-        let names = self.u32_rva(d.rva + 32)?;
-        let ords = self.u32_rva(d.rva + 36)?;
+        // Every offset below comes from the file: a crafted image must not overflow them.
+        let field = |off: u32| self.u32_rva(d.rva.checked_add(off)?);
+        let nfuncs = field(20)?;
+        let nnames = field(24)?;
+        let funcs = field(28)?;
+        let names = field(32)?;
+        let ords = field(36)?;
         let (mut lo, mut hi) = (0u32, nnames.min(1 << 16));
         let mut buf = [0u8; 96];
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            let nrva = self.u32_rva(names + mid * 4)?;
+            let nrva = self.u32_rva(names.checked_add(mid * 4)?)?;
             let cand = self.c_str(nrva, &mut buf)?;
             match cand.cmp(name.as_bytes()) {
                 std::cmp::Ordering::Equal => {
-                    let ord = self.u16_rva(ords + mid * 2)? as u32;
+                    let ord = self.u16_rva(ords.checked_add(mid * 2)?)? as u32;
                     if ord >= nfuncs {
                         return None;
                     }
-                    let slot = funcs + ord * 4;
+                    let slot = funcs.checked_add(ord * 4)?;
                     let rva = self.u32_rva(slot)?;
                     return Some(if d.contains(rva) { Export::Forwarded } else { Export::Code { rva, eat_slot_rva: slot } });
                 }
@@ -234,8 +242,9 @@ impl<R: Reader> DiskImage<R> {
         let mut n = 0;
         while n < buf.len() {
             let chunk = 16.min(buf.len() - n);
-            if !self.read_rva(rva + n as u32, &mut buf[n..n + chunk]) {
-                if !self.read_rva(rva + n as u32, &mut buf[n..n + 1]) {
+            let at = rva.checked_add(n as u32)?;
+            if !self.read_rva(at, &mut buf[n..n + chunk]) {
+                if !self.read_rva(at, &mut buf[n..n + 1]) {
                     return None;
                 }
                 if buf[n] == 0 {
@@ -253,37 +262,55 @@ impl<R: Reader> DiskImage<R> {
     }
 
     /// Parses the base relocation directory once (DIR64 entries only; x64 images use no
-    /// other kind).
+    /// other kind). `false` if the directory is missing from the file, malformed or larger
+    /// than this reader accepts; [`Self::expected`] then refuses a rebased image.
     pub fn load_relocs(&mut self) -> bool {
-        if self.relocs_loaded {
-            return true;
+        if !self.relocs_loaded {
+            self.relocs_loaded = true;
+            self.relocs_ok = self.parse_relocs().is_some();
+            if !self.relocs_ok {
+                self.relocs = Vec::new();
+            }
         }
-        self.relocs_loaded = true;
+        self.relocs_ok
+    }
+
+    fn parse_relocs(&mut self) -> Option<()> {
         let d = self.h.dirs[DIR_BASERELOC];
         if d.size == 0 {
-            return true;
+            return Some(());
+        }
+        if d.size > MAX_RELOC_DIR {
+            return None;
         }
         let mut data = vec![0u8; d.size as usize];
         if !self.read_rva(d.rva, &mut data) {
-            return false;
+            return None;
         }
         let mut off = 0usize;
         while off + 8 <= data.len() {
             let page = u32::from_le_bytes(data[off..off + 4].try_into().unwrap());
             let size = u32::from_le_bytes(data[off + 4..off + 8].try_into().unwrap()) as usize;
-            if size < 8 || off + size > data.len() {
+            // Zero padding ends the directory; any other block that does not fit is damage.
+            if size == 0 {
                 break;
+            }
+            if size < 8 || size > data.len() - off {
+                return None;
             }
             for e in data[off + 8..off + size].as_chunks::<2>().0 {
                 let e = u16::from_le_bytes([e[0], e[1]]);
-                if e >> 12 == 10 && self.relocs.len() < MAX_RELOCS {
-                    self.relocs.push(page + (e & 0xfff) as u32);
+                if e >> 12 == 10 {
+                    if self.relocs.len() >= MAX_RELOCS {
+                        return None;
+                    }
+                    self.relocs.push(page.checked_add((e & 0xfff) as u32)?);
                 }
             }
             off += size;
         }
         self.relocs.sort_unstable();
-        true
+        Some(())
     }
 
     pub fn reloc_count(&self) -> usize {
@@ -299,6 +326,9 @@ impl<R: Reader> DiskImage<R> {
         let delta = actual_base.wrapping_sub(self.h.image_base);
         if delta == 0 {
             return true;
+        }
+        if !self.relocs_ok {
+            return false;
         }
         let (start, end) = (rva as u64, rva as u64 + buf.len() as u64);
         let first = self.relocs.partition_point(|&r| (r as u64) + 8 <= start);
@@ -321,6 +351,27 @@ impl<R: Reader> DiskImage<R> {
         }
         true
     }
+}
+
+/// Largest executable section walked page by page (the graphics runtime DLLs this is used
+/// on are a few MB). The size comes from the image's own headers.
+pub const MAX_EXEC_SECTION: u32 = 256 << 20;
+
+/// Splits a section into `(rva, len)` windows of at most `page` bytes. `false`, adding
+/// nothing, if the section is larger than [`MAX_EXEC_SECTION`], lies outside the image or
+/// its range overflows: the caller then skips the module.
+pub fn section_pages(h: &Headers, s: &Section, page: u32, out: &mut Vec<(u32, u32)>) -> bool {
+    let Some(end) = s.va.checked_add(s.vsize) else { return false };
+    if s.vsize > MAX_EXEC_SECTION || end > h.size_of_image || page == 0 {
+        return false;
+    }
+    let mut at = s.va;
+    while at < end {
+        let len = page.min(end - at);
+        out.push((at, len));
+        at += len;
+    }
+    true
 }
 
 /// First offset where `actual` and `expected` differ, skipping bytes whose RVA falls in a
@@ -536,5 +587,101 @@ mod tests {
         assert!(d.read_rva(0x31FC, &mut b));
         assert!(!d.read_rva(0x31FE, &mut b), "crosses the end of the last section");
         assert!(!d.read_rva(0x9000, &mut b));
+    }
+
+    /// Rewrites the relocation directory entry (rva, size) of a built image.
+    fn set_reloc_dir(file: &mut [u8], rva: u32, size: u32) {
+        let o = 0x80 + 24 + 112 + 5 * 8;
+        file[o..o + 4].copy_from_slice(&rva.to_le_bytes());
+        file[o + 4..o + 8].copy_from_slice(&size.to_le_bytes());
+    }
+
+    #[test]
+    fn a_crafted_relocation_directory_is_refused_not_allocated() {
+        let base = 0x7ff6_0000_0000;
+        let mut buf = [0u8; 16];
+
+        // A directory size of 4 GB must not be allocated (it used to be, before any read).
+        let mut file = sample().file;
+        set_reloc_dir(&mut file, RELOC_RVA, u32::MAX);
+        let mut d = DiskImage::open(file).unwrap();
+        assert!(!d.load_relocs());
+        assert!(!d.load_relocs(), "the failure is remembered");
+        assert_eq!(d.reloc_count(), 0);
+        assert!(!d.expected(0x1010, &mut buf, base), "a rebased image cannot be predicted without relocations");
+        assert!(d.expected(0x1010, &mut buf, BASE), "at its preferred base no relocation applies");
+
+        // A directory that is not in the file.
+        let mut file = sample().file;
+        set_reloc_dir(&mut file, 0x9000, 16);
+        let mut d = DiskImage::open(file).unwrap();
+        assert!(!d.load_relocs());
+
+        // A block whose size runs past the directory, and one whose page overflows.
+        for (page, size) in [(TEXT_RVA, 0x400u32), (u32::MAX, 12)] {
+            let mut file = sample().file;
+            let r = RELOC_RAW as usize;
+            file[r..r + 4].copy_from_slice(&page.to_le_bytes());
+            file[r + 4..r + 8].copy_from_slice(&size.to_le_bytes());
+            let mut d = DiskImage::open(file).unwrap();
+            assert!(!d.load_relocs(), "page {page:#x} size {size:#x}");
+            assert!(!d.expected(0x1010, &mut buf, base));
+        }
+
+        // Zero padding after the last block is how linkers end the directory.
+        let mut file = sample().file;
+        set_reloc_dir(&mut file, RELOC_RVA, 0x40);
+        let mut d = DiskImage::open(file).unwrap();
+        assert!(d.load_relocs());
+        assert_eq!(d.reloc_count(), 2);
+    }
+
+    #[test]
+    fn a_crafted_export_directory_does_not_overflow() {
+        let edata = |file: &mut Vec<u8>, off: usize, v: u32| file[EDATA_RAW as usize + off..EDATA_RAW as usize + off + 4].copy_from_slice(&v.to_le_bytes());
+        // names, ordinals and functions tables at the top of the address space
+        for off in [28, 32, 36] {
+            let mut file = sample().file;
+            edata(&mut file, off, u32::MAX - 1);
+            let d = DiskImage::open(file).unwrap();
+            for name in ["Alpha", "Beta", "Gamma", "Zeta"] {
+                let _ = d.export(name);
+            }
+        }
+        // the export directory itself at the top of the address space
+        let mut file = sample().file;
+        let o = 0x80 + 24 + 112;
+        file[o..o + 4].copy_from_slice(&(u32::MAX - 8).to_le_bytes());
+        assert_eq!(DiskImage::open(file).unwrap().export("Alpha"), None);
+        // a name pointer at the top of the address space
+        let mut file = sample().file;
+        for i in 0..3 {
+            edata(&mut file, 40 + 12 + 4 * i, u32::MAX - 3);
+        }
+        assert_eq!(DiskImage::open(file).unwrap().export("Alpha"), None);
+    }
+
+    #[test]
+    fn section_pages_are_bounded() {
+        let h = Headers::parse(&sample().file).unwrap();
+        let text = *h.exec_sections().next().unwrap();
+        let mut pages = Vec::new();
+        assert!(section_pages(&h, &text, 4096, &mut pages));
+        assert_eq!(pages, vec![(TEXT_RVA, 4096)]);
+        pages.clear();
+        assert!(section_pages(&h, &Section { vsize: 0x1801, ..text }, 4096, &mut pages));
+        assert_eq!(pages, vec![(0x1000, 4096), (0x2000, 0x801)]);
+
+        // A section header claiming almost 4 GB used to wrap the page offset and never end.
+        for bad in [
+            Section { vsize: u32::MAX - 0x800, ..text },
+            Section { va: u32::MAX - 0x100, vsize: 0x1000, ..text },
+            Section { vsize: h.size_of_image, ..text },
+            Section { vsize: MAX_EXEC_SECTION + 1, ..text },
+        ] {
+            let mut pages = Vec::new();
+            assert!(!section_pages(&h, &bad, 4096, &mut pages), "{bad:?}");
+            assert!(pages.is_empty());
+        }
     }
 }
