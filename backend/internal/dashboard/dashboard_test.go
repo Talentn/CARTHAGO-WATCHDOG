@@ -120,8 +120,13 @@ func TestLoginChecks(t *testing.T) {
 		t.Fatalf("foreign origin login: %d", w.Code)
 	}
 	// A valid key for the wrong tenant does not log in.
-	if w := f.do("POST", "/login", nil, url.Values{"tenant": {"demo"}, "key": {"rival-key"}}, sameSite); w.Code != http.StatusUnauthorized {
+	w := f.do("POST", "/login", nil, url.Values{"tenant": {"demo"}, "key": {"rival-key"}}, sameSite)
+	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("cross-tenant key: %d", w.Code)
+	}
+	// Short messages carry no closing period, like the rest of the dashboard.
+	if !strings.Contains(w.Body.String(), `<p class="alert">Unknown studio or key</p>`) {
+		t.Error("the failed login does not show its message as designed")
 	}
 	for range maxFailures - 1 {
 		f.do("POST", "/login", nil, url.Values{"tenant": {"demo"}, "key": {"guess"}}, sameSite)

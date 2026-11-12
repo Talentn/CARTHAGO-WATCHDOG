@@ -296,7 +296,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.checkKey(tenant, key) {
 		s.lim.failed(ip, s.now())
 		s.log.Warn("dashboard login failed", "remote", ip, "tenant", tenant)
-		s.render(w, http.StatusUnauthorized, "login", page{Title: "Sign in", Data: "Unknown studio or key."})
+		s.render(w, http.StatusUnauthorized, "login", page{Title: "Sign in", Data: "Unknown studio or key"})
 		return
 	}
 	s.lim.reset(ip)
