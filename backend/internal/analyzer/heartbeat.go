@@ -108,8 +108,12 @@ func (c Config) Heartbeat(st *ClientState, hb *pb.Heartbeat, serverNow time.Time
 	if in := hb.Input; in != nil && in.MouseEvents >= minInputEvents {
 		frac := float64(in.Injected) / float64(in.MouseEvents)
 		if frac > 0.5 {
-			out = append(out, Evidence{Rule: "injected_input", Severity: SeverityMedium, Score: math.Min(0.95, frac),
-				Summary: fmt.Sprintf("%.0f%% of %d mouse events injected while focused (%d from lower integrity)", 100*frac, in.MouseEvents, in.LowerIlInjected)})
+			// Controller-to-mouse tools (Steam Input), remote play and accessibility software
+			// inject every mouse event too, so this is low: on its own it does not flag a
+			// player, it adds to other evidence.
+			out = append(out, Evidence{Rule: "injected_input", Severity: SeverityLow, Score: math.Min(0.95, frac),
+				Summary: fmt.Sprintf("%.0f%% of %d mouse events injected while focused (%d from lower integrity); input remappers and remote play do this too",
+					100*frac, in.MouseEvents, in.LowerIlInjected)})
 		}
 	}
 	return out

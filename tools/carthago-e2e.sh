@@ -78,12 +78,14 @@ curl -s -o /dev/null -c "$jar" -b "$jar" -H 'Sec-Fetch-Site: same-origin' -d 'te
 curl -sf -b "$jar" "http://127.0.0.1:$dash_port/players" >"$run/players.html" || fail "flagged players page"
 curl -sf -b "$jar" "http://127.0.0.1:$dash_port/" | grep -q 'Carthago <b>Watchdog</b>' || fail "overview page"
 player() { awk -v s="$1" '$1==s {print $3}' "$run/sessions.txt"; }
-for s in 2 4 5 6 7 8; do
+for s in 2 4 5 7 8; do
   grep -q "/players/$(player $s)" "$run/players.html" || fail "slot $s ($(player $s)) not flagged"
 done
-for s in 1 3; do
+# Slot 6 only reports injected mouse input, which input remappers and remote play produce
+# too: it is recorded (checked above) but does not flag a player by itself.
+for s in 1 3 6; do
   ! grep -q "/players/$(player $s)" "$run/players.html" || fail "slot $s ($(player $s)) flagged without cause"
 done
-echo "ok   flagged: slots 2 4 5 6 7 8; not flagged: clean slot 1, overlay-only slot 3"
+echo "ok   flagged: slots 2 4 5 7 8; not flagged: clean slot 1, overlay-only slot 3, injected-input-only slot 6"
 
 printf '\nPASS (logs in %s)\n' "$run"

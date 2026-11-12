@@ -50,7 +50,9 @@ func TestClassifyFinding(t *testing.T) {
 		{pb.FindingCode_FINDING_CODE_OVERLAY_WINDOW, 1, 0, "steam.exe", "overlay_window", SeverityInfo, false},
 		{pb.FindingCode_FINDING_CODE_OVERLAY_WINDOW, 1, 0, "esp-box.exe", "overlay_window", SeverityLow, false},
 		{pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE, 1, 0x38, "discordhook64.dll", "external_handle", SeverityInfo, false},
-		{pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE, 1, 0x38, "cheatengine-x86_64.exe", "external_handle", SeverityMedium, true},
+		// A launcher that is not on the list holds the same handle a memory editor does.
+		{pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE, 1, 0x1fffff, "epicgameslauncher.exe", "external_handle", SeverityLow, false},
+		{pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE, 1, 0x38, "cheatengine-x86_64.exe", "external_handle", SeverityLow, false},
 		{pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 0x1000, 0x1000 | uint64(pb.UnbackedFlags_UNBACKED_FLAGS_WRITABLE|pb.UnbackedFlags_UNBACKED_FLAGS_PE_SIGNATURE)<<48, "", "unbacked_exec", SeverityCritical, true},
 		{pb.FindingCode_FINDING_CODE_UNBACKED_EXEC, 0x1000, 0x1000 | uint64(pb.UnbackedFlags_UNBACKED_FLAGS_MZ_HEADER)<<48, "", "unbacked_exec", SeverityHigh, true},
 		// JIT code and hook relay pages: private, executable, often writable, no image header.
@@ -413,6 +415,12 @@ func TestScannerStallAndInput(t *testing.T) {
 	in := c.Heartbeat(&ClientState{}, &pb.Heartbeat{Input: &pb.InputStats{MouseEvents: 5000, Injected: 4900}}, now)
 	if _, ok := rules(in)["injected_input"]; !ok {
 		t.Fatal("injected input not flagged")
+	}
+	// Steam Input and remote play inject all mouse input: recorded, but low.
+	for _, e := range in {
+		if e.Severity > SeverityLow || e.Integrity {
+			t.Fatalf("injected input alone is %+v; it must stay low and not integrity evidence", e)
+		}
 	}
 	if e := c.Heartbeat(&ClientState{}, &pb.Heartbeat{Input: &pb.InputStats{MouseEvents: 5000, Injected: 30}}, now); len(e) != 0 {
 		t.Fatalf("occasional injected events flagged: %+v", e)

@@ -185,7 +185,10 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 		if allowed {
 			return ev("external_handle", SeverityInfo, 0.1, false, "handle from allowlisted "+detail), true
 		}
-		return ev("external_handle", SeverityMedium, 0.55, true, fmt.Sprintf("process %s holds a %#x handle to the game", detail, b)), true
+		// Launchers keep the handle they started the game with, and capture, voice and
+		// hardware tools open one; the list above cannot name them all. Low: recorded, and
+		// counted with other evidence, but not enough to flag a player by itself.
+		return ev("external_handle", SeverityLow, 0.55, false, fmt.Sprintf("process %s holds a %#x handle to the game", detail, b)), true
 	case pb.FindingCode_FINDING_CODE_OVERLAY_WINDOW:
 		if allowed {
 			return ev("overlay_window", SeverityInfo, 0.1, false, "allowlisted overlay "+detail), true
