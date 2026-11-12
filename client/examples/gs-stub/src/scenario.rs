@@ -1,7 +1,8 @@
 //! `gs-stub simulate --scenario FILE`: replays a match written by `carthago-sim -scenario-out`
 //! through the game-server SDK's telemetry v2 API, the way a real game server would record it:
 //! map geometry once, player profiles, per-tick positions and view angles, sounds with their
-//! audible radius, team pings and spots, loot, visibility changes and shots.
+//! audible radius, team pings and spots, loot, visibility changes and shots, and decoys
+//! (created, replicated to their recipient, unreplicated, ended, with every position).
 //!
 //! The file is synthetic simulator output (format in backend/internal/knowledge/synth/emit.go).
 //! Its `role` column is printed for the operator and never sent.
@@ -236,6 +237,18 @@ pub fn run(a: &Args, path: &str) -> Result<i32, String> {
                     weapon: "rifle".into(),
                     distance_m: m(v[4]),
                 });
+            }
+            Some("dc") if f.len() == 5 => {
+                let v: Vec<i32> = nums(&f[1..4]).map_err(bad)?;
+                let recipients: Vec<u32> = f[4].split(',').map(|r| r.parse().map_err(|_| bad(format!("bad recipient {r:?}")))).collect::<Result<_, _>>()?;
+                rec.decoy_create(v[0] as u32, v[1] as u32, &recipients, u32::try_from(v[2]).ok());
+            }
+            Some("dr") if f.len() == 2 => rec.decoy_replicated(f[1].parse().map_err(|_| bad("decoy id".into()))?, tick),
+            Some("du") if f.len() == 2 => rec.decoy_unreplicated(f[1].parse().map_err(|_| bad("decoy id".into()))?, tick),
+            Some("de") if f.len() == 2 => rec.decoy_end(f[1].parse().map_err(|_| bad("decoy id".into()))?),
+            Some("dp") if f.len() == 8 => {
+                let v: Vec<i32> = nums(&f[1..]).map_err(bad)?;
+                rec.decoy_motion(v[0] as u32, tick, [m(v[1]), m(v[2]), m(v[3])], [m(v[4]), m(v[5]), m(v[6])]);
             }
             _ => return Err(bad(format!("unexpected record {line:?}"))),
         }

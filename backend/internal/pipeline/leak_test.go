@@ -122,6 +122,56 @@ func TestInformationLeakIsFlagOnly(t *testing.T) {
 	}
 }
 
+func TestDecoyReactionIsFlagOnly(t *testing.T) {
+	p, st, k := newTest(t, Config{AutoKick: true, AutoKickSeverity: analyzer.SeverityInfo})
+	spec := leakMatch("decoy-1", 1800)
+	spec.Decoys = true
+	for _, ps := range spec.Players {
+		session(st, ps.SessionID, "t1", ps.PlayerHash)
+	}
+	if w := feed(t, p, "t1", synth.Batches(spec)); len(w) != 0 {
+		t.Fatalf("warnings: %v", w)
+	}
+	evs, _ := st.ListEvidence(context.Background(), "t1", store.EvidenceFilter{Limit: 1000})
+	byRule := map[string][]store.Evidence{}
+	for _, e := range evs {
+		byRule[e.Rule] = append(byRule[e.Rule], e)
+	}
+	if l := byRule[RuleInformationLeak]; len(l) != 1 || l[0].SessionID != "sess-synth-2-informed" {
+		t.Fatalf("decoys changed the information_leak result: %+v", l)
+	}
+	d := byRule[RuleDecoyReaction]
+	if len(d) != 1 {
+		t.Fatalf("want one decoy_reaction (the informed slot), got %d: %+v", len(d), d)
+	}
+	e := d[0]
+	if e.SessionID != "sess-synth-2-informed" || e.Integrity || e.Source != store.SourceGameplay || !strings.Contains(e.Summary, "decoys only this player was sent") {
+		t.Fatalf("evidence: %+v", e)
+	}
+	var raw struct {
+		Slot    uint32 `json:"slot"`
+		Policy  string `json:"policy"`
+		Moments []any  `json:"moments"`
+		Replay  any    `json:"replay"`
+		Decoys  *struct {
+			Reacted int `json:"reacted"`
+			Exposed int `json:"exposed"`
+		} `json:"decoys"`
+	}
+	if err := json.Unmarshal([]byte(e.Raw), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw.Slot != 2 || len(raw.Moments) == 0 || raw.Replay == nil || raw.Decoys == nil || raw.Decoys.Reacted < 2 || raw.Decoys.Exposed != 0 ||
+		!strings.Contains(raw.Policy, "never triggers an automatic kick") {
+		t.Fatalf("explanation: %+v policy %q", raw, raw.Policy)
+	}
+	for _, ps := range spec.Players {
+		if r := k.reason(ps.SessionID); r != "" {
+			t.Fatalf("%s kicked: %s", ps.SessionID, r)
+		}
+	}
+}
+
 func TestMapReferenceAndConflicts(t *testing.T) {
 	st := store.NewMemory()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))

@@ -197,7 +197,7 @@ func TestScenarioFile(t *testing.T) {
 }
 
 func TestCalibrateSmall(t *testing.T) {
-	rows := Calibrate(modes[:1], 2, 900, 77, knowledge.DefaultConfig())
+	rows := Calibrate(modes[:1], 2, 900, 77, knowledge.DefaultConfig(), false)
 	if len(rows) == 0 {
 		t.Fatal("no rows")
 	}

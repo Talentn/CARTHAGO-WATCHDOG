@@ -64,6 +64,9 @@ type Spec struct {
 	Seed         uint64
 	MotionStride uint32
 	Players      []PlayerSpec
+	// Decoys sends every player its own decoys now and then (see decoys.go). They come
+	// from a separate random stream, so turning them on changes nothing honest players do.
+	Decoys bool
 }
 
 // DefaultPlayers is a 5v5 (shooter) or five teams of two (extraction) with the given roles
@@ -100,6 +103,22 @@ type Frame struct {
 	Items   []*pb.ItemEvent
 	Vis     []*pb.VisibilityEvent
 	Shots   []*pb.ShotEvent
+	Decoys  []DecoyFrame
+}
+
+// DecoyFrame is one decoy at one tick. A decoy is created unreplicated, replicated to its
+// recipients for a while, unreplicated again, and ended; Pos is sent every tick but the
+// last.
+type DecoyFrame struct {
+	ID           uint32
+	Team         uint32
+	Recipients   []uint32
+	Cloned       int32
+	Pos, Vel     knowledge.Vec3
+	Created      bool
+	Replicated   bool // first replicated tick
+	Unreplicated bool // first tick no longer replicated
+	Ended        bool
 }
 
 // rng is xorshift64*, the same generator gs-stub uses.
@@ -150,6 +169,8 @@ type simPlayer struct {
 	prefire    int
 	visited    []int
 	hsRate     float64
+	decoyIn    float64
+	decoys     []*simDecoy
 }
 
 type simItem struct {
@@ -173,6 +194,8 @@ type sim struct {
 	spotOut map[[2]uint32]float64
 	items   []*simItem
 	frame   *Frame
+	dr      rng // decoys only
+	nextID  uint32
 }
 
 var yardMap = func() *knowledge.Map {
@@ -194,7 +217,8 @@ func Run(spec Spec, emit func(*Frame)) {
 		spec.TickRate = 64
 	}
 	s := &sim{spec: spec, m: yardMap, r: rng{spec.Seed*0x9e37_79b9_7f4a_7c15 | 1}, dt: 1 / float64(spec.TickRate),
-		bySlot: map[uint32]*simPlayer{}, spots: map[[2]uint32]heard{}, spotOut: map[[2]uint32]float64{}}
+		bySlot: map[uint32]*simPlayer{}, spots: map[[2]uint32]heard{}, spotOut: map[[2]uint32]float64{},
+		dr: rng{(spec.Seed+0x5bd1_e995)*0xbf58_476d_1ce4_e5b9 | 1}}
 	for i, ps := range spec.Players {
 		p := &simPlayer{spec: ps, engaged: -1, cooldown: map[uint32]float64{}, visible: map[uint32]bool{}, heard: map[uint32]heard{}}
 		p.at = s.spawnNode(ps, i)
@@ -205,6 +229,9 @@ func Run(spec Spec, emit func(*Frame)) {
 		p.hsRate = math.Max(0.08, math.Min(0.45, 0.18+0.12*float64(ps.MMR-1500)/1000))
 		s.ps = append(s.ps, p)
 		s.bySlot[ps.Slot] = p
+	}
+	for _, p := range s.ps {
+		p.decoyIn = s.dr.between(5, 20)
 	}
 	ticks := uint32(spec.Seconds) * spec.TickRate
 	for t := uint32(1); t <= ticks; t++ {
@@ -318,6 +345,9 @@ func (s *sim) step() {
 	if len(s.items) > 0 {
 		s.loot()
 	}
+	if s.spec.Decoys {
+		s.stepDecoys()
+	}
 	for _, p := range s.ps {
 		s.frame.Players = append(s.frame.Players, PlayerFrame{Slot: p.spec.Slot, Pos: p.pos, Vel: p.vel, Yaw: p.yaw, Pitch: p.pitch, Commands: 1})
 	}
@@ -339,8 +369,11 @@ func (s *sim) nearestVisible(p *simPlayer) *simPlayer {
 // hiddenNearest is the informed player's ground truth: the closest enemy it
 // cannot see, preferring one it has not just heard and no teammate sees, since
 // that is what the leaked information adds over normal team play.
-func (s *sim) hiddenNearest(p *simPlayer, rng float64) *simPlayer {
-	var best *simPlayer
+//
+// A decoy the player was sent is, to the cheat, one more hidden enemy nobody else knows
+// about. Honest roles never call this, so they never react to one.
+func (s *sim) hiddenNearest(p *simPlayer, rng float64) *knowledge.Vec3 {
+	var best *knowledge.Vec3
 	bd := rng
 	for _, e := range s.enemies(p) {
 		if p.visible[e.spec.Slot] {
@@ -351,7 +384,17 @@ func (s *sim) hiddenNearest(p *simPlayer, rng float64) *simPlayer {
 			d += 25
 		}
 		if d < bd {
-			best, bd = e, d
+			pos := e.pos
+			best, bd = &pos, d
+		}
+	}
+	for _, dc := range p.decoys {
+		if !dc.Replicated() {
+			continue
+		}
+		if d := dc.pos.Dist(p.pos); d < bd {
+			pos := dc.pos
+			best, bd = &pos, d
 		}
 	}
 	return best
@@ -396,7 +439,7 @@ func (s *sim) think(p *simPlayer) {
 
 	var want *knowledge.Vec3
 	tau := 0.15
-	var tracking *simPlayer
+	var tracking *knowledge.Vec3
 	switch {
 	case p.engaged >= 0 && s.now >= p.engageAt:
 		e := s.bySlot[uint32(p.engaged)]
@@ -413,7 +456,7 @@ func (s *sim) think(p *simPlayer) {
 			rngMax = 28
 		}
 		if e := s.hiddenNearest(p, rngMax); e != nil {
-			a := aimPt(e.pos)
+			a := aimPt(*e)
 			noise := 1.0
 			if role == RoleSubtle {
 				noise = 3
@@ -422,16 +465,13 @@ func (s *sim) think(p *simPlayer) {
 			want, tracking, tau = &a, e, 0.1
 		}
 	case role == RoleSound:
-		// Two sounds can share a tick, and map order is random: the lower slot wins the
-		// tie, so that a seed always plays the same match.
 		var best *heard
-		var bestSlot uint32
+		bestSlot := uint32(0)
 		for slot, h := range p.heard {
-			if s.now-h.at < 2.5 {
+			// Ties go to the lower slot: map order is random and the simulation must replay.
+			if s.now-h.at < 2.5 && (best == nil || h.at > best.at || (h.at == best.at && slot < bestSlot)) {
 				h := h
-				if best == nil || h.at > best.at || (h.at == best.at && slot < bestSlot) {
-					best, bestSlot = &h, slot
-				}
+				best, bestSlot = &h, slot
 			}
 		}
 		if best != nil {
@@ -555,7 +595,7 @@ func (s *sim) shoot(p *simPlayer, target int32, hit bool, dist float64) {
 	s.sound(p, pb.SoundKind_SOUND_KIND_GUNSHOT, p.pos, 60)
 }
 
-func (s *sim) fire(p *simPlayer, tracking *simPlayer) {
+func (s *sim) fire(p *simPlayer, tracking *knowledge.Vec3) {
 	if p.fireIn -= s.dt; p.fireIn > 0 {
 		return
 	}
@@ -577,8 +617,8 @@ func (s *sim) fire(p *simPlayer, tracking *simPlayer) {
 		p.fireIn = s.r.between(0.11, 0.15)
 		return
 	}
-	if tracking != nil && tracking.pos.Dist(p.pos) < 30 && angleBetween(look, aimPt(tracking.pos).Sub(p.pos)) < 3 && s.r.unit() < 0.012 {
-		s.shoot(p, -1, false, tracking.pos.Dist(p.pos))
+	if tracking != nil && tracking.Dist(p.pos) < 30 && angleBetween(look, aimPt(*tracking).Sub(p.pos)) < 3 && s.r.unit() < 0.012 {
+		s.shoot(p, -1, false, tracking.Dist(p.pos))
 		p.fireIn = s.r.between(0.3, 0.8)
 	}
 }
@@ -671,7 +711,7 @@ func (s *sim) newGoal(p *simPlayer) {
 		}
 	} else if informed && s.r.unit() < 0.6 {
 		if e := s.hiddenNearest(p, 60); e != nil {
-			goal = nearestNode(e.pos)
+			goal = nearestNode(*e)
 		}
 	}
 	if goal < 0 || goal == p.at {
