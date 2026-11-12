@@ -200,6 +200,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "carthago-cs16-companion"
+version = "0.0.1"
+dependencies = [
+ "carthago-core",
+ "carthago-crypto",
+ "carthago-net",
+ "carthago-scan",
+ "carthago-sched",
+ "hex",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "carthago-harden"
 version = "0.0.1"
 dependencies = [
