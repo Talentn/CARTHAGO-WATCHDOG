@@ -110,6 +110,11 @@ A `Heartbeat` carries, besides the scheduler summary:
   saw and nothing else; allowlists, thresholds and verdicts are server-side (plan §8.6).
   `detail` holds at most 47 bytes: a module or process base name, never a path or a window
   title (plan §10).
+  A companion that watches a game from outside the process (`client/cs16`) reports
+  `FINDING_CODE_MODULE_SIGNATURE` (a module's Authenticode state, `ModuleSignature`, with its
+  path class) and `FINDING_CODE_EXTERNAL_EXEC_REGIONS` (a count and size summary of
+  executable memory with no backing image). The gateway records both as context and never
+  as integrity evidence.
 - `time`: QPC, `GetTickCount64` and `KUSER_SHARED_DATA.InterruptTime` read together. The
   server compares their rates with each other and with its own clock.
 - `input`: cumulative low-level mouse hook counters (events, `LLMHF_INJECTED`,
@@ -134,6 +139,7 @@ is v1). `buf breaking` against the v1 schema passes.
 | Field | Content |
 | --- | --- |
 | `MatchPlayer.team`, `input_device`, `aim_assist` | Team membership; mouse and keyboard, controller or touch; whether the game assists this player's aim |
+| `MatchPlayer.bot` | The slot is driven by the game's own AI. Its telemetry is analysed and shown, labelled, and never counted toward a player's risk; ignored for a slot that names a verified session |
 | `mode` | `GAME_MODE_COMPETITIVE_SHOOTER` or `GAME_MODE_EXTRACTION` |
 | `map` (`MapRef`) | `map_id` and `version` of the geometry the match is played on |
 | `map_geometry` | The geometry itself (occluder prisms, named zones, loot spawns), sent once with a match's first batch |

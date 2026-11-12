@@ -95,6 +95,7 @@ players by verifying their token offline and removes them when the gateway sends
 | `client/crates/carthago-scan` | Phase 1 client integrity scans as budgeted jobs |
 | `client/crates/carthago-harden` | Mitigation-policy profiles applied at SDK init |
 | `client/examples/gs-stub` | Game-server stub: `serve`, `verify`, `simulate` |
+| `client/cs16/` | Test kit for a game without source (Counter-Strike 1.6): `companion` (launcher that watches the game from outside, read-only), `plugin` (AMX Mod X server plugin), `bridge` (plugin stream to gameplay batches), `fakegame` (stand-in process for tests) |
 | `client/spikes/` | Phase 0 measurement harnesses (scheduler, attestation) |
 | `backend/cmd/carthago-gateway` | Carthago Gateway: the gateway, analysis pipeline and dashboard in one binary |
 | `backend/internal/gateway` | Handshake, attestation glue, TLS, sessions, heartbeats, `/v1/gs`, `/v1/ingest` |
@@ -105,7 +106,7 @@ players by verifying their token offline and removes them when the gateway sends
 | `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
 | `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
 | `sdk/native/sample` | Minimal C++ game using the SDK (CMake) |
-| `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh` |
+| `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh`, `carthago-cs16.ps1` (Windows) and `carthago-cs16-check.sh` (Linux) for the Counter-Strike 1.6 kit |
 
 ---
 
@@ -174,6 +175,41 @@ powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1          # TPM p
 powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1 -NoTpm   # software device key (trust 0)
 powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1 -Plaintext   # ws:// on loopback instead of pinned TLS
 ```
+
+### A real game without source: Counter-Strike 1.6
+
+The SDK is meant to be built into a game. For a game that cannot be rebuilt, `client/cs16`
+shows the two halves separately, on the owner's own PC and own game server:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1             # find the game on E:\, build, install the plugin, run
+powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin   # companion and dashboard only; the game folder is not touched
+powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # restore the game folder
+```
+
+- **Companion** (`carthago-cs16.exe`, 64-bit): does the normal handshake (TPM attestation,
+  pinned TLS), starts `hl.exe` as an ordinary child process, keeps only query, read and wait
+  access to it, and heartbeats until it exits. It runs `carthago_scan::external` on the
+  usual budgeted scheduler: loader module list with each file's Authenticode state, a summary
+  of executable memory with no backing image, debugger attachment, other processes' handles
+  to the game, overlay windows, vulnerable drivers. All of it is recorded as context, none of
+  it as integrity evidence, and the companion never closes the game.
+- **What a companion cannot see** that the in-process SDK does: thread start addresses,
+  images missing from the loader list, API hooks, patched code pages, the mitigation profile
+  and the game's own clocks. Executable private memory cannot be judged per region from
+  outside, because the engine's own loader and script JITs look the same as foreign code.
+- **Match data**: `carthago_cs16.amxx` (AMX Mod X 1.8.2+, read-only hooks) reports view
+  angles, positions, user commands, shots, hits and engine line-of-sight traces for every
+  player and bot over loopback UDP; `carthago-cs16-bridge` turns that into `GameplayBatch`
+  v1 and v2, marks bots (`MatchPlayer.bot`: analysed and shown, never counted toward risk)
+  and binds the local human's slot to the companion's verified session.
+- **Not done**: map occluders are not derived from the BSP, so information-leak scoring is
+  off for these matches; thresholds are the synthetic defaults, not tuned for CS 1.6.
+
+Nothing is injected into the game and no game binary is replaced or patched. The script
+changes only config files and adds the plugin, backs up what it changes under
+`<game>\carthago-cs16-backup`, and `-Uninstall` restores it. `tools/carthago-cs16-check.sh`
+runs the whole path on Linux against a stand-in process under Wine.
 
 ---
 
