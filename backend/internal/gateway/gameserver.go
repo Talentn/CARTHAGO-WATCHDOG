@@ -37,6 +37,21 @@ func (c *gsConn) send(m *pb.GsServerMsg) {
 	}
 }
 
+// reply answers a request from this game server. Unlike send it waits for room in the
+// buffer: it runs on the connection's own read loop, so a burst of requests (a game server
+// watching all its sessions again after a reconnect) slows that game server down instead of
+// overflowing the buffer and closing the connection it has just opened.
+func (c *gsConn) reply(ctx context.Context, m *pb.GsServerMsg) {
+	b, err := proto.Marshal(m)
+	if err != nil {
+		return
+	}
+	select {
+	case c.out <- b:
+	case <-ctx.Done():
+	}
+}
+
 // tenantForServerKey maps a server API key to its tenant. Keys are compared as SHA-256
 // digests in constant time against every tenant, so neither a key's length nor which
 // tenant matched shows in the timing. Two tenants must not share a key (the gateway
@@ -106,9 +121,9 @@ func (g *Gateway) handleGameServer(w http.ResponseWriter, r *http.Request) {
 		switch b := m.Body.(type) {
 		case *pb.GsClientMsg_Watch:
 			known, kick := g.sessions.Watch(conn, b.Watch.SessionId)
-			conn.send(&pb.GsServerMsg{Body: &pb.GsServerMsg_WatchAck{WatchAck: &pb.WatchAck{SessionId: b.Watch.SessionId, Known: known}}})
+			conn.reply(ctx, &pb.GsServerMsg{Body: &pb.GsServerMsg_WatchAck{WatchAck: &pb.WatchAck{SessionId: b.Watch.SessionId, Known: known}}})
 			if kick != nil {
-				conn.send(&pb.GsServerMsg{Body: &pb.GsServerMsg_Kick{Kick: kick}})
+				conn.reply(ctx, &pb.GsServerMsg{Body: &pb.GsServerMsg_Kick{Kick: kick}})
 			}
 		case *pb.GsClientMsg_Unwatch:
 			g.sessions.Unwatch(conn, b.Unwatch.SessionId)
