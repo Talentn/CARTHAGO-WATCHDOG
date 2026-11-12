@@ -27,6 +27,14 @@ pub const MAX_MOTION_SAMPLES_PER_FLUSH: usize = 16_384;
 pub const MAX_SOUNDS_PER_FLUSH: usize = 4_096;
 pub const MAX_TEAM_INFO_PER_FLUSH: usize = 1_024;
 pub const MAX_ITEMS_PER_FLUSH: usize = 1_024;
+/// Decoys: at most this many existing per match (replicated or not), sent to at most this many
+/// players each, and at most this many decoy position samples per flush.
+pub const MAX_DECOYS_ALIVE: usize = 256;
+pub const MAX_DECOY_RECIPIENTS: usize = 16;
+pub const MAX_DECOY_SAMPLES_PER_FLUSH: usize = 16_384;
+/// Minimum unreplicated pre-roll before a decoy is first replicated, and post-roll after it
+/// stops, in seconds: longer than the gateway's largest control offset (12 s).
+pub const DECOY_ROLL_MIN_S: f32 = 12.5;
 /// Default motion sampling: every 4th tick (16 Hz at 64 ticks/s).
 pub const DEFAULT_MOTION_STRIDE: u32 = 4;
 
@@ -37,6 +45,12 @@ struct MotionBuf {
     track: pb::MotionTrack,
     last_tick: u32,
     last: [i32; 6],
+}
+
+struct DecoyBuf {
+    meta: pb::DecoyTrack,
+    buf: MotionBuf,
+    ended: bool,
 }
 
 /// Builds `GameplayBatch`es from per-tick calls. Aim samples for consecutive ticks are packed
@@ -70,6 +84,9 @@ pub struct MatchRecorder {
     team_info: Vec<pb::TeamInfo>,
     items: Vec<pb::ItemEvent>,
     dropped: u32,
+    decoys: BTreeMap<u32, DecoyBuf>,
+    decoys_done: Vec<pb::DecoyTrack>,
+    decoy_samples: usize,
 }
 
 fn cm(m: f32) -> i32 {
@@ -104,8 +121,106 @@ impl MatchRecorder {
             team_info: Vec::new(),
             items: Vec::new(),
             dropped: 0,
+            decoys: BTreeMap::new(),
+            decoys_done: Vec::new(),
+            decoy_samples: 0,
         }
     }
+
+    /// v2: the game created a decoy that will be replicated only to `recipients` (see
+    /// [`crate::decoy`] for the rules that keep it invisible to them). It is not replicated
+    /// yet: move it for at least [`DECOY_ROLL_MIN_S`] and report its motion before calling
+    /// [`MatchRecorder::decoy_replicated`]. Returns false, and counts a drop, when `id` is 0 or
+    /// already exists, or [`MAX_DECOYS_ALIVE`] exist; recipients past
+    /// [`MAX_DECOY_RECIPIENTS`] are dropped.
+    pub fn decoy_create(&mut self, id: u32, team: u32, recipients: &[u32], cloned_from: Option<u32>) -> bool {
+        self.v2 = true;
+        if id == 0 || self.decoys.contains_key(&id) || self.decoys.len() >= MAX_DECOYS_ALIVE {
+            self.dropped = self.dropped.saturating_add(1);
+            return false;
+        }
+        let keep = recipients.len().min(MAX_DECOY_RECIPIENTS);
+        self.dropped = self.dropped.saturating_add((recipients.len() - keep) as u32);
+        let meta = pb::DecoyTrack {
+            decoy_id: id,
+            recipients: recipients[..keep].to_vec(),
+            team,
+            spawn_tick: 0,
+            despawn_tick: 0,
+            track: None,
+            cloned_from_slot: cloned_from.map_or(-1, |s| s as i32),
+        };
+        let stride = self.motion_stride;
+        let buf = MotionBuf { track: pb::MotionTrack { stride, ..Default::default() }, last_tick: 0, last: [0; 6] };
+        self.decoys.insert(id, DecoyBuf { meta, buf, ended: false });
+        true
+    }
+
+    /// v2: the decoy is replicated to its recipients from `tick`. A decoy is replicated once:
+    /// a second call, or one after [`MatchRecorder::decoy_unreplicated`], counts a drop.
+    pub fn decoy_replicated(&mut self, id: u32, tick: u32) {
+        match self.decoys.get_mut(&id) {
+            Some(d) if !d.ended && d.meta.spawn_tick == 0 => d.meta.spawn_tick = tick.max(1),
+            _ => self.dropped = self.dropped.saturating_add(1),
+        }
+    }
+
+    /// v2: `tick` is the first tick the decoy is no longer replicated. Keep moving it, and
+    /// reporting its motion, for the post-roll before [`MatchRecorder::decoy_end`].
+    pub fn decoy_unreplicated(&mut self, id: u32, tick: u32) {
+        match self.decoys.get_mut(&id) {
+            Some(d) if !d.ended && d.meta.spawn_tick != 0 && d.meta.despawn_tick == 0 => d.meta.despawn_tick = tick.max(d.meta.spawn_tick),
+            _ => self.dropped = self.dropped.saturating_add(1),
+        }
+    }
+
+    /// v2: the decoy is gone. It is reported once more and then forgotten.
+    pub fn decoy_end(&mut self, id: u32) {
+        match self.decoys.get_mut(&id) {
+            Some(d) if !d.ended => d.ended = true,
+            _ => self.dropped = self.dropped.saturating_add(1),
+        }
+    }
+
+    /// v2: a decoy's eye position and velocity, sampled like [`MatchRecorder::motion`], in
+    /// every phase until it ends: the unreplicated pre- and post-roll are what the gateway
+    /// compares the replicated positions with.
+    pub fn decoy_motion(&mut self, id: u32, tick: u32, pos_m: [f32; 3], vel_m_s: [f32; 3]) {
+        let stride = self.motion_stride;
+        if !tick.is_multiple_of(stride) {
+            return;
+        }
+        let Some(d) = self.decoys.get_mut(&id).filter(|d| !d.ended) else {
+            self.dropped = self.dropped.saturating_add(1);
+            return;
+        };
+        if self.decoy_samples >= MAX_DECOY_SAMPLES_PER_FLUSH {
+            self.dropped = self.dropped.saturating_add(1);
+            return;
+        }
+        self.decoy_samples += 1;
+        let v = [cm(pos_m[0]), cm(pos_m[1]), cm(pos_m[2]), cm(vel_m_s[0]), cm(vel_m_s[1]), cm(vel_m_s[2])];
+        let b = &mut d.buf;
+        if !b.track.x_cm.is_empty() && tick != b.last_tick + stride {
+            let done = std::mem::replace(&mut b.track, pb::MotionTrack { stride, ..Default::default() });
+            self.decoys_done.push(pb::DecoyTrack { track: Some(done), ..d.meta.clone() });
+            b.last = [0; 6];
+        }
+        let t = &mut b.track;
+        if t.x_cm.is_empty() {
+            t.first_tick = tick;
+        }
+        let dv: [i32; 6] = std::array::from_fn(|i| v[i].wrapping_sub(b.last[i]));
+        t.x_cm.push(dv[0]);
+        t.y_cm.push(dv[1]);
+        t.z_cm.push(dv[2]);
+        t.vx_cm_s.push(dv[3]);
+        t.vy_cm_s.push(dv[4]);
+        t.vz_cm_s.push(dv[5]);
+        b.last = v;
+        b.last_tick = tick;
+    }
+
 
     /// v2: the player's team (0 = solo), input device and whether the game assists their aim.
     /// These select the calibration segment the leak scorer judges them in.
@@ -290,6 +405,15 @@ impl MatchRecorder {
         let mut motion = std::mem::take(&mut self.motion_done);
         motion.extend(std::mem::take(&mut self.motion).into_values().map(|b| b.track));
         self.motion_samples = 0;
+        let mut decoys = std::mem::take(&mut self.decoys_done);
+        let stride = self.motion_stride;
+        for d in self.decoys.values_mut() {
+            let track = std::mem::replace(&mut d.buf.track, pb::MotionTrack { stride, ..Default::default() });
+            d.buf.last = [0; 6];
+            decoys.push(pb::DecoyTrack { track: (!track.x_cm.is_empty()).then_some(track), ..d.meta.clone() });
+        }
+        self.decoys.retain(|_, d| !d.ended);
+        self.decoy_samples = 0;
         pb::GameplayBatch {
             match_id: self.match_id.clone(),
             batch_seq: self.seq,
@@ -310,6 +434,7 @@ impl MatchRecorder {
             team_info: std::mem::take(&mut self.team_info),
             items: std::mem::take(&mut self.items),
             dropped_events: std::mem::take(&mut self.dropped),
+            decoys,
         }
     }
 }
@@ -588,6 +713,55 @@ mod tests {
         assert_eq!(samples, MAX_MOTION_SAMPLES_PER_FLUSH);
         assert_eq!(b.dropped_events as usize, 5 + 1 + (200 * 400 - MAX_MOTION_SAMPLES_PER_FLUSH));
         assert_eq!(r.flush(false).dropped_events, 0);
+    }
+
+    #[test]
+    fn decoys_report_lifecycle_track_and_recipients() {
+        let mut r = MatchRecorder::new("m", 64);
+        assert!(r.flush(false).decoys.is_empty(), "no decoys unless the game creates one");
+        assert!(r.decoy_create(7, 2, &[3], Some(5)));
+        assert!(!r.decoy_create(7, 2, &[3], None), "ids are unique while the decoy exists");
+        assert!(!r.decoy_create(0, 2, &[3], None));
+        for t in 100..112u32 {
+            r.decoy_motion(7, t, [30.0 + t as f32 * 0.05, 12.0, 1.6], [3.2, 0.0, 0.0]);
+        }
+        r.decoy_motion(8, 100, [0.0; 3], [0.0; 3]); // unknown decoy
+        r.decoy_unreplicated(7, 105); // never replicated
+        let b = r.flush(false);
+        assert_eq!(b.schema_version, SCHEMA_V2);
+        assert_eq!(b.dropped_events, 4);
+        let d = &b.decoys[0];
+        assert_eq!((d.decoy_id, d.team, d.spawn_tick, d.despawn_tick, d.cloned_from_slot), (7, 2, 0, 0, 5), "pre-roll: reported, not replicated");
+        assert_eq!(d.recipients, vec![3]);
+        let t = d.track.as_ref().unwrap();
+        assert_eq!((t.first_tick, t.stride, t.x_cm.len()), (100, 4, 3));
+        assert_eq!(decode_track(t)[0][..3], [3500, 1200, 160]);
+
+        r.decoy_replicated(7, 113);
+        r.decoy_replicated(7, 114); // replicated once only
+        r.decoy_motion(7, 112, [36.0, 12.0, 1.6], [0.0; 3]);
+        r.decoy_motion(7, 116, [36.0, 12.0, 1.6], [0.0; 3]);
+        r.decoy_unreplicated(7, 118);
+        r.decoy_motion(7, 120, [36.0, 13.0, 1.6], [0.0; 3]); // post-roll
+        let b = r.flush(false);
+        let d = &b.decoys[0];
+        assert_eq!((d.spawn_tick, d.despawn_tick, b.dropped_events), (113, 118, 1));
+        assert_eq!(decode_track(d.track.as_ref().unwrap())[0][0], 3600, "each batch starts absolute");
+        assert_eq!(d.track.as_ref().unwrap().x_cm.len(), 3, "post-roll motion is kept");
+
+        r.decoy_end(7);
+        r.decoy_motion(7, 124, [36.0, 12.0, 1.6], [0.0; 3]); // after the end
+        let b = r.flush(false);
+        assert_eq!((b.decoys.len(), b.decoys[0].despawn_tick, b.dropped_events), (1, 118, 1));
+        assert!(r.flush(false).decoys.is_empty(), "forgotten once its end was sent");
+
+        for id in 1..=(MAX_DECOYS_ALIVE as u32 + 2) {
+            r.decoy_create(id, 1, &[1; MAX_DECOY_RECIPIENTS + 1], None);
+        }
+        let b = r.flush(false);
+        assert_eq!(b.decoys.len(), MAX_DECOYS_ALIVE);
+        assert!(b.decoys.iter().all(|d| d.recipients.len() == MAX_DECOY_RECIPIENTS && d.track.is_none()));
+        assert_eq!(b.dropped_events as usize, MAX_DECOYS_ALIVE + 2);
     }
 
     /// The client budget for the game server: a 10-player match at 64 ticks/s with motion at
