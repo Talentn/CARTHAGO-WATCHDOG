@@ -54,6 +54,12 @@
   {{template "leak" .}}
 </section>
 {{end}}
+{{range $d.Decoys}}
+<section class="card">
+  <h2>Decoy reaction · slot {{.Slot}}</h2>
+  {{template "decoy" .}}
+</section>
+{{end}}
 <section class="card">
   <h2>Evidence</h2>
   {{template "evidencetable" $d.Evidence}}

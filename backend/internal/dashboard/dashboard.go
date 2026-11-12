@@ -103,6 +103,7 @@ func (s *Server) parse() error {
 		"add":       func(a, b int) int { return a + b },
 		"bar":       trustBar,
 		"leak":      parseLeak,
+		"decoy":     parseDecoy,
 		"fixed":     fixed,
 		"add2":      func(a, b float64) float64 { return a + b },
 		"pctOf":     func(f float64) float64 { return f * 100 },
@@ -114,10 +115,10 @@ func (s *Server) parse() error {
 	}
 	for _, n := range names {
 		base := strings.TrimSuffix(strings.TrimPrefix(n, "templates/"), ".html")
-		if base == "layout" || base == "partials" {
+		if base == "layout" || base == "partials" || base == "decoy" {
 			continue
 		}
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", n)
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/decoy.html", n)
 		if err != nil {
 			return err
 		}
@@ -291,6 +292,7 @@ type sessionData struct {
 	CPUShare  float64 // worker CPU as a fraction of one core over the session
 	Gameplay  []store.GameplaySummary
 	Leaks     []*leakView
+	Decoys    []*decoyView
 }
 
 type coverage struct {
@@ -327,6 +329,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 		return
 	}
 	d.Leaks = leakOf(d.Evidence)
+	d.Decoys = decoysOf(d.Evidence)
 	if d.Gameplay, err = s.st.ListGameplaySummaries(ctx, tenant, store.GameplayFilter{SessionID: id, Limit: 50}); err != nil {
 		s.fail(w, err)
 		return

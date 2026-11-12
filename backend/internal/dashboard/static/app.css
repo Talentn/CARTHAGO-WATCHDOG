@@ -144,3 +144,6 @@ button.primary:hover { filter: brightness(1.06); }
 .k-target { background: var(--bad); }
 .k-wall { background: #3a4150; height: 10px !important; }
 details summary { cursor: pointer; color: var(--muted); margin: 10px 0 4px; }
+/* decoy_reaction evidence (templates/decoy.html) */
+.rp-decoy { fill: none; stroke: var(--t1); stroke-width: 2.5; stroke-dasharray: 2 3; }
+.rp-decoy-dot, .k-decoy { fill: var(--t1); background: var(--t1); }
