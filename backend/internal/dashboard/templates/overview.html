@@ -29,7 +29,7 @@
     {{range $d.Flagged}}
       <tr><td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
         <td><span class="tier tier-{{tier .Risk}}">{{tier .Risk}}</span></td>
-        <td class="num">{{risk .Risk}}</td><td>{{.TopRule}}</td>
+        <td class="num">{{risk .Risk}}</td><td class="mono">{{.TopRule}}</td>
         <td>{{if .Sessions}}<span class="trust t{{.TrustLevel}}">{{trust .TrustLevel}}</span>{{else}}<span class="muted">no session</span>{{end}}</td></tr>
     {{end}}
     </tbody>
@@ -43,7 +43,7 @@
   <ul class="feed">
     {{range $d.Recent}}
     <li><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>
-      <div><a href="/evidence/{{.ID}}"><b>{{.Rule}}</b></a> · <a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>
+      <div><a class="mono" href="/evidence/{{.ID}}">{{.Rule}}</a> · <a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>
       <p>{{.Summary}}</p></div>
       <time class="muted">{{ago .ObservedAt}}</time></li>
     {{end}}
