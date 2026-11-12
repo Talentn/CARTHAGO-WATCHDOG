@@ -76,9 +76,9 @@
     <circle class="rp-start" cx="{{.Start.X}}" cy="{{.Start.Y}}" r="3.5"/>
     <circle class="rp-viewer-dot" cx="{{.End.X}}" cy="{{.End.Y}}" r="4.5"/>
     <line class="rp-scale" x1="0" y1="{{add2 .H 14}}" x2="{{.ScaleBar}}" y2="{{add2 .H 14}}"/>
-    <text class="rp-label" x="{{add2 .ScaleBar 6}}" y="{{add2 .H 18}}">10 m</text>
+    <text class="rp-label" x="{{add2 .ScaleBar 8}}" y="{{add2 .H 18}}">10 m</text>
   </svg>
-  <p class="legend"><span class="key k-viewer"></span> flagged player <span class="key k-ray"></span> crosshair direction <span class="key k-target"></span> {{if .TargetIsItem}}unseen loot{{else}}hidden enemy (true position){{end}} <span class="key k-wall"></span> occluder</p>
+  <p class="replay-key"><span><span class="key k-viewer"></span>flagged player</span><span><span class="key k-ray"></span>crosshair direction</span><span><span class="key k-target"></span>{{if .TargetIsItem}}unseen loot{{else}}hidden enemy (true position){{end}}</span><span><span class="key k-wall"></span>occluder</span></p>
   {{end}}
   {{with .ReplayNote}}<p class="muted">{{.}}</p>{{end}}
   <details><summary>Knowledge model</summary><p class="muted">{{.Knowledge}}</p></details>
