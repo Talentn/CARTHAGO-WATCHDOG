@@ -117,14 +117,6 @@ A `Heartbeat` carries, besides the scheduler summary:
   `LLMHF_LOWER_IL_INJECTED`, focused time).
 - `coverage`: completed passes per scan job, so the server can tell a client that never scans.
 
-## Gameplay ingest
-
-`/v1/ingest` WebSocket, same `Authorization: Bearer <tenant server key>` as `/v1/gs`. The game
-server sends one `GameplayBatch` per binary frame (per-match slots, view-angle tracks, shots,
-visibility transitions, command counts, semi-auto trigger timestamps) and the gateway answers
-each with an `IngestAck`. `batch_seq` must increase per match; a duplicate or older batch is
-acknowledged with `accepted=false` and dropped.
-
 ## Limits
 
 The gateway refuses what exceeds these; the SDKs stay well inside them.
@@ -139,3 +131,50 @@ The gateway refuses what exceeds these; the SDKs stay well inside them.
 - Gameplay batch: `tick_rate` at most 1000; slots 0-255; `session_id` and `player_hash` at
   most 128 bytes; yaw and pitch tracks of equal length. A batch that breaks these is
   refused in its `IngestAck` and does not advance the match.
+
+## Gameplay ingest
+
+`/v1/ingest` WebSocket, same `Authorization: Bearer <tenant server key>` as `/v1/gs`. The game
+server sends one `GameplayBatch` per binary frame (per-match slots, view-angle tracks, shots,
+visibility transitions, command counts, semi-auto trigger timestamps) and the gateway answers
+each with an `IngestAck`. `batch_seq` must increase per match; a duplicate or older batch is
+acknowledged with `accepted=false` and dropped.
+
+### Telemetry v2
+
+v2 adds what the information-leak scorer needs to decide what each player could legitimately
+know. All v2 fields are new field numbers on `GameplayBatch` and `MatchPlayer`, so a v1 sender
+leaves them empty and keeps working unchanged; `schema_version = 2` marks a v2 sender (0 or 1
+is v1). `buf breaking` against the v1 schema passes.
+
+| Field | Content |
+| --- | --- |
+| `MatchPlayer.team`, `input_device`, `aim_assist` | Team membership; mouse and keyboard, controller or touch; whether the game assists this player's aim |
+| `mode` | `GAME_MODE_COMPETITIVE_SHOOTER` or `GAME_MODE_EXTRACTION` |
+| `map` (`MapRef`) | `map_id` and `version` of the geometry the match is played on |
+| `map_geometry` | The geometry itself (occluder prisms, named zones, loot spawns), sent once with a match's first batch |
+| `motion` (`MotionTrack`) | Eye position (cm) and velocity (cm/s) per slot every `stride` ticks; within a track the first value is absolute and the rest are deltas (zigzag varints). View direction comes from the existing view-angle tracks |
+| `sounds` (`SoundEvent`) | Footsteps, gunshots, reloads, abilities and interactions with their position and audible `radius_cm` |
+| `team_info` (`TeamInfo`) | Pings, game-spotted enemies and radar reveals, with the team they were shared with and how long they last |
+| `items` (`ItemEvent`) | Loot appearing, moving or being removed, with a value tier |
+| `dropped_events` | Samples or events the recorder dropped at its per-batch caps |
+
+**Map geometry is immutable per version.** The gateway stores a `(tenant, map_id, version)`
+the first time it sees it and refuses different geometry under the same key; ship a new
+version instead. Later matches may send only the `MapRef`. The gateway rejects version 0,
+non-convex occluders, empty height ranges, and geometry over its limits (4,096 occluders of at
+most 32 vertices, 256 zones, 1,024 loot spawns, 512 KiB encoded).
+
+**Warnings.** A v2 problem never rejects the batch: v1 rules still run on it. Instead the ack
+carries `IngestAck.warning` (field 5), for example an unknown map reference, conflicting
+geometry, or invalid geometry; information-leak scoring is skipped for that match until the
+map resolves. The Rust server SDK reports it in `IngestEvent::Acked { warning, .. }`.
+
+**Recorder caps** (`carthago-server`, per flush): 16,384 motion samples, 4,096 sounds, 1,024
+team-info events and 1,024 item events; anything past a cap is counted in `dropped_events`.
+Motion is kept every 4th tick by default (`set_motion_stride`), which measures about 2.2 bytes
+per player-tick on the wire at 64 Hz.
+
+**Scoring** happens once per match, at `match_over`, and only produces flag-only evidence
+(`information_leak`) that is never used for automatic kicks. The rule, its knowledge model and
+its per-segment thresholds are documented in the `backend/internal/knowledge` package.

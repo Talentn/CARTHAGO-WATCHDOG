@@ -11,6 +11,7 @@ type Memory struct {
 	sessions     map[string]Session
 	attestations []Attestation
 	evid         *memEvidence
+	play         *memGameplay
 }
 
 func NewMemory() *Memory {

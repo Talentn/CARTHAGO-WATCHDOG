@@ -8,7 +8,10 @@ pub mod gameplay;
 pub mod kick;
 mod verify;
 
-pub use gameplay::{GameplayStream, IngestEvent, MatchRecorder};
+pub use gameplay::{
+    GameplayStream, IngestEvent, MatchRecorder, DEFAULT_MOTION_STRIDE, MAX_ITEMS_PER_FLUSH, MAX_MOTION_SAMPLES_PER_FLUSH, MAX_SOUNDS_PER_FLUSH,
+    MAX_TEAM_INFO_PER_FLUSH, SCHEMA_V2,
+};
 pub use kick::{GsEvent, KickListener};
 pub use carthago_proto::v1 as pb;
 pub use carthago_crypto::token::{Claims, TokenError};

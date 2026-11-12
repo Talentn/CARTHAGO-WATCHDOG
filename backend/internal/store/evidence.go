@@ -114,6 +114,8 @@ type EvidenceStore interface {
 	ListEvidence(ctx context.Context, tenant string, f EvidenceFilter) ([]Evidence, error)
 	GetEvidence(ctx context.Context, tenant string, id int64) (*Evidence, error)
 	ListPlayers(ctx context.Context, tenant string, f PlayerFilter) ([]PlayerRow, error)
+
+	GameplayStore
 }
 
 // RiskWeight is a severity's contribution to a player's risk, multiplied by the evidence score.

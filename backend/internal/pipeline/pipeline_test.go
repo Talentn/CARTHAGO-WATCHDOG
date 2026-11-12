@@ -137,14 +137,14 @@ func TestGameplayIdempotentAndTenantChecked(t *testing.T) {
 	ctx := context.Background()
 	players := []*pb.MatchPlayer{{Slot: 1, SessionId: "sess-honest", PlayerHash: "spoofed"}, {Slot: 2, SessionId: "sess-cheat"}}
 
-	ok, err := p.Gameplay(ctx, "t1", cheaterBatch(1, players, false))
+	ok, _, err := p.Gameplay(ctx, "t1", cheaterBatch(1, players, false))
 	if err != nil || !ok {
 		t.Fatalf("batch 1: %v %v", ok, err)
 	}
-	if ok, err := p.Gameplay(ctx, "t1", cheaterBatch(1, players, false)); err != nil || ok {
+	if ok, _, err := p.Gameplay(ctx, "t1", cheaterBatch(1, players, false)); err != nil || ok {
 		t.Fatalf("retried batch 1 must be acked as duplicate: %v %v", ok, err)
 	}
-	if ok, _ := p.Gameplay(ctx, "t1", cheaterBatch(2, nil, true)); !ok {
+	if ok, _, _ := p.Gameplay(ctx, "t1", cheaterBatch(2, nil, true)); !ok {
 		t.Fatal("batch 2")
 	}
 	evs, _ := st.ListEvidence(ctx, "t1", store.EvidenceFilter{})
@@ -156,7 +156,7 @@ func TestGameplayIdempotentAndTenantChecked(t *testing.T) {
 	foreign := []*pb.MatchPlayer{{Slot: 2, SessionId: "sess-foreign", PlayerHash: "p2"}}
 	b := cheaterBatch(1, foreign, true)
 	b.MatchId = "m2"
-	if ok, err := p.Gameplay(ctx, "t1", b); !ok || err != nil {
+	if ok, _, err := p.Gameplay(ctx, "t1", b); !ok || err != nil {
 		t.Fatalf("m2: %v %v", ok, err)
 	}
 	evs, _ = st.ListEvidence(ctx, "t1", store.EvidenceFilter{})
@@ -168,7 +168,7 @@ func TestGameplayIdempotentAndTenantChecked(t *testing.T) {
 	if x, _ := st.ListEvidence(ctx, "t2", store.EvidenceFilter{}); len(x) != 0 {
 		t.Fatalf("evidence leaked into t2: %+v", x)
 	}
-	if _, err := p.Gameplay(ctx, "t1", &pb.GameplayBatch{}); err == nil {
+	if _, _, err := p.Gameplay(ctx, "t1", &pb.GameplayBatch{}); err == nil {
 		t.Fatal("empty match id accepted")
 	}
 }
@@ -186,12 +186,12 @@ func TestBackpressure(t *testing.T) {
 	if p.Dropped() != 1 {
 		t.Fatalf("dropped %d", p.Dropped())
 	}
-	if _, err := p.Gameplay(context.Background(), "t1", cheaterBatch(1, nil, false)); !errors.Is(err, ErrBusy) {
+	if _, _, err := p.Gameplay(context.Background(), "t1", cheaterBatch(1, nil, false)); !errors.Is(err, ErrBusy) {
 		t.Fatalf("full queue: %v", err)
 	}
 	close(block)
 	flush(p)
-	if ok, err := p.Gameplay(context.Background(), "t1", cheaterBatch(1, nil, false)); !ok || err != nil {
+	if ok, _, err := p.Gameplay(context.Background(), "t1", cheaterBatch(1, nil, false)); !ok || err != nil {
 		t.Fatalf("retry after busy must be accepted: %v %v", ok, err)
 	}
 }
@@ -246,7 +246,7 @@ func TestGameplayEvidenceNeverKicks(t *testing.T) {
 	ctx := context.Background()
 	players := []*pb.MatchPlayer{{Slot: 2, SessionId: "sess-cheat"}}
 	for seq := uint64(1); seq <= 3; seq++ {
-		if ok, err := p.Gameplay(ctx, "t1", cheaterBatch(seq, players, seq == 3)); !ok || err != nil {
+		if ok, _, err := p.Gameplay(ctx, "t1", cheaterBatch(seq, players, seq == 3)); !ok || err != nil {
 			t.Fatalf("batch %d: %v %v", seq, ok, err)
 		}
 	}
@@ -272,23 +272,23 @@ func TestOpenMatchesPerTenantAreBounded(t *testing.T) {
 		return &pb.GameplayBatch{MatchId: match, BatchSeq: seq, TickRate: 64, MatchOver: over}
 	}
 	for _, m := range []string{"a", "b"} {
-		if ok, err := p.Gameplay(ctx, "t1", batch(m, 1, false)); !ok || err != nil {
+		if ok, _, err := p.Gameplay(ctx, "t1", batch(m, 1, false)); !ok || err != nil {
 			t.Fatalf("match %s: %v %v", m, ok, err)
 		}
 	}
-	if ok, err := p.Gameplay(ctx, "t1", batch("c", 1, false)); ok || err == nil || errors.Is(err, ErrBusy) {
+	if ok, _, err := p.Gameplay(ctx, "t1", batch("c", 1, false)); ok || err == nil || errors.Is(err, ErrBusy) {
 		t.Fatalf("third open match: accepted=%v err=%v", ok, err)
 	}
 	// Another tenant has its own budget, and an open match keeps receiving batches.
-	if ok, err := p.Gameplay(ctx, "t2", batch("c", 1, false)); !ok || err != nil {
+	if ok, _, err := p.Gameplay(ctx, "t2", batch("c", 1, false)); !ok || err != nil {
 		t.Fatalf("other tenant: %v %v", ok, err)
 	}
-	if ok, err := p.Gameplay(ctx, "t1", batch("a", 2, true)); !ok || err != nil {
+	if ok, _, err := p.Gameplay(ctx, "t1", batch("a", 2, true)); !ok || err != nil {
 		t.Fatalf("match a batch 2: %v %v", ok, err)
 	}
 	// The refused batch did not advance its match: the same sequence number is accepted once
 	// there is room.
-	if ok, err := p.Gameplay(ctx, "t1", batch("c", 1, false)); !ok || err != nil {
+	if ok, _, err := p.Gameplay(ctx, "t1", batch("c", 1, false)); !ok || err != nil {
 		t.Fatalf("match c after a ended: %v %v", ok, err)
 	}
 }

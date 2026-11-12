@@ -49,9 +49,9 @@ func (g *Gateway) handleIngest(w http.ResponseWriter, r *http.Request) {
 			ack.Error = err.Error()
 		} else {
 			bctx, cancel := context.WithTimeout(ctx, ingestTimeout)
-			accepted, err := g.cfg.Detections.Gameplay(bctx, tenant, &b)
+			accepted, warning, err := g.cfg.Detections.Gameplay(bctx, tenant, &b)
 			cancel()
-			ack.Accepted = accepted
+			ack.Accepted, ack.Warning = accepted, warning
 			if err != nil {
 				ack.Error = err.Error()
 			}

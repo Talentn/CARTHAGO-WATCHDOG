@@ -1,25 +1,25 @@
 {{define "content"}}
-{{$d := .Data}}
+{{$d := .Data}}{{$t := $d.O.TrustLevels}}{{$attested := add (index $t 2) (index $t 3)}}{{$all := add (add (index $t 0) (index $t 1)) $attested}}
 <div class="head"><h1>Overview</h1><span class="muted">last 24 hours</span></div>
 <section class="kpis">
-  <div class="kpi"><span>Online now</span><b>{{$d.O.OnlineSessions}}</b><small>sessions heartbeating</small></div>
-  <div class="kpi"><span>Sessions</span><b>{{$d.O.Sessions}}</b><small>{{$d.O.Players}} players</small></div>
-  <div class="kpi{{if $d.O.FlaggedPlayers}} warn{{end}}"><span>Flagged players</span><b>{{$d.O.FlaggedPlayers}}</b><small>risk ≥ watch</small></div>
-  <div class="kpi"><span>Detections</span><b>{{$d.O.Evidence}}</b><small>above info</small></div>
-  <div class="kpi"><span>Matches analysed</span><b>{{$d.O.Matches}}</b><small>gameplay ingest</small></div>
+  <div class="kpi"><span>Online now</span><b>{{$d.O.OnlineSessions}}</b><small>sessions with a recent heartbeat</small></div>
+  <div class="kpi"><span>Sessions</span><b>{{$d.O.Sessions}}</b><small>from {{$d.O.Players}} players</small></div>
+  <div class="kpi{{if $d.O.FlaggedPlayers}} warn{{end}}"><span>Flagged players</span><b>{{$d.O.FlaggedPlayers}}</b><small>at Watch or Review</small></div>
+  <div class="kpi"><span>Detections</span><b>{{$d.O.Evidence}}</b><small>low severity or higher</small></div>
+  <div class="kpi"><span>Matches analysed</span><b>{{$d.O.Matches}}</b><small>from game-server telemetry</small></div>
 </section>
 
 <section class="card">
-  <h2>Trust levels</h2>
+  <div class="card-head"><h2>Trust levels</h2>{{if $all}}<span class="muted">{{$attested}} of {{$all}} sessions hardware-attested</span>{{end}}</div>
   <svg class="trustbar" viewBox="0 0 100 6" preserveAspectRatio="none" role="img" aria-label="Sessions by trust level">
-    {{range bar $d.O.TrustLevels}}{{if .Count}}<rect class="t{{.Level}}" x="{{.X}}" y="0" width="{{.W}}" height="6"><title>{{.Name}}: {{.Count}}</title></rect>{{end}}{{end}}
+    {{range bar $t}}{{if .Count}}<rect class="t{{.Level}}" x="{{.X}}" y="0" width="{{.W}}" height="6"><title>{{.Name}}: {{.Count}}</title></rect>{{end}}{{end}}
   </svg>
-  <ul class="legend">
-    {{range bar $d.O.TrustLevels}}<li><i class="t{{.Level}}"></i>{{.Name}} <b>{{.Count}}</b> <span class="muted">{{.Percent}}</span></li>{{end}}
+  <ul class="ladder">
+    {{range bar $t}}<li class="t{{.Level}}"><span class="trust t{{.Level}}">{{.Name}}</span><span><b>{{.Count}}</b> <span class="muted">{{.Percent}}</span></span><small class="muted">{{if eq .Level 0}}software device key, no TPM{{else if eq .Level 1}}TPM key claimed, attestation missing or failed{{else if eq .Level 2}}TPM-resident key, AK bound to EK, quote verified{{else}}attested, and the boot state meets the ranked policy{{end}}</small></li>
+    {{end}}
   </ul>
 </section>
 
-<div class="grid2">
 <section class="card">
   <div class="card-head"><h2>Flagged players</h2><a href="/players">All flagged →</a></div>
   {{if $d.Flagged}}
@@ -29,28 +29,31 @@
     {{range $d.Flagged}}
       <tr><td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
         <td><span class="tier tier-{{tier .Risk}}">{{tier .Risk}}</span></td>
-        <td class="num">{{risk .Risk}}</td><td>{{.TopRule}}</td>
+        <td class="num">{{risk .Risk}}</td><td class="mono">{{.TopRule}}</td>
         <td>{{if .Sessions}}<span class="trust t{{.TrustLevel}}">{{trust .TrustLevel}}</span>{{else}}<span class="muted">no session</span>{{end}}</td></tr>
     {{end}}
     </tbody>
   </table>
-  {{else}}<p class="empty">No flagged players.</p>{{end}}
+  {{else}}<p class="empty">No flagged players</p>{{end}}
 </section>
 
 <section class="card">
   <div class="card-head"><h2>Recent detections</h2></div>
   {{if $d.Recent}}
-  <ul class="feed">
+  <table>
+    <thead><tr><th>Severity</th><th>Rule</th><th>Player</th><th>Finding</th><th>Observed</th></tr></thead>
+    <tbody>
     {{range $d.Recent}}
-    <li><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>
-      <div><a href="/evidence/{{.ID}}"><b>{{.Rule}}</b></a> · <a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>
-      <p>{{.Summary}}</p></div>
-      <time class="muted">{{ago .ObservedAt}}</time></li>
+      <tr><td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span></td>
+        <td><a class="mono" href="/evidence/{{.ID}}">{{.Rule}}</a></td>
+        <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
+        <td>{{.Summary}}</td>
+        <td class="when" title="{{when .ObservedAt}}"><span class="mono">{{.ObservedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .ObservedAt}}</span></td></tr>
     {{end}}
-  </ul>
-  {{else}}<p class="empty">Nothing detected yet.</p>{{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">Nothing detected yet</p>{{end}}
 </section>
-</div>
 
 <section class="card">
   <div class="card-head"><h2>Latest sessions</h2><a href="/sessions">All sessions →</a></div>

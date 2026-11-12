@@ -12,5 +12,8 @@ var sqliteEKChain string
 //go:embed sqlite/0003_detections.sql
 var sqliteDetections string
 
+//go:embed sqlite/0004_telemetry_v2.sql
+var sqliteTelemetryV2 string
+
 // SQLite lists the migrations in order; migration i+1 sets PRAGMA user_version = i+1.
-var SQLite = []string{SQLiteInit, sqliteEKChain, sqliteDetections}
+var SQLite = []string{SQLiteInit, sqliteEKChain, sqliteDetections, sqliteTelemetryV2}

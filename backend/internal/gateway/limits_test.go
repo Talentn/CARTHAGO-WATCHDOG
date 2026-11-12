@@ -189,8 +189,8 @@ func TestStalledHandshakesAreBounded(t *testing.T) {
 type countingDetections struct{ n atomic.Int32 }
 
 func (c *countingDetections) Heartbeat(store.Session, *pb.Heartbeat) { c.n.Add(1) }
-func (c *countingDetections) Gameplay(context.Context, string, *pb.GameplayBatch) (bool, error) {
-	return true, nil
+func (c *countingDetections) Gameplay(context.Context, string, *pb.GameplayBatch) (bool, string, error) {
+	return true, "", nil
 }
 
 func TestOversizedHeartbeatKicks(t *testing.T) {

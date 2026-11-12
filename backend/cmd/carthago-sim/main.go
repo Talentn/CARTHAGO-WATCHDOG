@@ -13,8 +13,22 @@
 //	integrity  reports code-integrity finding codes (should be flagged critical)
 //	clock      reports a QPC that runs faster than the interrupt time
 //	input      reports mostly injected mouse events
+//	legit, prefire, sound, teamcall, informed, subtle
+//	           clean heartbeats; the name is the slot's simulated gameplay role in a
+//	           telemetry v2 scenario (see below)
 //
 // It writes `slot session_id player_hash mmr` lines for gs-stub simulate --sessions.
+//
+// Two offline modes need no gateway:
+//
+//	-scenario-out FILE  writes a telemetry v2 match on the carthago-yard test map for
+//	                    gs-stub simulate --scenario: -mode, -roles (one per slot from
+//	                    -first-slot), -match, -match-seconds, -seed. Roles: legit, prefire
+//	                    (prefires common angles), sound (tracks footsteps), teamcall (follows
+//	                    team spots), informed (acts on true enemy positions, which only the
+//	                    simulator knows), subtle (does so rarely and noisily).
+//	-calibrate N        simulates N matches per mode and prints, per segment, the honest
+//	                    false-flag rate and the recall on informed and subtle players.
 package main
 
 import (
@@ -39,6 +53,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/knowledge"
+	"carthago/backend/internal/knowledge/synth"
 	"carthago/backend/internal/protocol"
 	"carthago/backend/internal/store"
 )
@@ -275,7 +291,29 @@ func main() {
 	sessionsOut := flag.String("sessions-out", "", "write slot/session lines here for gs-stub simulate --sessions")
 	seedDB := flag.String("seed-db", "", "also insert synthetic past sessions at trust levels 2 and 3 into this gateway SQLite file (demo only)")
 	seedN := flag.Int("seed-attested", 6, "number of synthetic attested sessions for -seed-db")
+	scenarioOut := flag.String("scenario-out", "", "write a telemetry v2 scenario for gs-stub simulate --scenario and exit")
+	mode := flag.String("mode", "shooter", "scenario game mode: shooter or extraction")
+	roles := flag.String("roles", "legit,informed,prefire,sound,teamcall,legit,legit,prefire,sound,teamcall", "scenario gameplay role per slot (10 players)")
+	firstSlot := flag.Int("first-slot", 1, "slot of the first scenario player")
+	matchID := flag.String("match", "", "scenario match id (default: derived from mode and seed)")
+	matchSeconds := flag.Int("match-seconds", 1800, "simulated match length for -scenario-out and -calibrate")
+	seed := flag.Uint64("seed", 11, "simulation seed")
+	calibrate := flag.Int("calibrate", 0, "simulate this many matches per mode, print the per-segment calibration and exit")
 	flag.Parse()
+
+	if *calibrate > 0 {
+		rows := synth.Calibrate([]pb.GameMode{pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER, pb.GameMode_GAME_MODE_EXTRACTION}, *calibrate, *matchSeconds, *seed, knowledge.DefaultConfig())
+		if err := synth.WriteCalibration(os.Stdout, rows); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *scenarioOut != "" {
+		if err := writeScenario(*scenarioOut, *mode, *roles, *firstSlot, *matchID, *matchSeconds, *seed); err != nil {
+			log.Fatalf("scenario: %v", err)
+		}
+		return
+	}
 
 	raw, err := os.ReadFile(*keysPath)
 	if err != nil {
@@ -300,7 +338,7 @@ func main() {
 	for i, prof := range strings.Split(*profiles, ",") {
 		prof = strings.TrimSpace(prof)
 		h := sha256.Sum256([]byte(fmt.Sprintf("carthago-sim/%d/%s", i+1, prof)))
-		players = append(players, player{slot: i + 1, profile: prof, hash: "p-" + hex.EncodeToString(h[:6]), mmr: 1300 + 100*(i%5)})
+		players = append(players, player{slot: i + 1, profile: prof, hash: "p-" + hex.EncodeToString(h[:6]), mmr: slotMMR(i + 1)})
 	}
 	if *seedDB != "" {
 		if err := seedAttested(*seedDB, *tenant, *seedN); err != nil {
@@ -372,5 +410,51 @@ func seedAttested(path, tenant string, n int) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// slotMMR is the skill rating a slot's session reports. Scenario players must be simulated at
+// the same rating, or the server's MMR-relative headshot test sees a mismatched baseline.
+func slotMMR(slot int) int { return 1300 + 100*((slot-1)%5) }
+
+func writeScenario(path, modeName, roleList string, firstSlot int, matchID string, seconds int, seed uint64) error {
+	mode, err := synth.ParseMode(modeName)
+	if err != nil {
+		return err
+	}
+	var roles []synth.Role
+	for _, r := range strings.Split(roleList, ",") {
+		role, ok := synth.ParseRole(strings.TrimSpace(r))
+		if !ok {
+			return fmt.Errorf("unknown role %q (legit, prefire, sound, teamcall, informed, subtle)", r)
+		}
+		roles = append(roles, role)
+	}
+	if len(roles) != 10 {
+		return fmt.Errorf("-roles needs 10 players, got %d", len(roles))
+	}
+	if firstSlot < 1 || seconds < 10 {
+		return errors.New("-first-slot must be at least 1 and -match-seconds at least 10")
+	}
+	if matchID == "" {
+		matchID = fmt.Sprintf("v2-%s-%d", modeName, seed)
+	}
+	players := synth.DefaultPlayers(mode, uint32(firstSlot), roles)
+	for i := range players {
+		players[i].MMR = int32(slotMMR(int(players[i].Slot)))
+	}
+	spec := synth.Spec{MatchID: matchID, Mode: mode, TickRate: 64, Seconds: seconds, Seed: seed, Players: players}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if err := synth.WriteScenario(f, spec); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	log.Printf("scenario %s: %s, %d s, slots %d-%d, roles %s -> %s", matchID, modeName, seconds, firstSlot, firstSlot+9, roleList, path)
 	return nil
 }

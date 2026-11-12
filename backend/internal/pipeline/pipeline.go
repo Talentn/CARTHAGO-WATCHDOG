@@ -21,6 +21,7 @@ import (
 
 	pb "carthago/backend/gen/carthago/v1"
 	"carthago/backend/internal/analyzer"
+	"carthago/backend/internal/knowledge"
 	"carthago/backend/internal/store"
 )
 
@@ -49,7 +50,12 @@ type Config struct {
 	// MaxMatchesPerTenant bounds the matches one tenant may have open at once (a match is
 	// open until its match_over batch or MatchIdle without traffic).
 	MaxMatchesPerTenant int
-	Now                 func() time.Time
+	// Leak configures the information-leak scorer for telemetry v2 matches. Its evidence is
+	// behavioural: it is never integrity evidence and never kicks.
+	Leak knowledge.Config
+	// GameplayRetention is how long raw v2 batches are kept for re-scoring and review.
+	GameplayRetention time.Duration
+	Now               func() time.Time
 }
 
 func (c *Config) defaults() {
@@ -70,6 +76,12 @@ func (c *Config) defaults() {
 	}
 	if c.MaxMatchesPerTenant == 0 {
 		c.MaxMatchesPerTenant = 4096
+	}
+	if c.Leak.Thresholds == nil {
+		c.Leak = knowledge.DefaultConfig()
+	}
+	if c.GameplayRetention == 0 {
+		c.GameplayRetention = 72 * time.Hour
 	}
 	if c.Now == nil {
 		c.Now = time.Now
@@ -97,6 +109,7 @@ type Pipeline struct {
 	matches       map[[2]string]*matchState
 	openMatches   map[string]int // per tenant
 	droppedLogged uint64
+	maps          map[mapKey]*knowledge.Map
 }
 
 type clientState struct {
@@ -114,6 +127,7 @@ type matchState struct {
 	reported map[string]bool // slot|rule
 	sessions map[uint32]store.Session
 	lastSeen time.Time
+	v2       *v2State
 }
 
 // maxSeenPerSession caps the distinct pieces of client evidence recorded per session, whatever
@@ -127,6 +141,7 @@ func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker
 		cfg: cfg, st: st, sessions: sessions, kick: kick, log: log,
 		q: make(chan func(), cfg.QueueSize), stop: make(chan struct{}), done: make(chan struct{}),
 		clients: map[string]*clientState{}, matches: map[[2]string]*matchState{}, openMatches: map[string]int{},
+		maps: map[mapKey]*knowledge.Map{},
 	}
 	go p.run()
 	return p
@@ -187,28 +202,30 @@ func (p *Pipeline) Heartbeat(sess store.Session, hb *pb.Heartbeat) {
 }
 
 // Gameplay records and analyses one batch. accepted=false with a nil error means the batch
-// was a duplicate (already processed); ErrBusy means retry later.
-func (p *Pipeline) Gameplay(ctx context.Context, tenant string, b *pb.GameplayBatch) (accepted bool, err error) {
+// was a duplicate (already processed); ErrBusy means retry later. warning is set on an
+// accepted batch that could only partly be used, such as refused map geometry.
+func (p *Pipeline) Gameplay(ctx context.Context, tenant string, b *pb.GameplayBatch) (accepted bool, warning string, err error) {
 	if b.MatchId == "" || len(b.MatchId) > 128 {
-		return false, errors.New("match_id must be 1-128 bytes")
+		return false, "", errors.New("match_id must be 1-128 bytes")
 	}
 	type result struct {
 		fresh bool
+		warn  string
 		err   error
 	}
 	reply := make(chan result, 1)
 	at := p.cfg.Now()
 	if !p.enqueue(func() {
-		fresh, err := p.gameplay(tenant, b, at)
-		reply <- result{fresh, err}
+		fresh, warn, err := p.gameplay(tenant, b, at)
+		reply <- result{fresh, warn, err}
 	}) {
-		return false, ErrBusy
+		return false, "", ErrBusy
 	}
 	select {
 	case r := <-reply:
-		return r.fresh, r.err
+		return r.fresh, r.warn, r.err
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return false, "", ctx.Err()
 	}
 }
 
@@ -317,17 +334,17 @@ func telemetry(id string, hb *pb.Heartbeat, cs *clientState, at time.Time) *stor
 	return t
 }
 
-func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (bool, error) {
+func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (bool, string, error) {
 	ctx := context.Background()
 	key := [2]string{tenant, b.MatchId}
 	ms := p.matches[key]
 	// Refused before the batch advances the match, so it can be sent again later.
 	if ms == nil && p.openMatches[tenant] >= p.cfg.MaxMatchesPerTenant {
-		return false, fmt.Errorf("tenant has %d matches open (limit %d); end matches with match_over", p.openMatches[tenant], p.cfg.MaxMatchesPerTenant)
+		return false, "", fmt.Errorf("tenant has %d matches open (limit %d); end matches with match_over", p.openMatches[tenant], p.cfg.MaxMatchesPerTenant)
 	}
 	fresh, err := p.st.AdvanceMatch(ctx, tenant, b.MatchId, b.BatchSeq, at, b.MatchOver)
 	if err != nil || !fresh {
-		return false, err
+		return false, "", err
 	}
 	if ms == nil {
 		ms = &matchState{m: analyzer.NewMatch(p.cfg.Rules), reported: map[string]bool{}, sessions: map[uint32]store.Session{}}
@@ -373,9 +390,11 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 			evs = append(evs, ev)
 		}
 	}
+	warning, leak := p.v2(ctx, tenant, ms, b, at)
+	evs = append(evs, leak...)
 	if len(evs) > 0 {
 		if err := p.st.AddEvidence(ctx, evs); err != nil {
-			return true, err
+			return true, warning, err
 		}
 		for _, e := range evs {
 			p.log.Info("detection", "match", b.MatchId, "player", e.PlayerHash, "rule", e.Rule, "severity", analyzer.Severity(e.Severity).String(), "summary", e.Summary)
@@ -384,7 +403,7 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 	if b.MatchOver {
 		p.closeMatch(key)
 	}
-	return true, nil
+	return true, warning, nil
 }
 
 func (p *Pipeline) closeMatch(key [2]string) {
@@ -412,5 +431,10 @@ func (p *Pipeline) prune() {
 	if d := p.dropped.Load(); d != p.droppedLogged {
 		p.log.Warn("heartbeat analyses dropped: the analysis queue was full", "since_last_report", d-p.droppedLogged, "total", d, "queue_size", p.cfg.QueueSize)
 		p.droppedLogged = d
+	}
+	if n, err := p.st.PruneGameplayBatches(context.Background(), now.Add(-p.cfg.GameplayRetention)); err != nil {
+		p.log.Warn("prune gameplay batches", "err", err)
+	} else if n > 0 {
+		p.log.Info("pruned gameplay batches", "rows", n)
 	}
 }

@@ -18,6 +18,11 @@
 //!                    [--sessions FILE] [--anomaly SLOT=profile[+profile]]...
 //!       Streams a synthetic match's gameplay telemetry for server-side analysis (see
 //!       simulate.rs). Exit 0 = every batch acknowledged.
+//!
+//!   gs-stub simulate --scenario FILE [--sessions FILE] [--match ID] [--map-ref-only]
+//!                    [--ingest ...] [--gateway-pin ...] [--server-key ...] [--realtime]
+//!       Replays a telemetry v2 match written by `carthago-sim -scenario-out` through the
+//!       SDK (see scenario.rs). Exit 0 = every batch acknowledged without warnings.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -27,6 +32,7 @@ use std::sync::{Arc, Mutex};
 use carthago_crypto::time::now_unix;
 use carthago_server::{GsEvent, KickListener, PublicKeys, Verifier};
 
+mod scenario;
 mod simulate;
 
 struct Args(Vec<String>);

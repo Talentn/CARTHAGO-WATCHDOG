@@ -23,7 +23,7 @@ for the missing kernel access in four ways:
 ![Carthago Watchdog studio dashboard](docs/images/dashboard-overview.png)
 
 <sub>The studio dashboard with synthetic demo traffic: live sessions by trust level, flagged
-players ranked by risk, and the evidence behind each detection.</sub>
+players ranked by risk, and the latest detections with the finding behind each one.</sub>
 
 ---
 
@@ -37,6 +37,7 @@ players ranked by risk, and the evidence behind each detection.</sub>
 | **Heartbeat deadlines** | A client that stops reporting is kicked by the server. The game server's watch channel delivers the kick even when it starts watching late. |
 | **Client integrity scans** | Module inventory; executable memory with no backing image; thread start addresses; timing and loader API integrity; graphics-module `.text` compared with disk; external process handles; overlay windows; debugger signals; known-vulnerable drivers; time-source samples; injected-input counters. Plus a mitigation-policy profile applied at startup. |
 | **Server-side detections** | Snap-and-lock aim; headshot rate against an MMR baseline (exact binomial test); time-to-damage against the lobby (robust z-score); sustained command rate; trigger-interval regularity; time-source divergence; scanner stalls. Client findings are classified against an allowlist of common overlays and capture tools (Steam, Discord, OBS, RTSS, NVIDIA). |
+| **Information-leak scoring** | Telemetry v2 (positions, view, sounds, team pings, input device, versioned map geometry) feeds a per-team knowledge model: line of sight through occluders, audible sounds, and what teammates spotted. A scorer tests whether a player's aim, shots and routes follow enemies the team could not have known about, against a null model of the same enemies at shifted times. Flag-only, with the moments and a top-down replay in the dashboard; per-segment thresholds (game mode × input device) target a false-positive rate of 1 in 1,000 player-matches. |
 | **Studio dashboard** | Sessions and trust levels, flagged players ranked by severity × confidence, a per-player history and the raw evidence for every verdict. Read-only, tenant-isolated, and served on its own listener. |
 | **No false-ban defaults** | Behavioural evidence is advisory and goes to review. Automatic kicks can be enabled only for critical client-integrity evidence, and are off by default. |
 
@@ -104,7 +105,7 @@ players by verifying their token offline and removes them when the gateway sends
 | `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
 | `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
 | `sdk/native/sample` | Minimal C++ game using the SDK (CMake) |
-| `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh` |
+| `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh`, `carthago-subset-fonts.sh` |
 
 ---
 
@@ -160,7 +161,10 @@ cd client  && cargo run -p gs-stub -- simulate --sessions /tmp/sessions.txt \
 
 ### End-to-end checks
 
-**Linux** (synthetic traffic through the gateway, pipeline and dashboard; about 80 s):
+**Linux** (synthetic traffic through the gateway, pipeline and dashboard; about 80 s). It also
+replays two 30-minute telemetry v2 matches (a shooter and an extraction raid) and checks that
+the information-leak rule flags the informed players and stays quiet on legit, pre-firing,
+sound-reacting and team-call players:
 
 ```bash
 tools/carthago-e2e.sh
@@ -296,7 +300,9 @@ observer that can be lied to, never as an authority.
   to sessions of the same tenant.
 - Dashboard logins are per tenant. The tenant comes from an HMAC-signed, `HttpOnly`,
   `SameSite=Strict` cookie, and every query is scoped to it.
-- The dashboard has no JavaScript and sends a strict `Content-Security-Policy`.
+- The dashboard has no JavaScript and sends a strict `Content-Security-Policy`; its
+  stylesheet, logo and fonts are served from the dashboard itself and nothing is loaded
+  from another host.
 - Failed logins are throttled per client IP.
 
 **What user mode can't see, and the answer.** Kernel, DMA and hardware cheats can hide from
@@ -346,6 +352,11 @@ Phases are defined by scope and exit criteria, not dates.
     - a performance panel;
     - light client hardening.
 - **Phase 2: First paying pilot.**
+  - Telemetry v2 and knowledge-aware information-leak (wallhack) scoring (first slice, this
+    branch): v2 gameplay ingest with versioned map geometry, the per-team knowledge model,
+    the flag-only scorer with per-segment thresholds, dashboard explanations, and v2
+    scenarios in `carthago-sim` and `gs-stub`. Still synthetic-only: thresholds must be
+    re-calibrated on each pilot game's real matches.
   - Launcher and helper.
   - Signed, streamed detection modules with a kill switch.
   - Per-queue attestation policy.
@@ -371,3 +382,15 @@ Phases are defined by scope and exit criteria, not dates.
   every cryptographic check passed; evidence lands in `attest-out\` and `attest-reports\`.
 - **Windows build output:** builds put cargo output in `$env:CARGO_TARGET_DIR`. The
   PowerShell scripts default it to a scratch directory.
+- **Dashboard fonts:** `tools/carthago-subset-fonts.sh` rebuilds the two font files in
+  `backend/internal/dashboard/static/fonts` from the pinned upstream releases (needs
+  `fonttools` and `brotli`).
+
+---
+
+## Third-party licences
+
+- **Inter** 4.1, © 2016 The Inter Project Authors, and **JetBrains Mono** 2.304, © 2020 The
+  JetBrains Mono Project Authors: both under the SIL Open Font License 1.1. The dashboard
+  embeds Latin subsets of each as WOFF2 (23.5 KB and 15.1 KB); the licence texts ship beside
+  the files in `backend/internal/dashboard/static/fonts`.
