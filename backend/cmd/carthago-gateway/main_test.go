@@ -52,3 +52,19 @@ func TestDashboardHosts(t *testing.T) {
 		t.Errorf("non-loopback with names: %v", got)
 	}
 }
+
+func TestExtraRootsWarning(t *testing.T) {
+	for _, c := range []struct {
+		dir, listen string
+		warn        bool
+	}{
+		{"", "0.0.0.0:8750", false},
+		{"/etc/carthago/dev-roots", "127.0.0.1:8750", false},
+		{"/etc/carthago/dev-roots", "0.0.0.0:8750", true},
+		{"/etc/carthago/dev-roots", ":8750", true},
+	} {
+		if got := extraRootsWarning(c.dir, c.listen) != ""; got != c.warn {
+			t.Errorf("dir %q listen %q: warning %v, want %v", c.dir, c.listen, got, c.warn)
+		}
+	}
+}

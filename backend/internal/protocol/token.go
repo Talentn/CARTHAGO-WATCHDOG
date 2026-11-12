@@ -98,6 +98,11 @@ func SignToken(priv ed25519.PrivateKey, c Claims) (string, error) {
 }
 
 // VerifyToken checks signature, key id, iat and exp. It never contacts the gateway.
+//
+// It does not decide whether the token is acceptable to the caller: a game server must also
+// compare Iss with TokenIssuer and Tenant with its own tenant, and apply its minimum trust
+// level, as carthago-server's Verifier does. A token for another tenant signed by the same
+// gateway passes this function.
 func VerifyToken(keys map[string]ed25519.PublicKey, token string, now time.Time, leeway time.Duration) (*Claims, error) {
 	if !strings.HasPrefix(token, tokenHeader) {
 		return nil, fmt.Errorf("%w: not v4.public", ErrTokenMalformed)

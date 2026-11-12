@@ -132,6 +132,9 @@ func main() {
 	}
 	anchors, inters := roots.Counts()
 	log.Info("EK roots loaded", "bundle", roots.Version, "anchors", anchors, "intermediates", inters, "extra_dir", *ekRootsDir)
+	if w := extraRootsWarning(*ekRootsDir, *listen); w != "" {
+		log.Warn(w, "dir", *ekRootsDir)
+	}
 
 	var gw *gateway.Gateway
 	kick := kickFunc(func(id, reason string) { gw.Sessions().Kick(id, reason) })
@@ -183,6 +186,17 @@ func main() {
 		log.Error("listen", "err", err)
 		os.Exit(1)
 	}
+}
+
+// extraRootsWarning: certificates in -ek-roots-dir are trusted exactly like the bundled
+// manufacturer roots, so whoever holds one of their keys can give an emulated TPM trust
+// level 2 and 3. That is what a development swtpm CA is for, and not something to leave
+// configured on a gateway that players reach.
+func extraRootsWarning(dir, listen string) string {
+	if dir == "" || gateway.IsLoopbackListen(listen) {
+		return ""
+	}
+	return "extra EK roots are trusted like manufacturer roots on a non-loopback gateway: a TPM certified by any of them reaches trust level 2 and 3"
 }
 
 func loadEKRoots(dir string) (*ekroots.Bundle, error) {
