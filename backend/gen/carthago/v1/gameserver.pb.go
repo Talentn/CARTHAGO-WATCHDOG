@@ -1802,18 +1802,23 @@ func (x *MapGeometry) GetLootSpawns() []*LootSpawn {
 	return nil
 }
 
-// A decoy: a fake enemy the game server replicated only to `recipients`, placed where none of
-// their team could see or hear it. Decoys are not players: they never appear in `players`,
-// `aim`, `shots`, `visibility`, `sounds` or `team_info`, and the game never plays a sound or
-// shares a ping or spot for one. A decoy is reported in every batch it was alive in, with
-// its positions for that batch in `track`.
+// A decoy: a fake enemy the game server replicated only to `recipients`, while none of them
+// could see or hear it. Decoys are not players: they never appear in `players`, `aim`,
+// `shots`, `visibility`, `sounds` or `team_info`, and the game never plays a sound or shares
+// a ping or spot for one. A decoy is reported in every batch it existed in, with its
+// positions for that batch in `track`.
+//
+// The server moves a decoy for a pre-roll before it is first replicated and a post-roll
+// after it stops, each at least as long as the gateway's largest control offset (12 s).
+// Those positions are in `track` but were never sent to any client; the gateway compares
+// aim at the replicated decoy with aim at where the same decoy was at other times.
 type DecoyTrack struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	DecoyId        uint32                 `protobuf:"varint,1,opt,name=decoy_id,json=decoyId,proto3" json:"decoy_id,omitempty"`                        // non-zero, unique per match
 	Recipients     []uint32               `protobuf:"varint,2,rep,packed,name=recipients,proto3" json:"recipients,omitempty"`                          // slots it was replicated to
 	Team           uint32                 `protobuf:"varint,3,opt,name=team,proto3" json:"team,omitempty"`                                             // the enemy team it posed as
-	SpawnTick      uint32                 `protobuf:"varint,4,opt,name=spawn_tick,json=spawnTick,proto3" json:"spawn_tick,omitempty"`                  // first tick it was replicated
-	DespawnTick    uint32                 `protobuf:"varint,5,opt,name=despawn_tick,json=despawnTick,proto3" json:"despawn_tick,omitempty"`            // tick it stopped being replicated; 0 = still alive
+	SpawnTick      uint32                 `protobuf:"varint,4,opt,name=spawn_tick,json=spawnTick,proto3" json:"spawn_tick,omitempty"`                  // first tick it was replicated; 0 = not replicated yet
+	DespawnTick    uint32                 `protobuf:"varint,5,opt,name=despawn_tick,json=despawnTick,proto3" json:"despawn_tick,omitempty"`            // first tick it was no longer replicated; 0 = still replicated or not yet
 	Track          *MotionTrack           `protobuf:"bytes,6,opt,name=track,proto3" json:"track,omitempty"`                                            // `slot` is ignored; encoded like a player's motion
 	ClonedFromSlot int32                  `protobuf:"varint,7,opt,name=cloned_from_slot,json=clonedFromSlot,proto3" json:"cloned_from_slot,omitempty"` // the real player whose movement it imitates; -1 = none
 	unknownFields  protoimpl.UnknownFields

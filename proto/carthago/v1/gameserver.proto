@@ -230,17 +230,22 @@ message MapGeometry {
   repeated LootSpawn loot_spawns = 6;
 }
 
-// A decoy: a fake enemy the game server replicated only to `recipients`, placed where none of
-// their team could see or hear it. Decoys are not players: they never appear in `players`,
-// `aim`, `shots`, `visibility`, `sounds` or `team_info`, and the game never plays a sound or
-// shares a ping or spot for one. A decoy is reported in every batch it was alive in, with
-// its positions for that batch in `track`.
+// A decoy: a fake enemy the game server replicated only to `recipients`, while none of them
+// could see or hear it. Decoys are not players: they never appear in `players`, `aim`,
+// `shots`, `visibility`, `sounds` or `team_info`, and the game never plays a sound or shares
+// a ping or spot for one. A decoy is reported in every batch it existed in, with its
+// positions for that batch in `track`.
+//
+// The server moves a decoy for a pre-roll before it is first replicated and a post-roll
+// after it stops, each at least as long as the gateway's largest control offset (12 s).
+// Those positions are in `track` but were never sent to any client; the gateway compares
+// aim at the replicated decoy with aim at where the same decoy was at other times.
 message DecoyTrack {
   uint32 decoy_id = 1;            // non-zero, unique per match
   repeated uint32 recipients = 2; // slots it was replicated to
   uint32 team = 3;                // the enemy team it posed as
-  uint32 spawn_tick = 4;          // first tick it was replicated
-  uint32 despawn_tick = 5;        // tick it stopped being replicated; 0 = still alive
+  uint32 spawn_tick = 4;          // first tick it was replicated; 0 = not replicated yet
+  uint32 despawn_tick = 5;        // first tick it was no longer replicated; 0 = still replicated or not yet
   MotionTrack track = 6;          // `slot` is ignored; encoded like a player's motion
   int32 cloned_from_slot = 7;     // the real player whose movement it imitates; -1 = none
 }
