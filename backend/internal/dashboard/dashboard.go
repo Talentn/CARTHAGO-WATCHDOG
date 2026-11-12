@@ -11,7 +11,9 @@ package dashboard
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -141,8 +143,7 @@ func (s *Server) parse() error {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	static, _ := fs.Sub(staticFS, "static")
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", staticFiles()))
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /logout", s.logout)
@@ -173,6 +174,47 @@ func (s *Server) hostCheck(h http.Handler) http.Handler {
 	})
 }
 
+// staticFiles serves the embedded stylesheet, logo and fonts, which are the same for every
+// studio and hold nothing private, so a browser may keep them. Each file's ETag is a hash
+// of its content. Fonts are reused for a week without asking; the stylesheet and the logo
+// are checked on every use and answered with 304 while unchanged, so a page from an
+// upgraded gateway never meets the previous version's CSS. Only the embedded files are
+// served: there are no directory listings.
+func staticFiles() http.Handler {
+	static, _ := fs.Sub(staticFS, "static")
+	etags := map[string]string{}
+	_ = fs.WalkDir(static, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(static, name)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		etags[name] = `"` + hex.EncodeToString(sum[:12]) + `"`
+		return nil
+	})
+	files := http.FileServerFS(static)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tag, ok := etags[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		hd := w.Header()
+		hd.Set("ETag", tag)
+		if strings.HasSuffix(r.URL.Path, ".woff2") {
+			hd.Set("Cache-Control", "public, max-age=604800")
+		} else {
+			hd.Set("Cache-Control", "no-cache")
+		}
+		files.ServeHTTP(w, r)
+	})
+}
+
+// securityHeaders applies to every response. Pages are never stored by the browser;
+// staticFiles replaces that for the files it serves.
 func securityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()

@@ -233,6 +233,48 @@ func TestStaticAssets(t *testing.T) {
 	}
 }
 
+// Pages are never stored by the browser; the stylesheet, logo and fonts are, so they are
+// not fetched again with every page.
+func TestStaticAssetsAreCacheable(t *testing.T) {
+	f := newFixture(t)
+	for path, want := range map[string]string{
+		"/static/app.css":                          "no-cache",
+		"/static/carthago-watchdog.svg":            "no-cache",
+		"/static/fonts/inter-latin.woff2":          "public, max-age=604800",
+		"/static/fonts/jetbrains-mono-latin.woff2": "public, max-age=604800",
+	} {
+		w := f.do("GET", path, nil, nil, nil)
+		tag := w.Header().Get("ETag")
+		if w.Code != 200 || w.Header().Get("Cache-Control") != want || len(tag) < 10 {
+			t.Errorf("%s: %d Cache-Control %q ETag %q, want %q and an ETag", path, w.Code, w.Header().Get("Cache-Control"), tag, want)
+			continue
+		}
+		again := f.do("GET", path, nil, nil, map[string]string{"If-None-Match": tag})
+		if again.Code != http.StatusNotModified || again.Body.Len() != 0 || again.Header().Get("Cache-Control") != want {
+			t.Errorf("%s with its ETag: %d, %d bytes, Cache-Control %q", path, again.Code, again.Body.Len(), again.Header().Get("Cache-Control"))
+		}
+		if stale := f.do("GET", path, nil, nil, map[string]string{"If-None-Match": `"0000"`}); stale.Code != 200 || stale.Body.Len() == 0 {
+			t.Errorf("%s with another ETag: %d", path, stale.Code)
+		}
+	}
+	a, b := f.do("GET", "/static/fonts/inter-latin.woff2", nil, nil, nil), f.do("GET", "/static/fonts/jetbrains-mono-latin.woff2", nil, nil, nil)
+	if a.Header().Get("ETag") == b.Header().Get("ETag") {
+		t.Error("two different files share an ETag")
+	}
+	c := f.login(t, "demo", "demo-key")
+	for _, path := range []string{"/login", "/", "/players", "/sessions/aaaa1111"} {
+		if w := f.do("GET", path, c, nil, nil); w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: Cache-Control %q, want no-store", path, w.Header().Get("Cache-Control"))
+		}
+	}
+	// Only the shipped files are served: no directory listings, nothing outside the folder.
+	for _, path := range []string{"/static/", "/static/fonts/", "/static/fonts", "/static/nope.css", "/static/../templates/login.html", "/static/index.html"} {
+		if w := f.do("GET", path, nil, nil, nil); w.Code == 200 || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: %d Cache-Control %q", path, w.Code, w.Header().Get("Cache-Control"))
+		}
+	}
+}
+
 // A page on another origin can point its own host name at 127.0.0.1 (DNS rebinding) and
 // would then be same-origin with a loopback dashboard. Requests under such a name are
 // refused before any handler runs.
