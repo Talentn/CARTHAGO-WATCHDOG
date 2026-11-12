@@ -70,8 +70,11 @@ type Config struct {
 	SnapSettleDeg float64 // the step right after a snap must be below this to count as a lock
 	SnapMin       int     // snaps-then-lock events before the player is flagged
 
-	HeadshotMinShots  int     // minimum hits before the headshot test runs
-	HeadshotZ         float64 // significance of the test, as a one-sided normal z
+	HeadshotMinShots int // minimum hits before the headshot test runs
+	// HeadshotZ is the significance of one test, as a one-sided normal z. The test runs again
+	// after every batch, so a lucky streak gets many chances: at 4.0 about 1 honest
+	// player-match in 5,000 is flagged (simulated), against 1 in 1,000 at 3.5.
+	HeadshotZ         float64
 	HeadshotMinExcess float64 // the rate must also exceed the baseline by this much (0..1)
 
 	TTDMinOwn     int     // reaction samples needed from the player being judged
@@ -118,7 +121,7 @@ func Defaults() Config {
 		SnapSettleDeg:       1.5,
 		SnapMin:             4,
 		HeadshotMinShots:    40,
-		HeadshotZ:           3.5,
+		HeadshotZ:           4.0,
 		HeadshotMinExcess:   0.15,
 		TTDMinOwn:           8,
 		TTDMinSamples:       12,

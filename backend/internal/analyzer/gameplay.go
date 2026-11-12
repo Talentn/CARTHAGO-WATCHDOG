@@ -304,6 +304,25 @@ func expectedHeadshotRate(mmr int32) float64 {
 	return math.Max(0.08, math.Min(0.45, r))
 }
 
+// headshotOutlier is the headshot test at one moment of a match: the chance of at least this
+// many headshots among the hits at the baseline for the rating, and whether that is evidence.
+//
+// The chance is the exact binomial tail, not its normal approximation: at a low baseline and
+// a few dozen hits the approximation understates the chance of a lucky streak several times
+// over. The margin keeps a large sample from flagging a small real difference between a
+// player and the baseline for their rating.
+func (c Config) headshotOutlier(headshots, hits int, mmr int32) (tail float64, ok bool) {
+	if hits < c.HeadshotMinShots {
+		return 1, false
+	}
+	exp := expectedHeadshotRate(mmr)
+	if float64(headshots)/float64(hits)-exp < c.HeadshotMinExcess {
+		return 1, false
+	}
+	tail = binomialTail(headshots, hits, exp)
+	return tail, tail < normalTail(c.HeadshotZ)
+}
+
 // score maps how far a statistic is past its threshold onto 0.5..0.99.
 func score(over, threshold float64) float64 {
 	if threshold <= 0 {
@@ -324,19 +343,12 @@ func (m *Match) Evaluate() map[uint32][]Evidence {
 			add(slot, Evidence{Rule: "angle_snap", Severity: SeverityHigh, Score: score(float64(p.SnapLocks), float64(c.SnapMin)),
 				Summary: fmt.Sprintf("%d snap-and-lock aim movements (>%.0f° in one tick, then <%.1f°)", p.SnapLocks, c.SnapDeg, c.SnapSettleDeg)})
 		}
-		if p.Hits >= c.HeadshotMinShots {
-			exp := expectedHeadshotRate(p.MMR)
-			rate := float64(p.Headshots) / float64(p.Hits)
-			// The exact binomial tail, not its normal approximation: at a low baseline and a few
-			// dozen hits the approximation understates the chance of a lucky streak several
-			// times over. The margin keeps a large sample from flagging a small real difference
-			// between a player and the baseline for their rating.
-			if tail := binomialTail(p.Headshots, p.Hits, exp); tail < normalTail(c.HeadshotZ) && rate-exp >= c.HeadshotMinExcess {
-				z := binomialZ(p.Headshots, p.Hits, exp)
-				add(slot, Evidence{Rule: "headshot_rate", Severity: SeverityMedium, Score: score(z, c.HeadshotZ),
-					Summary: fmt.Sprintf("headshot rate %.0f%% over %d hits vs %.0f%% expected at MMR %d (chance %.1e)",
-						100*rate, p.Hits, 100*exp, p.MMR, tail)})
-			}
+		if tail, ok := c.headshotOutlier(p.Headshots, p.Hits, p.MMR); ok {
+			exp, rate := expectedHeadshotRate(p.MMR), float64(p.Headshots)/float64(p.Hits)
+			z := binomialZ(p.Headshots, p.Hits, exp)
+			add(slot, Evidence{Rule: "headshot_rate", Severity: SeverityMedium, Score: score(z, c.HeadshotZ),
+				Summary: fmt.Sprintf("headshot rate %.0f%% over %d hits vs %.0f%% expected at MMR %d (chance %.1e)",
+					100*rate, p.Hits, 100*exp, p.MMR, tail)})
 		}
 		if others, players := othersTTD(m, slot); len(p.TTDms) >= c.TTDMinOwn && len(others) >= c.TTDMinSamples && players >= c.TTDMinPlayers {
 			med := median(p.TTDms)

@@ -48,27 +48,71 @@ func TestAngleSnapScalesWithTickRate(t *testing.T) {
 func TestHeadshotTestIsExactAndNeedsAMargin(t *testing.T) {
 	m := NewMatch(Defaults())
 	m.Add(&pb.GameplayBatch{
-		// MMR 500 has an 8% baseline. 10 of 40 is z=4.0 by the normal approximation, but the
-		// exact chance is 1 in 1000, far more often than the 1 in 4300 the threshold stands for.
+		// MMR 500 has an 8% baseline. 11 of 40 is z=4.5 by the normal approximation, but the
+		// exact chance is 1 in 4,500, far more often than the 1 in 31,000 the threshold stands for.
 		Players: []*pb.MatchPlayer{{Slot: 1, Mmr: 500}, {Slot: 2, Mmr: 1500}, {Slot: 3, Mmr: 500}},
 		// 24% over 2000 hits against an 18% baseline is hugely "significant" and means only
 		// that the baseline is a little off for this player.
-		Shots: append(append(shots(1, 40, 10), shots(2, 2000, 480)...), shots(3, 40, 22)...),
+		Shots: append(append(shots(1, 40, 11), shots(2, 2000, 480)...), shots(3, 40, 22)...),
 	})
-	if z := binomialZ(10, 40, 0.08); z <= Defaults().HeadshotZ {
+	if z := binomialZ(11, 40, 0.08); z <= Defaults().HeadshotZ {
 		t.Fatalf("fixture: z=%v no longer above the threshold", z)
 	}
-	if tail := binomialTail(10, 40, 0.08); tail < 9e-4 || tail > 1e-3 {
-		t.Fatalf("exact tail %v, want about 9.7e-4", tail)
+	if tail := binomialTail(11, 40, 0.08); tail < 2.0e-4 || tail > 2.4e-4 {
+		t.Fatalf("exact tail %v, want about 2.2e-4", tail)
 	}
 	if flagged(m, 1, "headshot_rate") {
-		t.Error("10/40 at an 8% baseline flagged")
+		t.Error("11/40 at an 8% baseline flagged")
 	}
 	if flagged(m, 2, "headshot_rate") {
 		t.Error("24% over 2000 hits at an 18% baseline flagged")
 	}
 	if !flagged(m, 3, "headshot_rate") {
 		t.Error("55% at an 8% baseline not flagged")
+	}
+}
+
+// The pipeline evaluates a match after every batch, so the headshot test is repeated as the
+// hits come in and a lucky streak early in a match gets many chances to cross the line. The
+// threshold has to hold for the whole match, not for one look.
+func TestHeadshotTestHoldsWhenRepeatedAfterEveryHit(t *testing.T) {
+	c := Defaults()
+	r := rand.New(rand.NewPCG(7, 7))
+	const honest, hits = 200000, 150
+	flaggedHonest := 0
+	for i := range honest {
+		mmr := int32(1300 + 100*(i%5))
+		rate, headshots := expectedHeadshotRate(mmr), 0
+		for h := 1; h <= hits; h++ {
+			if r.Float64() < rate {
+				headshots++
+			}
+			if _, ok := c.headshotOutlier(headshots, h, mmr); ok {
+				flaggedHonest++
+				break
+			}
+		}
+	}
+	// About 1 in 5,500 is expected, and 1 in 1,000 at the old z=3.5.
+	if flaggedHonest > honest/3000 {
+		t.Errorf("%d of %d honest player-matches flagged; want at most 1 in 3,000", flaggedHonest, honest)
+	}
+
+	// The stricter threshold still finds a player who lands 55% headshots within one match.
+	const cheats = 300
+	found := 0
+	for range cheats {
+		m := NewMatch(c)
+		m.Add(&pb.GameplayBatch{Players: []*pb.MatchPlayer{{Slot: 1, Mmr: 1500}}})
+		for h := range hits {
+			m.Add(&pb.GameplayBatch{Shots: []*pb.ShotEvent{{Slot: 1, Tick: uint32(h), TargetSlot: -1, Hit: true, Headshot: r.Float64() < 0.55}}})
+		}
+		if flagged(m, 1, "headshot_rate") {
+			found++
+		}
+	}
+	if found < cheats*99/100 {
+		t.Errorf("only %d of %d players at 55%% headshots flagged after %d hits", found, cheats, hits)
 	}
 }
 
