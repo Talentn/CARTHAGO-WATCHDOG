@@ -18,10 +18,24 @@ type Params struct {
 	MinLeaf int
 	// Bins is the number of candidate cuts per feature.
 	Bins int
+	// Cap bounds how far one feature's curve may move a score, in log-odds either way;
+	// 0 leaves it free.
+	Cap [oracle.NumFeatures]float64
 }
 
+// ContextCap is the default bound on the features that describe a player's PC rather
+// than what the player did: the trust level, findings about other software, injected
+// input and scanner gaps. They are common among honest players (no TPM, an overlay, a
+// remapper), and how common is an assumption of the synthetic data, so they may shade a
+// score and never decide it: together they move the odds by less than a factor of four.
+const ContextCap = 0.3
+
 func DefaultParams() Params {
-	return Params{Rounds: 300, LearningRate: 0.1, L2: 2, MinLeaf: 25, Bins: 24}
+	p := Params{Rounds: 300, LearningRate: 0.1, L2: 2, MinLeaf: 25, Bins: 24}
+	for _, f := range []int{oracle.FTrustLevel, oracle.FClientFindings, oracle.FInjectedRatio, oracle.FScannerGaps} {
+		p.Cap[f] = ContextCap
+	}
+	return p
 }
 
 // Fit learns a behaviour model by gradient boosting of one-cut trees on the logistic
@@ -99,6 +113,7 @@ func Fit(rows []Row, p Params) (*oracle.Model, error) {
 		z[i] = bias
 	}
 	g, h := make([]float64, n), make([]float64, n)
+	var capped [oracle.NumFeatures]bool
 	leaf := func(G, H float64) float64 { return -G / (H + p.L2) }
 	gain := func(G, H float64) float64 { return G * G / (H + p.L2) }
 
@@ -117,6 +132,9 @@ func Fit(rows []Row, p Params) (*oracle.Model, error) {
 			left, right, m float64
 		}{f: -1}
 		for f := range oracle.NumFeatures {
+			if capped[f] {
+				continue
+			}
 			nb := len(cuts[f]) + 1
 			G, H, N := make([]float64, nb), make([]float64, nb), make([]int, nb)
 			var GM, HM float64
@@ -161,25 +179,37 @@ func Fit(rows []Row, p Params) (*oracle.Model, error) {
 			break
 		}
 		f, lr := best.f, p.LearningRate
+		before, beforeM := append([]float64(nil), shape[f]...), missing[f]
+		bound := func(x float64) float64 {
+			if c := p.Cap[f]; c > 0 {
+				return math.Max(-c, math.Min(c, x))
+			}
+			return x
+		}
+		moved := 0.0
 		for b := range shape[f] {
 			if best.cut >= 0 {
 				if b <= best.cut {
-					shape[f][b] += lr * best.left
+					shape[f][b] = bound(shape[f][b] + lr*best.left)
 				} else {
-					shape[f][b] += lr * best.right
+					shape[f][b] = bound(shape[f][b] + lr*best.right)
 				}
+				moved = math.Max(moved, math.Abs(shape[f][b]-before[b]))
 			}
 		}
-		missing[f] += lr * best.m
+		missing[f] = bound(missing[f] + lr*best.m)
+		moved = math.Max(moved, math.Abs(missing[f]-beforeM))
+		if moved < 1e-9 {
+			// The curve is at its cap wherever the data wants to move it: leave it there
+			// and let the other features have the remaining rounds.
+			capped[f] = true
+			continue
+		}
 		for i := range rows {
-			switch b := int(bin[f][i]); {
-			case b < 0:
-				z[i] += lr * best.m
-			case best.cut < 0:
-			case b <= best.cut:
-				z[i] += lr * best.left
-			default:
-				z[i] += lr * best.right
+			if b := int(bin[f][i]); b < 0 {
+				z[i] += missing[f] - beforeM
+			} else {
+				z[i] += shape[f][b] - before[b]
 			}
 		}
 	}

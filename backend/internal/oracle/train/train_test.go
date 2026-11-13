@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"math"
+	"sort"
 	"testing"
 
 	"carthago/backend/internal/oracle"
@@ -235,5 +236,69 @@ func TestGenerateIsDeterministic(t *testing.T) {
 	}
 	if bytes.Equal(one, sig(1, 12)) {
 		t.Fatal("the seed does not change the sessions")
+	}
+}
+
+// A feature about the player's PC may shade a score but not decide it, however well it
+// happens to separate the training sessions.
+func TestContextFeaturesAreCapped(t *testing.T) {
+	r := &rng{s: 5}
+	var rows []Row
+	for i := range 1200 {
+		row := Row{Match: i / 12, Profile: Honest, Vector: oracle.Missing(), Cheating: i%3 == 0}
+		v := &row.Vector
+		v[oracle.FIntegrityRisk], v[oracle.FIntegritySeverity], v[oracle.FClockEvidence], v[oracle.FClientFindings] = 0, 0, 0, 0
+		// In this data every cheater has no TPM and every honest player has one.
+		v[oracle.FTrustLevel] = 3
+		v[oracle.FHeadshotZ] = r.normal()
+		if row.Cheating {
+			v[oracle.FTrustLevel] = 0
+			v[oracle.FHeadshotZ] += 1
+		}
+		rows = append(rows, row)
+	}
+	m, err := Fit(rows, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := m.Shapes[oracle.FTrustLevel]
+	for _, v := range append(append([]float64{}, s.Values...), s.Missing) {
+		if math.Abs(v) > ContextCap+1e-9 {
+			t.Fatalf("trust level curve reaches %v, cap %v: %+v", v, ContextCap, s)
+		}
+	}
+	if len(s.Values) < 2 || s.Values[0] <= s.Values[len(s.Values)-1] {
+		t.Fatalf("trust level curve was not learned at all: %+v", s)
+	}
+	// The other feature still gets its rounds.
+	if h := m.Shapes[oracle.FHeadshotZ]; len(h.Cuts) == 0 {
+		t.Fatal("the capped feature used up the training rounds")
+	}
+	// Without the cap the same data lets the trust level decide.
+	p := DefaultParams()
+	p.Cap = [oracle.NumFeatures]float64{}
+	free, _ := Fit(rows, p)
+	if f := free.Shapes[oracle.FTrustLevel]; f.Values[0] < 1 {
+		t.Fatalf("uncapped trust level curve: %+v", f)
+	}
+}
+
+// Honest synthetic players must cover the range real people play in, or the model learns
+// to call an ordinary quick player a cheater.
+func TestHonestPriorsAreWide(t *testing.T) {
+	r := &rng{s: 9}
+	var react, cmd []float64
+	for range 4000 {
+		p := honestPlay(r, 1500)
+		react, cmd = append(react, p.reactMs), append(cmd, p.cmdFactor)
+	}
+	sort.Float64s(react)
+	sort.Float64s(cmd)
+	q := func(xs []float64, p float64) float64 { return xs[int(p*float64(len(xs)-1))] }
+	if lo, hi := q(react, 0.05), q(react, 0.95); lo > 230 || lo < 150 || hi < 450 {
+		t.Errorf("honest reaction medians span %.0f to %.0f ms (5th to 95th percentile)", lo, hi)
+	}
+	if q(cmd, 0.99) < 1.004 || q(cmd, 1) > 1.02 || q(cmd, 0.01) > 0.995 {
+		t.Errorf("honest command rates span %.4f to %.4f (1st to 99th percentile)", q(cmd, 0.01), q(cmd, 0.99))
 	}
 }

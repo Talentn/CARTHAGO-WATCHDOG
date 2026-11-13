@@ -159,13 +159,16 @@ type play struct {
 	role       synth.Role
 	snapsPerMn float64 // snap-and-lock movements per minute
 	headshot   float64 // chance a hit is a headshot
-	fastShare  float64 // share of first hits moved close to the moment the target appeared
-	fastMs     [2]float64
-	cmdFactor  float64 // commands per tick
-	cmdJitter  float64
-	presses    bool // sends semi-automatic trigger presses
-	pressCV    float64
-	pressMs    float64
+	// reactMs is the player's own median time from seeing a target to first hitting it,
+	// reactCV how much single reactions spread around it.
+	reactMs, reactCV float64
+	fastShare        float64 // share of first hits moved close to the moment the target appeared
+	fastMs           [2]float64
+	cmdFactor        float64 // commands per tick
+	cmdJitter        float64
+	presses          bool // sends semi-automatic trigger presses
+	pressCV          float64
+	pressMs          float64
 }
 
 // client is what a session's scanner reports.
@@ -217,8 +220,17 @@ func honestPlay(r *rng, mmr int32) play {
 		p.snapsPerMn = r.between(0.06, 0.2)
 	}
 	p.headshot = clamp(expectedHeadshot(mmr)+0.035*r.normal(), 0.03, 0.6)
-	// Packet loss and client frame drops only ever lose commands.
-	p.cmdFactor = 1 - math.Abs(0.004*r.normal())
+	// People differ a lot in how fast they land a first hit: about 200 ms for the quickest
+	// who were already aiming there, half a second and more for the rest. Better players
+	// are somewhat faster.
+	p.reactMs = clamp(330*math.Exp(0.30*r.normal())*(1-0.10*float64(mmr-1500)/1000), 160, 800)
+	p.reactCV = r.between(0.15, 0.45)
+	// Packet loss and client frame drops lose commands; a client clock that runs a little
+	// fast or a burst after a stall adds a few.
+	p.cmdFactor = 1 + 0.0015*r.normal() - math.Abs(0.004*r.normal())
+	if r.chance(0.04) {
+		p.cmdFactor = r.between(1.002, 1.02)
+	}
 	if r.chance(0.65) {
 		p.presses, p.pressMs = true, r.between(110, 420)
 		p.pressCV = r.between(0.16, 0.6)
@@ -466,16 +478,22 @@ func overlay(r *rng, batches []*pb.GameplayBatch, slot uint32, p play, seconds i
 			hits = append(hits, s)
 			if since, ok := open[s.TargetSlot]; ok && since != 0 && s.Tick >= since {
 				open[s.TargetSlot] = 0
+				// The simulator's players all take the same long moment to land a first
+				// hit; give this one its own. A hit is only ever moved earlier.
+				ms := p.reactMs * math.Exp(p.reactCV*r.normal())
 				if r.chance(p.fastShare) {
-					if t := since + uint32(r.between(p.fastMs[0], p.fastMs[1])*rate/1000); t < s.Tick {
-						s.Tick = t
-					}
+					ms = r.between(p.fastMs[0], p.fastMs[1])
+				}
+				if t := since + max(1, uint32(ms*rate/1000)); p.reactMs > 0 && t < s.Tick {
+					s.Tick = t
 				}
 			}
 		}
 		for _, c := range b.Commands {
 			if c.Slot == slot {
-				c.Commands = uint32(math.Round(float64(c.Commands) * p.cmdFactor * (1 + p.cmdJitter*r.normal())))
+				// Rounded at random, so a rate a fraction of a percent off is kept on
+				// average instead of rounded away in every report.
+				c.Commands = uint32(math.Floor(float64(c.Commands)*p.cmdFactor*(1+p.cmdJitter*r.normal()) + r.unit()))
 			}
 		}
 	}
