@@ -37,6 +37,14 @@ dash_port=28751
 udp_port=27992
 export WINEDEBUG=-all
 pids=()
+# The alert is a window. Without a display Wine cannot open one, and only the alert's log
+# lines are checked; with Xvfb installed the window itself is opened as well.
+if [[ -z "${DISPLAY:-}" ]] && command -v Xvfb >/dev/null; then
+  Xvfb :98 -screen 0 1280x720x24 >/dev/null 2>&1 &
+  pids+=($!)
+  export DISPLAY=:98
+  sleep 1
+fi
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 step() { printf '\n=== %s\n' "$*"; }
@@ -48,6 +56,7 @@ i686-w64-mingw32-gcc -O1 -o "$game/cstrike.exe" "$root/client/cs16/fakegame/fake
 i686-w64-mingw32-gcc -shared -o "$game/hw.dll" "$root/client/cs16/fakegame/fake_dll.c"
 i686-w64-mingw32-gcc -shared -o "$game/cstrike/dlls/mp.dll" "$root/client/cs16/fakegame/fake_dll.c"
 i686-w64-mingw32-gcc -O1 -o "$game/launcher.exe" "$root/client/cs16/fakegame/fake_launcher.c"
+i686-w64-mingw32-gcc -O1 -o "$run/bin/fake_debugger.exe" "$root/client/cs16/fakegame/fake_debugger.c"
 # Programs that sit in the real folder and must never be taken for the game.
 for other in crashpad_handler.exe hltv.exe unins000.exe; do echo "not the game" >"$game/$other"; done
 printf 'game "Counter-Strike"\r\ngamedll "dlls\\mp.dll"\r\ngamedll_linux "dlls/cs_i386.so"\r\n' >"$game/cstrike/liblist.gam"
@@ -108,6 +117,18 @@ fi
 echo "ok   the human player has nothing above info"
 ! grep -q 'msg=detection .*player=bot:_BOT__\(Calm\|Mate\) ' "$log" || fail "an ordinary bot has evidence"
 ! grep -qi 'kick' "$log" || fail "something was kicked"
+! grep -q 'ALERT' "$run/companion.log" || fail "an alert was raised although the gateway runs without -client-notices"
+! grep -q 'msg="enforcement notice"' "$log" || fail "the gateway issued a notice without -client-notices"
+echo "ok   no notice and no alert unless the gateway is started with -client-notices"
+
+if [[ -n "${DISPLAY:-}" ]]; then
+  step "companion --test-alert: the alert screen as a preview (3 s)"
+  wine "$companion" --test-alert --alert-secs 3 >"$run/preview.log" 2>&1 || { cat "$run/preview.log"; fail "--test-alert failed"; }
+  grep -q 'ALERT preview: closed' "$run/preview.log" || fail "--test-alert did not show and close the screen"
+  echo "ok   the alert screen opens and closes by itself"
+else
+  echo "skip the alert window itself (no display; install Xvfb to check it)"
+fi
 
 # The companion started on a launcher. $1 names the case, the rest are game arguments.
 launcher_case() {
@@ -247,6 +268,66 @@ if command -v pwsh >/dev/null; then
   grep -q '^OK    match data reached the gateway' "$run/full-data.log" || fail "match data did not reach the gateway"
   grep -q "^OK    your player slot was tied to the companion's session" "$run/full-data.log" || fail "the player's slot was not tied to the session"
   echo "ok   the slot is reported as tied only when the plugin reported the player"
+  for f in full-nodata full-data; do
+    grep -q '^OK    no alert: the gateway did not flag this session' "$run/$f.log" || fail "$f: the result does not say that no alert was raised"
+  done
+  echo "ok   an ordinary run raises no alert, and the result says so"
+
+  step "carthago-cs16.ps1 -NoPlugin -TestAlertAfter: a test notice over the running game, alert only"
+  rm -rf "$run/game.mid" && cp -a "$game" "$run/game.mid"
+  full -NoPlugin -TestAlertAfter 4 -AlertSecs 3 -GameArgs:"-game cstrike -secs 14" >"$run/full-testalert.log" 2>&1 || { cat "$run/full-testalert.log"; fail "the run with a test alert failed"; }
+  grep -E '^(OK|FAIL|NOTE|ALERT)|ALERT|END MATCH' "$run/full-testalert.log"
+  grep -q '^ALERT (test) Test of the alert screen. Nothing was detected.' "$run/full-testalert.log" || fail "the test alert is missing from the result"
+  grep -q 'ALERT notice=[0-9a-f]\{32\} category=test severity=notice test=true' "$run/full-testalert.log" || fail "the companion did not log the test notice"
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/full-testalert.log")
+  [[ -n "$secs" && "$secs" -ge 13 ]] || fail "alert only: the game should have run its 14 s, ran ${secs:-?}"
+  ! grep -q 'END MATCH' "$run/full-testalert.log" || fail "the game was closed although -EndMatchOnDetect was not given"
+  diff -r "$run/game.mid" "$game" || fail "-NoPlugin changed the game folder"
+  echo "ok   test notice: alert raised, labelled as a test, the game left running"
+
+  step "carthago-cs16.ps1 -NoPlugin: a debugger attached to the game raises a real alert, and the game keeps running"
+  full -NoPlugin -AlertSecs 3 -GameArgs:"-game cstrike -secs 50" >"$run/full-debugger.log" 2>&1 &
+  full_pid=$!
+  for _ in $(seq 200); do grep -q 'GAME pid=' "$run/full-debugger.log" 2>/dev/null && break; sleep 0.1; done
+  game_pid=$(sed -n 's/.*GAME pid=\([0-9]*\) .*/\1/p' "$run/full-debugger.log" | head -1)
+  wine "$run/bin/fake_debugger.exe" "$game_pid" 35 >"$run/debugger.log" 2>&1 || { cat "$run/debugger.log"; fail "the stand-in debugger could not attach"; }
+  wait "$full_pid" || { cat "$run/full-debugger.log"; fail "the run with a debugger failed"; }
+  grep -E '^(OK|FAIL|NOTE|ALERT)' "$run/full-debugger.log"
+  grep -q '^ALERT the session was flagged: A debugger is attached to the game. \[category debugger, severity high, notice [0-9a-f]\{32\}\]' "$run/full-debugger.log" \
+    || { cat "$run/full-debugger.log"; fail "a debugger on the game raised no alert"; }
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/full-debugger.log")
+  [[ -n "$secs" && "$secs" -ge 49 ]] || fail "alert only: the game should have run its 50 s, ran ${secs:-?}"
+  echo "ok   debugger on the game: a real alert without the plugin, the game left running"
+
+  step "carthago-cs16.ps1 -EndMatchOnDetect: the local player aims like a machine; the alert is real and the game is closed"
+  "$bridge" synth --out "$run/synth-machine.txt" --seconds 150 --match cs16-flagged --local-is-machine >/dev/null
+  FAKE_CS16_WINDOW=1 full -Map de_dust2 -EndMatchOnDetect -AlertSecs 3 -GameArgs:"-game cstrike -secs 90" >"$run/full-flagged.log" 2>&1 &
+  full_pid=$!
+  for _ in $(seq 200); do grep -q 'GAME pid=' "$run/full-flagged.log" 2>/dev/null && break; sleep 0.1; done
+  "$bridge" send "$run/synth-machine.txt" --to 127.0.0.1:27991 --speed 12
+  wait "$full_pid" || { cat "$run/full-flagged.log"; fail "the flagged run failed"; }
+  grep -E '^(OK|FAIL|NOTE|ALERT)|END MATCH' "$run/full-flagged.log"
+  grep -q '^ALERT the session was flagged: Aim assistance was detected in this match. \[category aim_assistance, severity high, notice [0-9a-f]\{32\}\]' "$run/full-flagged.log" \
+    || { cat "$run/full-flagged.log"; fail "the machine-like local player raised no alert"; }
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/full-flagged.log")
+  [[ -n "$secs" && "$secs" -lt 60 ]] || fail "-EndMatchOnDetect: the game should have been closed early, ran ${secs:-?} s"
+  if [[ -n "${DISPLAY:-}" ]]; then
+    grep -q 'END MATCH asked the game (pid=[0-9]*) to close (1 window)' "$run/full-flagged.log" || fail "the game's window was not asked to close"
+    grep -q 'END MATCH the game closed' "$run/full-flagged.log" || fail "the game did not close when asked"
+    echo "ok   flagged session: alert raised, the game asked to close, and it closed"
+  else
+    grep -q 'END MATCH the game did not close within 5 s; ended the process this companion started' "$run/full-flagged.log" || fail "the game was not ended"
+    echo "ok   flagged session: alert raised, the game ended (it has no window to ask here)"
+  fi
+  ! grep -qi 'kick' "$run"/carthago-scratch/logs/*/gateway.log || fail "the gateway kicked a session"
+
+  if [[ -n "${DISPLAY:-}" ]]; then
+    step "carthago-cs16.ps1 -EndMatchOnDetect: a game that ignores the request to close"
+    FAKE_CS16_WINDOW=2 full -NoPlugin -TestAlertAfter 3 -EndMatchOnDetect -AlertSecs 2 -GameArgs:"-game cstrike -secs 60" >"$run/full-hung.log" 2>&1 || { cat "$run/full-hung.log"; fail "the run with a game that ignores the request failed"; }
+    grep -E 'END MATCH' "$run/full-hung.log"
+    grep -q 'END MATCH the game did not close within 5 s; ended the process this companion started' "$run/full-hung.log" || fail "a game that ignores the request was not ended"
+    echo "ok   a game that does not close when asked is ended, and only because the companion started it"
+  fi
 
   ps1 -Uninstall >"$run/uninstall2.log" 2>&1 || { cat "$run/uninstall2.log"; fail "uninstall after the staged check"; }
   diff -r "$run/game.before" "$game" || fail "the game folder differs after the staged check and -Uninstall"
