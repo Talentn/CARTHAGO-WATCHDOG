@@ -140,7 +140,9 @@ go run ./cmd/carthago-gateway -data gateway-data
 ```
 
 Useful flags: `-tenant id=server-key` and `-dashboard-key id=login-key` (both repeatable),
-`-store memory`, `-auto-kick` (critical integrity evidence only),
+`-store memory`, `-auto-kick` (critical integrity evidence only), `-client-notices` (tell a
+client when its session is flagged, see [Enforcement notice](#enforcement-notice); off by
+default), `-test-notice-after 30s` (send every new session a notice labelled as a test),
 `-dashboard-listen ""` (disables the dashboard), `-dashboard-secure-cookie` (behind HTTPS),
 and `-hb-interval` / `-hb-timeout`. For `wss://`, pass `-tls-cert` / `-tls-key` or
 `-tls-dev-cert` (a self-signed certificate kept in `-data`), plus `-tls-backup-pin` for the next
@@ -184,6 +186,7 @@ shows the two halves separately, on the owner's own PC and own game server:
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1             # find the game on E:\, build, install the plugin, run
 powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin   # companion and dashboard only; the game folder is not touched
+powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -TestAlert  # preview of the alert screen; nothing else is started
 powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # restore the game folder
 ```
 
@@ -197,8 +200,19 @@ powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # r
   never taken for the game. It runs `carthago_scan::external` on the
   usual budgeted scheduler: loader module list with each file's Authenticode state, a summary
   of executable memory with no backing image, debugger attachment, other processes' handles
-  to the game, overlay windows, vulnerable drivers. All of it is recorded as context, none of
-  it as integrity evidence, and the companion never closes the game.
+  to the game, overlay windows, vulnerable drivers. All of it is recorded as context for a
+  reviewer, except a debugger attached to the game process, which is integrity evidence.
+- **Alert**: when the gateway flags the session (an [enforcement notice](#enforcement-notice)),
+  the companion shows a full-screen, topmost, red "CHEATER DETECTED" screen with the player,
+  a one-line reason and the session id. It is a window of the companion process; nothing is
+  drawn in or sent to the game. Esc, a click or a timer closes it. By default that is all:
+  the game keeps running. With `-EndMatchOnDetect` the companion also asks the game it
+  started to close (as the window's close button does) and, if it has not closed after five
+  seconds, ends that process; it never ends a process it did not start, and the server never
+  kicks. `-TestAlert` shows the screen as a preview, and `-TestAlertAfter 60` has the gateway
+  send a notice labelled as a test over the running game. In the kit, two things raise a
+  real alert: a debugger attached to the game, and, with the plugin, the local player's own
+  aim tripping `angle_snap` together with `headshot_rate` or `time_to_damage`.
 - **What a companion cannot see** that the in-process SDK does: thread start addresses,
   images missing from the loader list, API hooks, patched code pages, the mitigation profile
   and the game's own clocks. Executable private memory cannot be judged per region from
@@ -274,6 +288,30 @@ kicks.watch(&claims.session_id);                       // events yields GsEvent:
 For the behavioural rules, record gameplay with `MatchRecorder` (view angles, shots,
 visibility changes, command counts, trigger timestamps) and send each flushed batch through
 `GameplayStream` (it takes the same pins). `send` never blocks the tick.
+
+### Enforcement notice
+
+A gateway started with `-client-notices` tells a client when its session is flagged, so the
+game can show its own screen. The notice is a small message on the session channel, signed
+with the gateway's identity key: session id, time, a category (game integrity, debugger, time
+manipulation, aim assistance, or test) and a severity. It never carries rule names, thresholds
+or measurements. The SDK checks the signature and the session id and hands it to
+`carthago_set_notice_callback` (or `carthago_poll_notice`; `Runtime::set_notice_callback` and
+`poll_notice` in Rust). A notice informs: it does not end the session, and kicking stays a
+separate switch (`-auto-kick`).
+
+Only evidence that stands on its own raises one, at most once per session and category:
+
+- patched game code, a hooked API, an image mapped outside the loader list;
+- a debugger attached to the game process itself;
+- the game's clocks disagreeing with each other;
+- `angle_snap` together with `headshot_rate` or `time_to_damage` for the same player in the
+  same match, when that slot is bound to a verified session.
+
+Rules that flag a player for review never raise one, alone or together: `information_leak`,
+`decoy_reaction`, command rate and input timing, unsigned modules, other programs' handles and
+overlays, vulnerable drivers, a kernel debugger setting, executable memory seen from outside,
+and scanner health. The list is in `backend/internal/pipeline/notice.go`.
 
 ### Unity and Unreal (coming)
 
