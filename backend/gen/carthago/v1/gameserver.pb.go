@@ -83,6 +83,10 @@ const (
 	GameMode_GAME_MODE_UNSPECIFIED         GameMode = 0
 	GameMode_GAME_MODE_COMPETITIVE_SHOOTER GameMode = 1
 	GameMode_GAME_MODE_EXTRACTION          GameMode = 2
+	// A shooter played in rounds: both teams start each round at fixed places and the dead
+	// stay out until the next one (Counter-Strike). Everyone knows where the other team
+	// starts, so moving toward unseen enemies says nothing there and is not scored.
+	GameMode_GAME_MODE_ROUND_SHOOTER GameMode = 3
 )
 
 // Enum value maps for GameMode.
@@ -91,11 +95,13 @@ var (
 		0: "GAME_MODE_UNSPECIFIED",
 		1: "GAME_MODE_COMPETITIVE_SHOOTER",
 		2: "GAME_MODE_EXTRACTION",
+		3: "GAME_MODE_ROUND_SHOOTER",
 	}
 	GameMode_value = map[string]int32{
 		"GAME_MODE_UNSPECIFIED":         0,
 		"GAME_MODE_COMPETITIVE_SHOOTER": 1,
 		"GAME_MODE_EXTRACTION":          2,
+		"GAME_MODE_ROUND_SHOOTER":       3,
 	}
 )
 
@@ -2343,11 +2349,12 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\x18INPUT_DEVICE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bINPUT_DEVICE_MOUSE_KEYBOARD\x10\x01\x12\x1b\n" +
 	"\x17INPUT_DEVICE_CONTROLLER\x10\x02\x12\x16\n" +
-	"\x12INPUT_DEVICE_TOUCH\x10\x03*b\n" +
+	"\x12INPUT_DEVICE_TOUCH\x10\x03*\x7f\n" +
 	"\bGameMode\x12\x19\n" +
 	"\x15GAME_MODE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dGAME_MODE_COMPETITIVE_SHOOTER\x10\x01\x12\x18\n" +
-	"\x14GAME_MODE_EXTRACTION\x10\x02*\xb6\x01\n" +
+	"\x14GAME_MODE_EXTRACTION\x10\x02\x12\x1b\n" +
+	"\x17GAME_MODE_ROUND_SHOOTER\x10\x03*\xb6\x01\n" +
 	"\tSoundKind\x12\x1a\n" +
 	"\x16SOUND_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13SOUND_KIND_FOOTSTEP\x10\x01\x12\x16\n" +

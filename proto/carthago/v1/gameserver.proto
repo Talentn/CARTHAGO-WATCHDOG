@@ -125,6 +125,10 @@ enum GameMode {
   GAME_MODE_UNSPECIFIED = 0;
   GAME_MODE_COMPETITIVE_SHOOTER = 1;
   GAME_MODE_EXTRACTION = 2;
+  // A shooter played in rounds: both teams start each round at fixed places and the dead
+  // stay out until the next one (Counter-Strike). Everyone knows where the other team
+  // starts, so moving toward unseen enemies says nothing there and is not scored.
+  GAME_MODE_ROUND_SHOOTER = 3;
 }
 
 // Eye positions and velocities sampled every `stride` ticks from first_tick. In each repeated

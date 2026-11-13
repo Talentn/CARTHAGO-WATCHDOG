@@ -35,6 +35,8 @@ func ModeName(m pb.GameMode) string {
 		return "competitive_shooter"
 	case pb.GameMode_GAME_MODE_EXTRACTION:
 		return "extraction"
+	case pb.GameMode_GAME_MODE_ROUND_SHOOTER:
+		return "round_shooter"
 	}
 	return "unspecified_mode"
 }
@@ -68,6 +70,10 @@ func DefaultThresholds() map[Segment]Threshold {
 		{shooter, pad}:      {Z: 4.5, MinExcess: 0.08, TargetFPR: TargetFPR},
 		{extraction, mouse}: {Z: 4.0, MinExcess: 0.06, TargetFPR: TargetFPR},
 		{extraction, pad}:   {Z: 4.5, MinExcess: 0.08, TargetFPR: TargetFPR},
+		// Round-based shooters, set on the synthetic Counter-Strike corpus
+		// (carthago-sim -cs-calibrate). Routes are not scored there, so less evidence backs
+		// a score and honest scores spread wider: the bar is higher on both counts.
+		{pb.GameMode_GAME_MODE_ROUND_SHOOTER, mouse}: {Z: 4.5, MinExcess: 0.10, TargetFPR: TargetFPR},
 	}
 }
 
