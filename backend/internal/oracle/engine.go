@@ -22,6 +22,7 @@ type Store interface {
 	store.OracleStore
 	ListEvidence(ctx context.Context, tenant string, f store.EvidenceFilter) ([]store.Evidence, error)
 	GetTelemetry(ctx context.Context, tenant, sessionID string) (*store.Telemetry, error)
+	GetSession(ctx context.Context, sessionID string) (*store.Session, error)
 }
 
 type Config struct {
@@ -31,6 +32,15 @@ type Config struct {
 	// PseudonymKey keys the pseudonyms in case files. It should outlive a restart, or the
 	// same case gets a new name and is judged again.
 	PseudonymKey []byte
+	// ReviewLive lets the analyst review a session while it is still connected. By
+	// default a case waits until the session has ended (closed, kicked, or silent for
+	// EndedAfter): the analyst's model is the one expensive thing the Oracle runs, and on
+	// a machine that also hosts the game it should not compete with a match in progress.
+	// Scoring is unaffected; it is cheap and always live.
+	ReviewLive bool
+	// EndedAfter is how long a session must have sent no heartbeat to count as ended.
+	// Default 2 minutes.
+	EndedAfter time.Duration
 	// Settle is how long a session's evidence must have been quiet before its case goes
 	// to the analyst, so a burst of findings makes one case and not ten. Default 20 s.
 	Settle time.Duration
@@ -112,6 +122,9 @@ func New(cfg Config, st Store, log *slog.Logger) (*Engine, error) {
 	}
 	if cfg.Settle <= 0 {
 		cfg.Settle = 20 * time.Second
+	}
+	if cfg.EndedAfter <= 0 {
+		cfg.EndedAfter = 2 * time.Minute
 	}
 	if cfg.Rescore <= 0 {
 		cfg.Rescore = time.Minute
@@ -316,6 +329,10 @@ func (e *Engine) sweep(ctx context.Context) {
 		if s.due.IsZero() || now.Before(s.due) || s.inFlight {
 			continue
 		}
+		if !e.cfg.ReviewLive && !e.ended(ctx, s, now) {
+			s.due = now.Add(min(e.cfg.EndedAfter/4, 15*time.Second)) // look again shortly
+			continue
+		}
 		job, ok := e.buildCase(ctx, s)
 		if !ok {
 			s.due = time.Time{}
@@ -331,6 +348,23 @@ func (e *Engine) sweep(ctx context.Context) {
 			// The analyst is busy; the case stays due.
 		}
 	}
+}
+
+// ended reports whether a session is over: the gateway closed or kicked it, or it has
+// been silent for EndedAfter.
+func (e *Engine) ended(ctx context.Context, s *sessionState, now time.Time) bool {
+	sess, err := e.st.GetSession(ctx, s.sess.SessionID)
+	if err != nil || sess == nil {
+		return now.Sub(s.seenAt) >= e.cfg.EndedAfter
+	}
+	if sess.State != store.SessionActive {
+		return true
+	}
+	last := sess.LastHeartbeat
+	if s.seenAt.After(last) {
+		last = s.seenAt
+	}
+	return now.Sub(last) >= e.cfg.EndedAfter
 }
 
 // buildCase assembles a session's case and reports whether it needs a (new) verdict.

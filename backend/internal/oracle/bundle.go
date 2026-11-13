@@ -167,16 +167,22 @@ func writeManifest(dir string, m *Manifest) error {
 }
 
 // Rewrite changes a bundle's manifest through edit and stores it under its new id. It is
-// how a threshold, the prompt version or the local model is changed without retraining.
+// how a threshold, the prompt version or the local model is changed without retraining,
+// and how edited prompts or a replaced model file are taken into the manifest: the hashes
+// are computed again from the files as they are now.
 func Rewrite(dir string, edit func(*Manifest) error) (*Manifest, error) {
-	b, err := LoadBundle(dir)
+	m, err := readManifest(dir)
 	if err != nil {
 		return nil, err
 	}
-	m := b.Manifest
-	if err := edit(&m); err != nil {
+	if err := edit(m); err != nil {
 		return nil, err
 	}
+	model, err := readBundleFile(dir, m.Behaviour.File, maxBundleFile)
+	if err != nil {
+		return nil, err
+	}
+	m.Behaviour.ID, m.Behaviour.SHA256, m.Behaviour.FeatureVersion = ModelID(model), sum(model), FeatureVersion
 	for _, ref := range []*FileRef{&m.Analyst.System, &m.Analyst.Case} {
 		data, err := readBundleFile(dir, ref.File, promptMaxBytes)
 		if err != nil {
@@ -185,11 +191,31 @@ func Rewrite(dir string, edit func(*Manifest) error) (*Manifest, error) {
 		ref.SHA256 = sum(data)
 	}
 	m.BundleID = m.id()
-	if err := writeManifest(dir, &m); err != nil {
+	if err := writeManifest(dir, m); err != nil {
 		return nil, err
 	}
 	if _, err := LoadBundle(dir); err != nil {
 		return nil, err
+	}
+	return m, nil
+}
+
+func readManifest(dir string) (*Manifest, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, ManifestFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, ErrNoBundle
+	}
+	if err != nil {
+		return nil, err
+	}
+	var m Manifest
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&m); err != nil {
+		return nil, fmt.Errorf("%s: %w", ManifestFile, err)
+	}
+	if m.Engine != EngineName || m.BundleVersion != BundleVersion {
+		return nil, fmt.Errorf("%s: not a bundle this engine reads (engine %q, version %d)", ManifestFile, m.Engine, m.BundleVersion)
 	}
 	return &m, nil
 }
@@ -214,22 +240,11 @@ func readBundleFile(dir, name string, limit int64) ([]byte, error) {
 // model or prompt that was edited without the manifest being rewritten is refused rather
 // than run under the wrong id.
 func LoadBundle(dir string) (*Bundle, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, ManifestFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, ErrNoBundle
-	}
+	mp, err := readManifest(dir)
 	if err != nil {
 		return nil, err
 	}
-	var m Manifest
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&m); err != nil {
-		return nil, fmt.Errorf("%s: %w", ManifestFile, err)
-	}
-	if m.Engine != EngineName || m.BundleVersion != BundleVersion {
-		return nil, fmt.Errorf("%s: not a bundle this engine reads (engine %q, version %d)", ManifestFile, m.Engine, m.BundleVersion)
-	}
+	m := *mp
 	if m.BundleID != m.id() {
 		return nil, fmt.Errorf("%s: the bundle id does not match the manifest's contents; use carthago-oracle to change a bundle", ManifestFile)
 	}
