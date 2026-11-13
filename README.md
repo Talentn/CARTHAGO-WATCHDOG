@@ -249,6 +249,7 @@ cfg.flags = 0;                                       // or CARTHAGO_FLAG_STRICT_
 carthago_init(&cfg);                                 // ≤ 50 ms, work happens off the main thread
 
 carthago_set_kick_callback(on_kick, nullptr);
+carthago_set_notice_callback(on_notice, nullptr);    // the gateway flagged this session: draw your own screen
 carthago_begin_session(player_id_hmac, on_session_ready, nullptr); // async; you get trust level + flags
 
 // every frame, on the game thread:

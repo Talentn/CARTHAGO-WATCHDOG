@@ -49,6 +49,13 @@ void on_kick(const char* reason, void*) {
     std::fflush(stdout);
 }
 
+// The gateway flagged this session. A real game shows its own screen here (or sets a flag
+// its render thread picks up); the session itself stays up.
+void on_notice(const CarthagoNotice* n, void*) {
+    std::printf("[game] SDK reports the session was flagged: category %u severity %u\n", n->category, n->severity);
+    std::fflush(stdout);
+}
+
 const char* arg(int argc, char** argv, const char* name, const char* def) {
     for (int i = 1; i + 1 < argc; i++)
         if (std::strcmp(argv[i], name) == 0) return argv[i + 1];
@@ -122,6 +129,7 @@ int main(int argc, char** argv) {
     }
     std::printf("[game] carthago_init returned in %.2f ms\n", std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
     carthago_set_kick_callback(on_kick, nullptr);
+    carthago_set_notice_callback(on_notice, nullptr);
     carthago_set_activity(CARTHAGO_MENU);
     if ((r = carthago_begin_session(player, on_ready, nullptr)) != CARTHAGO_OK) {
         std::printf("[game] carthago_begin_session failed: %d\n", r);

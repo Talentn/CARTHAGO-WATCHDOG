@@ -174,6 +174,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "prost",
+ "serde_json",
  "sha2",
  "thiserror",
  "tungstenite",
