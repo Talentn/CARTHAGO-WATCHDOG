@@ -9,12 +9,20 @@ pub const USAGE: &str = "\
 usage: carthago-cs16 --keys public-keys.json (--game-dir DIR | --exe PATH | --attach PID)
                      [--gateway wss://127.0.0.1:8750/v1/client] [--tenant demo] [--build cs16]
                      [--player ID] [--session-file FILE] [--log FILE] [--no-tpm]
-                     [--input-monitor] [--max-secs N] [-- game arguments]
+                     [--input-monitor] [--max-secs N] [--no-alert] [--alert-secs N]
+                     [--end-match-on-detect] [-- game arguments]
+       carthago-cs16 --test-alert [--player ID] [--alert-secs N] [--end-match-on-detect]
 
 Opens an attested session with the gateway, then starts the game (default arguments:
 -game cstrike) and watches it from outside with read-only access until it exits.
 --game-dir starts hl.exe in DIR or, in a build that has none, cstrike.exe; --exe names the
-program. --attach watches a game that is already running instead of starting one.";
+program. --attach watches a game that is already running instead of starting one.
+
+When the gateway reports that the session was flagged, a full-screen alert is shown in a
+window of this program (--no-alert: only a log line). It closes on Esc, a click, or after
+--alert-secs seconds (default 20, 0 = stays until closed). The game is left running unless
+--end-match-on-detect is given: then the game this program started is asked to close.
+--test-alert shows the alert at once, without a gateway or a game, and exits.";
 
 /// The game program in a GoldSrc folder: `hl.exe`, or `cstrike.exe` in builds that ship the
 /// same program under that name and no `hl.exe`. Nothing else in the folder is ever chosen.
@@ -66,6 +74,14 @@ pub struct Options {
     pub allow_tpm: bool,
     pub input_monitor: bool,
     pub max_secs: Option<u64>,
+    /// Show the alert screen when the gateway flags the session.
+    pub alert: bool,
+    /// Seconds the alert stays up by itself; 0 keeps it until it is closed.
+    pub alert_secs: u32,
+    /// Also close the game this companion started when the session is flagged.
+    pub end_match_on_detect: bool,
+    /// Show the alert screen now, as a preview, and exit.
+    pub test_alert: bool,
 }
 
 pub fn parse_args(argv: &[String]) -> Result<Options, String> {
@@ -85,6 +101,10 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
         allow_tpm: true,
         input_monitor: false,
         max_secs: None,
+        alert: true,
+        alert_secs: 20,
+        end_match_on_detect: false,
+        test_alert: false,
     };
     let (mut exe, mut attach) = (None, None);
     let mut it = own.iter();
@@ -104,14 +124,24 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
             "--max-secs" => o.max_secs = Some(val()?.parse().map_err(|_| "--max-secs: not a number")?),
             "--no-tpm" => o.allow_tpm = false,
             "--input-monitor" => o.input_monitor = true,
+            "--no-alert" => o.alert = false,
+            "--alert-secs" => o.alert_secs = val()?.parse().ok().filter(|s| *s <= 600).ok_or("--alert-secs: 0 to 600")?,
+            "--end-match-on-detect" => o.end_match_on_detect = true,
+            "--test-alert" => o.test_alert = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    if o.keys.as_os_str().is_empty() {
-        return Err("--keys is required".into());
-    }
     if o.player.is_empty() || o.player.len() > 128 {
         return Err("--player must be 1 to 128 characters".into());
+    }
+    if o.test_alert {
+        if exe.is_some() || attach.is_some() {
+            return Err("--test-alert shows the alert only; it takes no game".into());
+        }
+        return Ok(o);
+    }
+    if o.keys.as_os_str().is_empty() {
+        return Err("--keys is required".into());
     }
     o.game = match (exe, attach) {
         (Some(exe), None) => Game::Launch { exe, args: if game_args.is_empty() { vec!["-game".into(), "cstrike".into()] } else { game_args } },
@@ -176,6 +206,53 @@ pub fn quote_arg(arg: &str) -> String {
 
 pub fn command_line(exe: &Path, args: &[String]) -> String {
     std::iter::once(quote_arg(&exe.to_string_lossy())).chain(args.iter().map(|a| quote_arg(a))).collect::<Vec<_>>().join(" ")
+}
+
+/// What the alert screen says. The companion draws it; the words are decided here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlertText {
+    /// Set on a preview or a test notice: nothing was detected.
+    pub tag: Option<String>,
+    pub brand: String,
+    pub title: String,
+    pub subtitle: String,
+    pub reason: String,
+    /// Label and value pairs under the reason: player, session, time.
+    pub details: Vec<(String, String)>,
+    pub footer: String,
+}
+
+/// `reason` is the notice's one-line category text; it never names a rule. `session_id` is
+/// empty for a preview shown without a session.
+pub fn alert_text(reason: &str, test: bool, player: &str, session_id: &str, issued_at_ms: u64, closes_game: bool) -> AlertText {
+    let mut details = vec![("PLAYER".to_owned(), player.to_owned())];
+    details.push(("SESSION".to_owned(), if session_id.is_empty() { "none (preview)".to_owned() } else { session_id.to_owned() }));
+    details.push(("TIME".to_owned(), utc_time(issued_at_ms)));
+    AlertText {
+        tag: test.then(|| "TEST ALERT - NOTHING WAS DETECTED".to_owned()),
+        brand: "CARTHAGO WATCHDOG".into(),
+        title: "CHEATER DETECTED".into(),
+        subtitle: if closes_game { "MATCH TERMINATED" } else { "THIS MATCH HAS BEEN FLAGGED" }.into(),
+        reason: reason.to_owned(),
+        details,
+        footer: "Press Esc or click to close. This screen is a window of the Carthago Watchdog companion; nothing in the game was changed.".into(),
+    }
+}
+
+/// "2026-11-13 14:02:11 UTC" for Unix milliseconds.
+pub fn utc_time(ms: u64) -> String {
+    let secs = ms / 1000;
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    // Civil date from days since 1970-01-01 (proleptic Gregorian).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (doy - (153 * mp + 2) / 5 + 1, if mp < 10 { mp + 3 } else { mp - 9 });
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02} UTC", rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
 /// What the telemetry bridge needs to bind the local player's match slot to this session.
@@ -272,6 +349,54 @@ mod tests {
         for n in ["hl.exe", "cstrike.exe", "CStrike.exe", "launcher.exe", "play.exe"] {
             assert!(!never_the_game(n), "{n}");
         }
+    }
+
+    #[test]
+    fn alert_options_default_to_alert_only() {
+        let o = parse_args(&args(&["--keys", "k.json", "--exe", "cstrike.exe"])).unwrap();
+        assert!(o.alert && !o.end_match_on_detect && !o.test_alert);
+        assert_eq!(o.alert_secs, 20);
+        let o = parse_args(&args(&["--keys", "k.json", "--exe", "cstrike.exe", "--end-match-on-detect", "--alert-secs", "0"])).unwrap();
+        assert!(o.alert && o.end_match_on_detect);
+        assert_eq!(o.alert_secs, 0);
+        assert!(!parse_args(&args(&["--keys", "k.json", "--exe", "cstrike.exe", "--no-alert"])).unwrap().alert);
+        assert!(parse_args(&args(&["--keys", "k.json", "--exe", "cstrike.exe", "--alert-secs", "soon"])).is_err());
+
+        // A preview needs neither the gateway's keys nor a game, and takes no game.
+        let o = parse_args(&args(&["--test-alert", "--player", "ala"])).unwrap();
+        assert!(o.test_alert && o.player == "ala");
+        assert!(parse_args(&args(&["--test-alert", "--exe", "cstrike.exe"])).is_err());
+    }
+
+    #[test]
+    fn alert_says_what_happened_and_never_more() {
+        let t = alert_text("Aim assistance was detected in this match.", false, "cs16-local-player", "00112233445566778899aabbccddeeff", 1_794_225_800_000, false);
+        assert_eq!((t.brand.as_str(), t.title.as_str(), t.subtitle.as_str()), ("CARTHAGO WATCHDOG", "CHEATER DETECTED", "THIS MATCH HAS BEEN FLAGGED"));
+        assert_eq!(t.tag, None);
+        assert_eq!(t.reason, "Aim assistance was detected in this match.");
+        assert_eq!(
+            t.details,
+            vec![
+                ("PLAYER".to_owned(), "cs16-local-player".to_owned()),
+                ("SESSION".to_owned(), "00112233445566778899aabbccddeeff".to_owned()),
+                ("TIME".to_owned(), "2026-11-09 12:03:20 UTC".to_owned()),
+            ]
+        );
+        let t = alert_text("x", false, "p", "s", 0, true);
+        assert_eq!(t.subtitle, "MATCH TERMINATED");
+
+        // A test is labelled as one on the screen itself.
+        let t = alert_text("Test of the alert screen. Nothing was detected.", true, "p", "", 0, false);
+        assert_eq!(t.tag.as_deref(), Some("TEST ALERT - NOTHING WAS DETECTED"));
+        assert_eq!(t.details[1].1, "none (preview)");
+    }
+
+    #[test]
+    fn formats_utc_time() {
+        assert_eq!(utc_time(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(utc_time(951_782_400_000), "2000-02-29 00:00:00 UTC");
+        assert_eq!(utc_time(1_794_225_800_000), "2026-11-09 12:03:20 UTC");
+        assert_eq!(utc_time(4_102_444_799_999), "2099-12-31 23:59:59 UTC");
     }
 
     #[test]
