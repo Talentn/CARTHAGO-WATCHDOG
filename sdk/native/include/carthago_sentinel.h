@@ -31,6 +31,10 @@ typedef int32_t CarthagoResult;
 #define CARTHAGO_ERR_ABI_MISMATCH 6
 #define CARTHAGO_ERR_SESSION_FAILED 7
 #define CARTHAGO_ERR_NO_NOTICE 8
+/* The session callback's result when the gateway refused the session because the account
+ * or this device's key is banned. carthago_get_ban has the reference. */
+#define CARTHAGO_ERR_BANNED 9
+#define CARTHAGO_ERR_NOT_BANNED 10
 #define CARTHAGO_ERR_INTERNAL 99
 
 /* CarthagoConfig.flags */
@@ -58,6 +62,7 @@ typedef enum CarthagoActivity { CARTHAGO_MENU = 0, CARTHAGO_LOADING = 1, CARTHAG
 #define CARTHAGO_STATE_KICKED 3
 #define CARTHAGO_STATE_FAILED 4
 #define CARTHAGO_STATE_DISCONNECTED 5
+#define CARTHAGO_STATE_BANNED 6 /* the session was refused: banned. Asking again gives the same answer */
 
 /* attest_flags bits (proto/README.md) */
 #define CARTHAGO_ATTEST_TPM_DEVICE_KEY (1ull << 0)
@@ -146,6 +151,15 @@ CarthagoResult carthago_begin_session(const char* player_id_hash, CarthagoSessio
 /* Copies the session token to forward to the game server. *len: in = buffer size,
  * out = token length (or the required size incl. NUL on CARTHAGO_ERR_BUFFER_TOO_SMALL). */
 CarthagoResult carthago_get_session_token(char* buf, size_t* len);
+/* After on_ready reported CARTHAGO_ERR_BANNED: copies the ban's reference, which is all a
+ * player is told and what they quote to the studio; show your own "banned" screen with it
+ * and do not start the match. The gateway never says why. *len: in = buffer size, out =
+ * length (33 bytes are enough). signed_refusal/signed_len may be NULL; when given, the
+ * gateway's signed refusal is copied there so the game can pass it to its server, which
+ * verifies it with the gateway identity key (256 bytes are enough). On
+ * CARTHAGO_ERR_BUFFER_TOO_SMALL both lengths are the sizes needed. Returns
+ * CARTHAGO_ERR_NOT_BANNED when the last session request was not refused for a ban. */
+CarthagoResult carthago_get_ban(char* reference, size_t* len, uint8_t* signed_refusal, size_t* signed_len);
 void carthago_tick(void);
 void carthago_set_activity(CarthagoActivity activity);
 /* Heartbeats are automatic (jittered); this requests one immediately. */

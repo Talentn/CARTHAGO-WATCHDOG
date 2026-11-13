@@ -42,7 +42,7 @@ mod win {
 
     use carthago_core::{Config, MitigationProfile, Notice, Runtime, SessionReady, State};
     use carthago_cs16_companion::{
-        alert_text, command_line, exit, never_the_game, parse_args, parse_keys, Game, Options, SessionFile, CODE_MODULES, ENGINE_MODULES, USAGE,
+        alert_text, banned_text, command_line, exit, never_the_game, parse_args, parse_keys, Game, Options, SessionFile, CODE_MODULES, ENGINE_MODULES, USAGE,
     };
     use carthago_scan::external::{find_started_game, Target, TargetCell, Watch, WatchConfig};
     use carthago_scan::watch::{Settle, StartProfile};
@@ -207,6 +207,30 @@ mod win {
         exit::OK
     }
 
+    /// `--test-banned`: the BANNED screen as a preview, without a gateway or a game.
+    fn preview_banned(o: &Options) -> i32 {
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        println!("BANNED preview: showing the screen now. Esc or a click closes it.");
+        if !alert::show(Alert { text: banned_text(&o.player, "", now_ms), seconds: o.alert_secs, game_pid: None }).join().unwrap_or(false) {
+            eprintln!("carthago-cs16: the screen could not be opened on this desktop");
+            return exit::USAGE;
+        }
+        println!("BANNED preview: closed. Nobody was banned and nothing was started.");
+        exit::OK
+    }
+
+    /// The gateway refused the session for a ban: a log line and the BANNED screen. The
+    /// refusal carries a reference and no reason, so neither does this.
+    fn on_banned(log: &Log, o: &Options, ban: &carthago_core::BanRefusal) {
+        log.error(&format!(
+            "BANNED reference={} player={:?}: the gateway refused the session because this account or this PC's device key is banned. The game was not started.",
+            ban.reference, o.player
+        ));
+        if o.alert && !alert::show(Alert { text: banned_text(&o.player, &ban.reference, ban.issued_at_ms), seconds: o.alert_secs, game_pid: None }).join().unwrap_or(false) {
+            log.warn("BANNED screen could not be opened on this desktop; the line above is the message");
+        }
+    }
+
     /// How each scan job is doing, so that a run in which one of them never got through
     /// explains itself.
     fn log_jobs(log: &Log, rt: &Runtime) {
@@ -263,6 +287,9 @@ mod win {
         };
         if o.test_alert {
             return preview(&o);
+        }
+        if o.test_banned {
+            return preview_banned(&o);
         }
         let log = Arc::new(Log { file: Mutex::new(o.log.as_ref().and_then(|p| std::fs::File::create(p).ok())), t0: Instant::now() });
         let keys = match std::fs::read_to_string(&o.keys).map_err(|e| format!("{}: {e}", o.keys.display())).and_then(|j| parse_keys(&j)) {
@@ -363,8 +390,13 @@ mod win {
         let mut ready = match begin(&rt, &o.player) {
             Ok(r) => r,
             Err(e) => {
-                log.error(&format!("no session: {e}. The game was not started."));
+                let ban = rt.ban();
                 rt.shutdown();
+                if let Some(ban) = ban {
+                    on_banned(&log, &o, &ban);
+                    return exit::BANNED;
+                }
+                log.error(&format!("no session: {e}. The game was not started."));
                 return exit::NO_SESSION;
             }
         };
@@ -549,7 +581,16 @@ mod win {
                         write_session(&ready, target.pid(), "active");
                         last_token = rt.token();
                     }
-                    Err(e) => log.warn(&format!("reconnect failed: {e}")),
+                    Err(e) => {
+                        if let Some(ban) = rt.ban() {
+                            log.error(&format!(
+                                "BANNED reference={} player={:?}: the session was ended and a new one is refused. The game is left running and unwatched; the next start shows the BANNED screen instead of the game.",
+                                ban.reference, o.player
+                            ));
+                            break exit::BANNED;
+                        }
+                        log.warn(&format!("reconnect failed: {e}"));
+                    }
                 }
             }
             let token = rt.token();

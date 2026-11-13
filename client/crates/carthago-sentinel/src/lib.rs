@@ -21,6 +21,11 @@ pub const CARTHAGO_ERR_NO_SESSION: i32 = 5;
 pub const CARTHAGO_ERR_ABI_MISMATCH: i32 = 6;
 pub const CARTHAGO_ERR_SESSION_FAILED: i32 = 7;
 pub const CARTHAGO_ERR_NO_NOTICE: i32 = 8;
+/// The session callback's result, and the state, when the gateway refused the session
+/// because the account or this device's key is banned.
+pub const CARTHAGO_ERR_BANNED: i32 = 9;
+pub const CARTHAGO_ERR_NOT_BANNED: i32 = 10;
+pub const CARTHAGO_STATE_BANNED: u32 = carthago_core::State::Banned as u32;
 pub const CARTHAGO_ERR_INTERNAL: i32 = 99;
 
 pub const CARTHAGO_FLAG_NO_TPM: u32 = 1;
@@ -272,7 +277,10 @@ pub unsafe extern "C" fn carthago_begin_session(player_id_hash: *const c_char, o
                 if let Some(cb) = on_ready {
                     match r {
                         Ok(s) => unsafe { cb(CARTHAGO_OK, s.trust_level, s.attest_flags, user.0) },
-                        Err(_) => unsafe { cb(CARTHAGO_ERR_SESSION_FAILED, 0, 0, user.0) },
+                        Err(_) => {
+                            let banned = runtime().is_some_and(|rt| rt.ban().is_some());
+                            unsafe { cb(if banned { CARTHAGO_ERR_BANNED } else { CARTHAGO_ERR_SESSION_FAILED }, 0, 0, user.0) }
+                        }
                     }
                 }
             }),
@@ -306,6 +314,45 @@ pub unsafe extern "C" fn carthago_get_session_token(buf: *mut c_char, len: *mut 
             *buf.add(tok.len()) = 0;
         }
         *len = tok.len();
+        CARTHAGO_OK
+    })
+}
+
+/// After a session request was refused with `CARTHAGO_ERR_BANNED`: copies the ban's
+/// reference (NUL-terminated), which is all a player is told and can quote to the studio.
+/// `signed`/`signed_len` are optional: when given, the gateway's signed refusal is copied
+/// there for passing on to the game's server. On `CARTHAGO_ERR_BUFFER_TOO_SMALL`, `*len` and
+/// `*signed_len` are the sizes needed. `CARTHAGO_ERR_NOT_BANNED` when the last request was
+/// not refused for a ban.
+///
+/// # Safety
+/// `len` must be valid; `reference` must have room for `*len` bytes (or be null to query
+/// the size). `signed`, if not null, must have room for `*signed_len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn carthago_get_ban(reference: *mut c_char, len: *mut usize, signed: *mut u8, signed_len: *mut usize) -> i32 {
+    guard(CARTHAGO_ERR_INTERNAL, || {
+        let Some(len) = (unsafe { len.as_mut() }) else { return CARTHAGO_ERR_INVALID_ARG };
+        let Some(rt) = runtime() else { return CARTHAGO_ERR_NOT_INITIALIZED };
+        let Some(ban) = rt.ban() else { return CARTHAGO_ERR_NOT_BANNED };
+        let need = ban.reference.len() + 1;
+        let signed_len = unsafe { signed_len.as_mut() };
+        let signed_short = signed_len.as_ref().is_some_and(|l| signed.is_null() || **l < ban.signed.len());
+        if reference.is_null() || *len < need || signed_short {
+            *len = need;
+            if let Some(l) = signed_len {
+                *l = ban.signed.len();
+            }
+            return CARTHAGO_ERR_BUFFER_TOO_SMALL;
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(ban.reference.as_ptr(), reference.cast::<u8>(), ban.reference.len());
+            *reference.add(ban.reference.len()) = 0;
+        }
+        *len = ban.reference.len();
+        if let Some(l) = signed_len {
+            unsafe { std::ptr::copy_nonoverlapping(ban.signed.as_ptr(), signed, ban.signed.len()) };
+            *l = ban.signed.len();
+        }
         CARTHAGO_OK
     })
 }

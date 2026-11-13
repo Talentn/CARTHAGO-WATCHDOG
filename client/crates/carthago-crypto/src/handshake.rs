@@ -16,6 +16,7 @@ pub const SESSION_ID_LEN: usize = 16;
 const DST_TRANSCRIPT: &[u8] = b"carthago/v1/transcript";
 const DST_CHALLENGE_SIG: &[u8] = b"carthago/v1/challenge-sig";
 const DST_NOTICE: &[u8] = b"carthago/v1/enforcement-notice";
+const DST_BAN: &[u8] = b"carthago/v1/ban-refusal";
 const DST_PROVE: &[u8] = b"carthago/v1/prove";
 const DST_QUOTE: &[u8] = b"carthago/v1/quote";
 const DST_DEVICE_ID: &[u8] = b"carthago/v1/device-id";
@@ -43,6 +44,12 @@ pub fn challenge_sig_input(th: &[u8; 32]) -> Vec<u8> {
 /// followed by the body bytes exactly as received.
 pub fn notice_sig_input(body: &[u8]) -> Vec<u8> {
     [DST_NOTICE, body].concat()
+}
+
+/// Message the server identity key signs for a `BanRefusal`: the domain separator followed
+/// by the body bytes exactly as received.
+pub fn ban_sig_input(body: &[u8]) -> Vec<u8> {
+    [DST_BAN, body].concat()
 }
 
 fn tagged(dst: &[u8], th: &[u8; 32]) -> [u8; 32] {

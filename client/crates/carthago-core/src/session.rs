@@ -28,6 +28,9 @@ pub enum SessionError {
     Rejected { code: String, message: String },
     #[error("device key: {0}")]
     Device(String),
+    /// The account or this device's key is banned. The refusal is verified.
+    #[error("banned (reference {})", .0.reference)]
+    Banned(crate::ban::BanRefusal),
 }
 
 pub struct Params {
@@ -170,6 +173,12 @@ pub fn handshake(p: &Params, device: &DeviceIdentity, log: &dyn Fn(u8, &str), on
             tpm_ms,
         }),
         Some(pb::server_msg::Body::Error(e)) => Err(SessionError::Rejected { code: e.code, message: e.message }),
+        // Only a refusal signed for this handshake counts: anything else is a failed
+        // handshake, so nobody on the path can show a player a ban that does not exist.
+        Some(pb::server_msg::Body::Banned(b)) => match crate::ban::BanRefusal::verify_for_session(&p.server_identity, &b, &body.session_id) {
+            Ok(refusal) => Err(SessionError::Banned(refusal)),
+            Err(e) => Err(SessionError::Protocol(format!("ban refusal: {e}"))),
+        },
         _ => Err(SessionError::Protocol("expected Session".into())),
     }
 }

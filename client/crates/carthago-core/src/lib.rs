@@ -2,6 +2,7 @@
 //! identity and the gateway session (handshake, heartbeats), the budgeted scan scheduler runs
 //! on its own worker, and the game thread only calls [`Runtime::tick`].
 
+pub mod ban;
 pub mod device;
 pub mod notice;
 pub mod session;
@@ -21,6 +22,7 @@ use carthago_sched::{Activity, Scheduler};
 use tungstenite::Message as WsMessage;
 
 use device::DeviceIdentity;
+pub use ban::BanRefusal;
 pub use notice::Notice;
 
 pub use carthago_harden::Profile as MitigationProfile;
@@ -62,6 +64,10 @@ pub enum State {
     Kicked = 3,
     Failed = 4,
     Disconnected = 5,
+    /// The gateway refused the session because the account or this device's key is
+    /// banned; [`Runtime::ban`] has the refusal. Asking again gives the same answer until
+    /// the studio lifts the ban.
+    Banned = 6,
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +145,8 @@ struct Inner {
     conn: Mutex<Option<TcpStream>>,
     notice_cb: Mutex<Option<NoticeFn>>,
     notices: Mutex<VecDeque<Notice>>,
+    /// The refusal of the last session request, if that was refused for a ban.
+    ban: Mutex<Option<BanRefusal>>,
     /// Findings produced outside the scheduler (mitigation outcome), sent with the next heartbeat.
     startup_findings: Mutex<Vec<pb::Finding>>,
     #[cfg(windows)]
@@ -202,6 +210,7 @@ impl Runtime {
             conn: Mutex::new(None),
             notice_cb: Mutex::new(None),
             notices: Mutex::new(VecDeque::new()),
+            ban: Mutex::new(None),
             startup_findings: Mutex::new(Vec::new()),
             #[cfg(windows)]
             input: Mutex::new(None),
@@ -305,6 +314,14 @@ impl Runtime {
     /// of using the callback. Notices are queued whether or not a callback is set.
     pub fn poll_notice(&self) -> Option<Notice> {
         lock(&self.inner.notices).pop_front()
+    }
+
+    /// The gateway's refusal when the last session request was refused because the account
+    /// or this device's key is banned (state [`State::Banned`]). It is verified against the
+    /// pinned server identity key and carries a reference for the player to quote, never a
+    /// reason. `None` once a later request gets a session.
+    pub fn ban(&self) -> Option<BanRefusal> {
+        lock(&self.inner.ban).clone()
     }
 
     /// Safe to call from any thread, including from a session or kick callback (which run
@@ -524,6 +541,14 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
     };
     let mut est = match session::handshake(&params, device, &log, &on_tcp) {
         Ok(e) => e,
+        Err(session::SessionError::Banned(refusal)) => {
+            inner.log(LOG_ERROR, &format!("the gateway refused the session: banned (reference {})", refusal.reference));
+            let msg = format!("banned (reference {})", refusal.reference);
+            *lock(&inner.ban) = Some(refusal);
+            inner.set_state(State::Banned);
+            on_ready.call(Err(msg));
+            return;
+        }
         Err(e) => {
             inner.set_state(State::Failed);
             inner.log(LOG_ERROR, &format!("handshake failed: {e}"));
@@ -531,6 +556,7 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
             return;
         }
     };
+    *lock(&inner.ban) = None;
     *lock(&inner.token) = est.session.session_token.clone();
     *lock(&inner.session_id) = est.chan.session_id().iter().map(|b| format!("{b:02x}")).collect();
     inner.trust_level.store(est.session.trust_level, Relaxed);

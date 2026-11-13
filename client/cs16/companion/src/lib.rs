@@ -13,6 +13,7 @@ usage: carthago-cs16 --keys public-keys.json (--game-dir DIR | --exe PATH | --at
                      [--end-match-on-detect] [--start-profile FILE] [--baseline-secs N]
                      [-- game arguments]
        carthago-cs16 --test-alert [--player ID] [--alert-secs N] [--end-match-on-detect]
+       carthago-cs16 --test-banned [--player ID] [--alert-secs N]
 
 Opens an attested session with the gateway, then starts the game (default arguments:
 -game cstrike) and watches it from outside with read-only access until it exits.
@@ -24,6 +25,8 @@ window of this program (--no-alert: only a log line). It closes on Esc, a click,
 --alert-secs seconds (default 20, 0 = stays until closed). The game is left running unless
 --end-match-on-detect is given: then the game this program started is asked to close.
 --test-alert shows the alert at once, without a gateway or a game, and exits.
+--test-banned does the same for the BANNED screen, which a banned player gets instead of
+the game: the gateway refuses the session and the game is not started.
 
 The companion takes a picture of the game once it has finished starting: --baseline-secs
 (default 20) after the engine is loaded and no new module has arrived for a few seconds.
@@ -66,6 +69,8 @@ pub mod exit {
     pub const SESSION_LOST: i32 = 4;
     /// The started program ended within seconds and no game process was found.
     pub const GAME_NEVER_RAN: i32 = 5;
+    /// The gateway refused the session: the account or this PC's device key is banned.
+    pub const BANNED: i32 = 6;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +100,7 @@ pub struct Options {
     pub end_match_on_detect: bool,
     /// Show the alert screen now, as a preview, and exit.
     pub test_alert: bool,
+    pub test_banned: bool,
     /// Where the first start of this game is recorded.
     pub start_profile: Option<PathBuf>,
     /// Seconds after the engine is loaded before the picture of the started game is taken.
@@ -122,6 +128,7 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
         alert_secs: 20,
         end_match_on_detect: false,
         test_alert: false,
+        test_banned: false,
         start_profile: None,
         baseline_secs: 20,
     };
@@ -147,6 +154,7 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
             "--alert-secs" => o.alert_secs = val()?.parse().ok().filter(|s| *s <= 600).ok_or("--alert-secs: 0 to 600")?,
             "--end-match-on-detect" => o.end_match_on_detect = true,
             "--test-alert" => o.test_alert = true,
+            "--test-banned" => o.test_banned = true,
             "--start-profile" => o.start_profile = Some(val()?.into()),
             "--baseline-secs" => o.baseline_secs = val()?.parse().ok().filter(|s| (2..=600).contains(s)).ok_or("--baseline-secs: 2 to 600")?,
             other => return Err(format!("unknown argument {other}")),
@@ -155,9 +163,9 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
     if o.player.is_empty() || o.player.len() > 128 {
         return Err("--player must be 1 to 128 characters".into());
     }
-    if o.test_alert {
+    if o.test_alert || o.test_banned {
         if exe.is_some() || attach.is_some() {
-            return Err("--test-alert shows the alert only; it takes no game".into());
+            return Err("--test-alert and --test-banned show a screen only; they take no game".into());
         }
         return Ok(o);
     }
@@ -262,6 +270,23 @@ pub fn alert_text(reason: &str, test: bool, player: &str, session_id: &str, issu
             "Press Esc or click to close. This screen is a window of the Carthago Watchdog companion; nothing in the game was changed."
         }
         .into(),
+    }
+}
+
+/// The BANNED screen. `reference` is all the gateway says about a ban; it is empty for a
+/// preview shown without a gateway.
+pub fn banned_text(player: &str, reference: &str, issued_at_ms: u64) -> AlertText {
+    let mut details = vec![("PLAYER".to_owned(), player.to_owned())];
+    details.push(("REFERENCE".to_owned(), if reference.is_empty() { "none (preview)".to_owned() } else { reference.to_owned() }));
+    details.push(("TIME".to_owned(), utc_time(issued_at_ms)));
+    AlertText {
+        tag: reference.is_empty().then(|| "TEST SCREEN - NOBODY WAS BANNED".to_owned()),
+        brand: "CARTHAGO WATCHDOG".into(),
+        title: "BANNED".into(),
+        subtitle: "THE GAME WAS NOT STARTED".into(),
+        reason: "This account or this PC is banned from protected play.".into(),
+        details,
+        footer: "Press Esc or click to close. Quote the reference to the studio to ask about this ban. This screen is a window of the Carthago Watchdog companion; nothing in the game was changed.".into(),
     }
 }
 
@@ -392,6 +417,30 @@ mod tests {
         let o = parse_args(&args(&["--test-alert", "--player", "ala"])).unwrap();
         assert!(o.test_alert && o.player == "ala");
         assert!(parse_args(&args(&["--test-alert", "--exe", "cstrike.exe"])).is_err());
+    }
+
+    #[test]
+    fn banned_screen_carries_the_reference_and_no_reason_for_the_ban() {
+        let t = banned_text("cs16-local-player", "CW-ABCD-2345", 1_794_225_800_000);
+        assert_eq!((t.brand.as_str(), t.title.as_str(), t.subtitle.as_str()), ("CARTHAGO WATCHDOG", "BANNED", "THE GAME WAS NOT STARTED"));
+        assert_eq!(t.tag, None);
+        assert_eq!(
+            t.details,
+            vec![
+                ("PLAYER".to_owned(), "cs16-local-player".to_owned()),
+                ("REFERENCE".to_owned(), "CW-ABCD-2345".to_owned()),
+                ("TIME".to_owned(), "2026-11-09 12:03:20 UTC".to_owned()),
+            ]
+        );
+        let all = format!("{} {} {}", t.reason, t.subtitle, t.footer).to_lowercase();
+        for word in ["wallhack", "renderer", "opengl", "rule", "detected", "cheat"] {
+            assert!(!all.contains(word), "the banned screen says {word:?}");
+        }
+        assert_eq!(banned_text("p", "", 0).tag.as_deref(), Some("TEST SCREEN - NOBODY WAS BANNED"));
+
+        let o = parse_args(&args(&["--test-banned", "--player", "ala"])).unwrap();
+        assert!(o.test_banned && !o.test_alert && o.player == "ala");
+        assert!(parse_args(&args(&["--test-banned", "--exe", "cstrike.exe"])).is_err());
     }
 
     #[test]

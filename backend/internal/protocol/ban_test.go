@@ -3,7 +3,10 @@ package protocol
 import (
 	"bytes"
 	"crypto/ed25519"
+	"encoding/hex"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 
 	pb "carthago/backend/gen/carthago/v1"
 )
@@ -36,5 +39,29 @@ func TestBanRefusal(t *testing.T) {
 		if _, err := SignBan(priv, KeyID(pub), bad); err == nil {
 			t.Errorf("signed %+v", bad)
 		}
+	}
+}
+
+// The same bytes are in the client's test (client/crates/carthago-core/src/ban.rs): what
+// this gateway signs is what that client verifies.
+const (
+	banVectorPub = "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+	banVectorRaw = "0a370a10000102030405060708090a0b0c0d0e0f120464656d6f1a08706c617965722d312080d095ffbc312a0c43572d414243442d32333435124085ca56c74123e3ace0cb7d2de75ba1e8f4096772f1312bfab56130ee4ff0d3812140947c5fbe06b73aee2a09b2da862d17b802be9f70d8444964fc61a5d4cb021a1033303937653264656532636234613334"
+)
+
+func TestBanRefusalVector(t *testing.T) {
+	priv := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, 32))
+	pub := priv.Public().(ed25519.PublicKey)
+	if hex.EncodeToString(pub) != banVectorPub {
+		t.Fatal("the vector's key changed")
+	}
+	sid, _ := hex.DecodeString("000102030405060708090a0b0c0d0e0f")
+	r, err := SignBan(priv, KeyID(pub), &pb.BanRefusalBody{SessionId: sid, TenantId: "demo", PlayerIdHash: "player-1", IssuedAtMs: 1700000000000, BanRef: "CW-ABCD-2345"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := proto.Marshal(r)
+	if hex.EncodeToString(raw) != banVectorRaw {
+		t.Fatalf("the encoding of a ban refusal changed:\n%x", raw)
 	}
 }
