@@ -440,7 +440,11 @@ impl Bridge {
 /// A synthetic plugin stream for tests and for trying the bridge without the game: one
 /// human on the server's own machine (slot 1) against bots, one of which aims like a
 /// machine (instant snaps, headshots the moment a target appears). Deterministic.
-pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
+///
+/// With `local_is_machine` the roles are swapped: the player on this machine is the one
+/// that aims like a machine, which is how the kit shows what a flagged session looks like
+/// without anyone cheating.
+pub fn synth(seconds: u32, rate: u32, match_id: &str, local_is_machine: bool) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     let mut rng = 0x9e37_79b9_7f4a_7c15u64;
@@ -451,7 +455,8 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
         (rng >> 11) as f64 / (1u64 << 53) as f64
     };
     // slot, flags, team, name
-    let roster = [(1u32, FLAG_LOCAL, 1u32, "Founder"), (2, FLAG_BOT, 2, "[BOT] Snap"), (3, FLAG_BOT, 2, "[BOT] Calm"), (4, FLAG_BOT, 1, "[BOT] Mate")];
+    let (first, second) = if local_is_machine { ((FLAG_BOT, "[BOT] Slow"), (FLAG_LOCAL, "Founder")) } else { ((FLAG_LOCAL, "Founder"), (FLAG_BOT, "[BOT] Snap")) };
+    let roster = [(1u32, first.0, 1u32, first.1), (2, second.0, 2, second.1), (3, FLAG_BOT, 2, "[BOT] Calm"), (4, FLAG_BOT, 1, "[BOT] Mate")];
     let mut yaw = [10.0f64, 200.0, 90.0, 300.0];
     let mut pos = [[0.0f64, 0.0], [900.0, 0.0], [0.0, 900.0], [-200.0, 100.0]];
     let mut seq = 0u64;
@@ -479,13 +484,13 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
         for (i, (slot, ..)) in roster.iter().enumerate() {
             let to_enemy = |from: [f64; 2], to: [f64; 2]| (to[1] - from[1]).atan2(to[0] - from[0]).to_degrees();
             match slot {
-                // The human turns toward a visible enemy over a third of a second, with jitter.
+                // Slot 1 turns toward a visible enemy over a third of a second, with jitter.
                 1 => {
                     let want = if visible[0] { to_enemy(pos[0], pos[1]) } else if visible[1] { to_enemy(pos[0], pos[2]) } else { yaw[0] };
                     let d = (want - yaw[0] + 540.0).rem_euclid(360.0) - 180.0;
                     yaw[0] += d * 0.25 + (rnd() - 0.5) * 0.8;
                 }
-                // The machine-like bot looks away, then lands on the target in one sample.
+                // The machine-like player looks away, then lands on the target in one sample.
                 2 => yaw[1] = if exposed { to_enemy(pos[1], pos[0]) } else { 95.0 + (t / rate) as f64 * 37.0 },
                 _ => yaw[i] += (rnd() - 0.5) * 2.0,
             }
@@ -502,11 +507,11 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
                 (rnd() * 250.0) as i64
             );
         }
-        // The machine-like bot fires the sample its target appears, mostly at the head.
+        // The machine-like player fires the sample its target appears, mostly at the head.
         if exposed && phase < 3 {
             let _ = writeln!(out, "S 2 ak47 1 {} 0 900", if rnd() < 0.9 { 1 } else { 2 });
         }
-        // The human fires a pistol about a third of a second after seeing someone.
+        // Slot 1 fires a pistol about a third of a second after seeing someone.
         if visible[0] && phase >= rate / 3 && (phase - rate / 3).is_multiple_of((rate / 4).max(1)) {
             client_ms += 240 + (rnd() * 90.0) as u64;
             let _ = writeln!(out, "G 1 {client_ms}");
@@ -629,7 +634,7 @@ mod tests {
 
     #[test]
     fn synthetic_stream_is_well_formed() {
-        let (b, out) = run(&synth(30, 32, "synth-test"), None);
+        let (b, out) = run(&synth(30, 32, "synth-test", false), None);
         assert_eq!(b.stats.bad_lines, 0);
         assert!(out.len() >= 14 && out.last().unwrap().match_over);
         assert!(b.stats.shots > 20 && b.stats.hits > 10);

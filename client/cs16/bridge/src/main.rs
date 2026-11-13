@@ -15,8 +15,9 @@
 //!   carthago-cs16-bridge send FILE [--to 127.0.0.1:27991] [--speed 8]
 //!       Plays a stream file over UDP the way the plugin would (for testing `run`).
 //!
-//!   carthago-cs16-bridge synth --out FILE [--seconds 120] [--rate 32] [--match ID]
+//!   carthago-cs16-bridge synth --out FILE [--seconds 120] [--rate 32] [--match ID] [--local-is-machine]
 //!       Writes a synthetic match: one local human against bots, one of them machine-like.
+//!       With --local-is-machine the local player is the machine-like one.
 //!
 //! Exit code 0 = every batch was acknowledged by the gateway.
 
@@ -38,6 +39,9 @@ impl Args {
     }
     fn get_or(&self, name: &str, default: &str) -> String {
         self.get(name).unwrap_or_else(|| default.to_owned())
+    }
+    fn has(&self, name: &str) -> bool {
+        self.0.iter().any(|a| a == name)
     }
 }
 
@@ -350,7 +354,7 @@ fn main() {
             let out = a.get("--out").ok_or("--out is required")?;
             let seconds = a.get_or("--seconds", "120").parse().map_err(|_| "--seconds: not a number")?;
             let rate = a.get_or("--rate", "32").parse().map_err(|_| "--rate: not a number")?;
-            let text = synth(seconds, rate, &a.get_or("--match", "cs16-synth"));
+            let text = synth(seconds, rate, &a.get_or("--match", "cs16-synth"), a.has("--local-is-machine"));
             std::fs::write(Path::new(&out), &text).map_err(|e| format!("{out}: {e}"))?;
             println!("wrote {out}: {} lines", text.lines().count());
             Ok(true)
