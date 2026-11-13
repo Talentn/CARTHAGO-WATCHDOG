@@ -206,6 +206,8 @@ button.tall { height: 40px; font-size: 14px; padding: 0 16px; }
 /* The user name next to a password field, for password managers; people do not see it. */
 .pm-user { display: none; }
 .top nav a { white-space: nowrap; }
+/* A command or a link that must be copied whole: wrap it instead of cutting it off. */
+pre.wrapall { white-space: pre-wrap; }
 .card > p:first-child { margin-top: 0; }
 dl.spaced { margin-top: 16px; }
 dl.tight { grid-template-columns: 96px minmax(0, 1fr); margin-bottom: 24px; }
