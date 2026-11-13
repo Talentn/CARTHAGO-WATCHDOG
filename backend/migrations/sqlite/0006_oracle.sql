@@ -1,5 +1,5 @@
 -- Carthago Oracle: the behaviour model's score per session, the analyst's advisory verdict,
--- per-tenant analyst usage and human review labels. Times are Unix milliseconds.
+-- per-tenant analyst usage and reviewers' session labels. Times are Unix milliseconds.
 --
 -- Nothing here is evidence: these rows never add to a player's risk and never kick. The
 -- features and case_file columns are for the gateway only (re-scoring, review, dataset
@@ -58,14 +58,33 @@ CREATE TABLE IF NOT EXISTS oracle_usage (
     PRIMARY KEY (tenant_id, day)
 );
 
--- A reviewer's own conclusion about a case, for exporting a tuning dataset.
-CREATE TABLE IF NOT EXISTS oracle_reviews (
+-- A reviewer's label on a session: what a person concluded after looking at it. It is the
+-- ground truth a studio's own tuning data is built from. A label is a note for the studio:
+-- it never kicks or bans, and adds nothing to a player's risk.
+CREATE TABLE IF NOT EXISTS session_labels (
     tenant_id   TEXT NOT NULL,
     session_id  TEXT NOT NULL,
-    case_hash   TEXT NOT NULL,
-    cheat_type  TEXT NOT NULL,
-    action      TEXT NOT NULL DEFAULT '',
+    player_hash TEXT NOT NULL,
+    label       TEXT NOT NULL, -- confirmed_cheat | cleared | unsure
+    cheat_type  TEXT NOT NULL DEFAULT '',
     note        TEXT NOT NULL DEFAULT '',
-    reviewed_ms BIGINT NOT NULL,
+    reviewer    TEXT NOT NULL DEFAULT '', -- the name the reviewer gave
+    labelled_ms BIGINT NOT NULL,
     PRIMARY KEY (tenant_id, session_id)
 );
+CREATE INDEX IF NOT EXISTS session_labels_player ON session_labels (tenant_id, player_hash, labelled_ms);
+
+-- Every change to a label, in order, never rewritten: who set what, when and from where.
+CREATE TABLE IF NOT EXISTS session_label_audit (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id  TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    action     TEXT NOT NULL, -- set | accept_suggestion | remove
+    label      TEXT NOT NULL DEFAULT '',
+    cheat_type TEXT NOT NULL DEFAULT '',
+    note       TEXT NOT NULL DEFAULT '',
+    reviewer   TEXT NOT NULL DEFAULT '',
+    remote     TEXT NOT NULL DEFAULT '', -- address the request came from
+    at_ms      BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_label_audit_session ON session_label_audit (tenant_id, session_id, id);

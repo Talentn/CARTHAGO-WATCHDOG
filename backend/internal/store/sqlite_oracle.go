@@ -125,41 +125,84 @@ func (s *SQLite) AddOracleUsage(ctx context.Context, tenant, day string, cases, 
 	return u, err
 }
 
-func (s *SQLite) PutOracleReview(ctx context.Context, r *OracleReview) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO oracle_reviews (tenant_id, session_id, case_hash, cheat_type, action, note, reviewed_ms) VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (tenant_id, session_id) DO UPDATE SET case_hash = excluded.case_hash, cheat_type = excluded.cheat_type, action = excluded.action,
-			note = excluded.note, reviewed_ms = excluded.reviewed_ms`,
-		r.TenantID, r.SessionID, r.CaseHash, r.CheatType, r.Action, r.Note, ms(r.ReviewedAt))
-	return err
+func (s *SQLite) SetSessionLabel(ctx context.Context, l *SessionLabel, action, remote string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if l.Label == "" {
+		_, err = tx.ExecContext(ctx, `DELETE FROM session_labels WHERE tenant_id = ? AND session_id = ?`, l.TenantID, l.SessionID)
+	} else {
+		_, err = tx.ExecContext(ctx, `INSERT INTO session_labels (tenant_id, session_id, player_hash, label, cheat_type, note, reviewer, labelled_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (tenant_id, session_id) DO UPDATE SET player_hash = excluded.player_hash, label = excluded.label, cheat_type = excluded.cheat_type,
+				note = excluded.note, reviewer = excluded.reviewer, labelled_ms = excluded.labelled_ms`,
+			l.TenantID, l.SessionID, l.PlayerHash, l.Label, l.CheatType, l.Note, l.Reviewer, ms(l.LabelledAt))
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_label_audit (tenant_id, session_id, action, label, cheat_type, note, reviewer, remote, at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		l.TenantID, l.SessionID, action, l.Label, l.CheatType, l.Note, l.Reviewer, remote, ms(l.LabelledAt)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-func (s *SQLite) ListOracleCases(ctx context.Context, tenant string, reviewedOnly bool, limit int) ([]OracleCase, error) {
-	join := `LEFT JOIN`
-	if reviewedOnly {
-		join = `JOIN`
+func (s *SQLite) GetSessionLabel(ctx context.Context, tenant, sessionID string) (*SessionLabel, error) {
+	l := SessionLabel{TenantID: tenant, SessionID: sessionID}
+	var at int64
+	err := s.db.QueryRowContext(ctx, `SELECT player_hash, label, cheat_type, note, reviewer, labelled_ms FROM session_labels WHERE tenant_id = ? AND session_id = ?`,
+		tenant, sessionID).Scan(&l.PlayerHash, &l.Label, &l.CheatType, &l.Note, &l.Reviewer, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+oracleVerdictCols+`, r.case_hash, r.cheat_type, r.action, r.note, r.reviewed_ms
-		FROM oracle_verdicts v `+join+` oracle_reviews r ON r.tenant_id = v.tenant_id AND r.session_id = v.session_id
-		WHERE v.tenant_id = ? AND v.case_file <> '' ORDER BY v.created_ms DESC LIMIT ?`, tenant, limitOr(limit, 1000))
+	if err != nil {
+		return nil, err
+	}
+	l.LabelledAt = fromMS(at)
+	return &l, nil
+}
+
+func (s *SQLite) ListSessionLabels(ctx context.Context, tenant string, f OracleFilter) ([]SessionLabel, error) {
+	q, args := `SELECT session_id, player_hash, label, cheat_type, note, reviewer, labelled_ms FROM session_labels WHERE tenant_id = ?`, []any{tenant}
+	if f.PlayerHash != "" {
+		q, args = q+` AND player_hash = ?`, append(args, f.PlayerHash)
+	}
+	rows, err := s.db.QueryContext(ctx, q+` ORDER BY labelled_ms DESC, session_id LIMIT ?`, append(args, limitOr(f.Limit, 100))...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []OracleCase
+	var out []SessionLabel
 	for rows.Next() {
-		c := OracleCase{Verdict: OracleVerdict{TenantID: tenant}}
+		l := SessionLabel{TenantID: tenant}
 		var at int64
-		var hash, cheat, action, note sql.NullString
-		var reviewed sql.NullInt64
-		if err := rows.Scan(append(oracleVerdictDest(&c.Verdict, &at), &hash, &cheat, &action, &note, &reviewed)...); err != nil {
+		if err := rows.Scan(&l.SessionID, &l.PlayerHash, &l.Label, &l.CheatType, &l.Note, &l.Reviewer, &at); err != nil {
 			return nil, err
 		}
-		c.Verdict.CreatedAt = fromMS(at)
-		if hash.Valid {
-			c.Review = &OracleReview{TenantID: tenant, SessionID: c.Verdict.SessionID, CaseHash: hash.String, CheatType: cheat.String,
-				Action: action.String, Note: note.String, ReviewedAt: fromMS(reviewed.Int64)}
+		l.LabelledAt = fromMS(at)
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) ListLabelAudit(ctx context.Context, tenant, sessionID string, limit int) ([]LabelAudit, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, action, label, cheat_type, note, reviewer, remote, at_ms FROM session_label_audit
+		WHERE tenant_id = ? AND session_id = ? ORDER BY id DESC LIMIT ?`, tenant, sessionID, limitOr(limit, 50))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LabelAudit
+	for rows.Next() {
+		a := LabelAudit{TenantID: tenant, SessionID: sessionID}
+		var at int64
+		if err := rows.Scan(&a.ID, &a.Action, &a.Label, &a.CheatType, &a.Note, &a.Reviewer, &a.Remote, &at); err != nil {
+			return nil, err
 		}
-		out = append(out, c)
+		a.At = fromMS(at)
+		out = append(out, a)
 	}
 	return out, rows.Err()
 }

@@ -61,22 +61,44 @@ type OracleUsage struct {
 	Tokens int64
 }
 
-// OracleReview is a reviewer's own conclusion about a case.
-type OracleReview struct {
+// SessionLabel is a reviewer's conclusion about a session. It is a note for the studio and
+// for tuning data: it never kicks, bans or changes a player's risk.
+type SessionLabel struct {
 	TenantID   string
 	SessionID  string
-	CaseHash   string
-	CheatType  string
-	Action     string
+	PlayerHash string
+	Label      string // LabelConfirmedCheat, LabelCleared or LabelUnsure
+	CheatType  string // optional
 	Note       string
-	ReviewedAt time.Time
+	Reviewer   string // the name the reviewer gave; the dashboard has one key per studio, not accounts
+	LabelledAt time.Time
 }
 
-// OracleCase is a stored case with the analyst's verdict and, when there is one, the review.
-type OracleCase struct {
-	Verdict OracleVerdict
-	Review  *OracleReview
+const (
+	LabelConfirmedCheat = "confirmed_cheat"
+	LabelCleared        = "cleared"
+	LabelUnsure         = "unsure"
+)
+
+// LabelAudit is one change to a session's label.
+type LabelAudit struct {
+	ID        int64
+	TenantID  string
+	SessionID string
+	Action    string // LabelSet, LabelAcceptSuggestion or LabelRemove
+	Label     string
+	CheatType string
+	Note      string
+	Reviewer  string
+	Remote    string
+	At        time.Time
 }
+
+const (
+	LabelSet              = "set"
+	LabelAcceptSuggestion = "accept_suggestion"
+	LabelRemove           = "remove"
+)
 
 type OracleFilter struct {
 	PlayerHash string
@@ -93,10 +115,14 @@ type OracleStore interface {
 	ListOracleVerdicts(ctx context.Context, tenant string, f OracleFilter) ([]OracleVerdict, error)
 	// AddOracleUsage adds to a tenant's counters for a day and returns the new totals.
 	AddOracleUsage(ctx context.Context, tenant, day string, cases, tokens int64) (OracleUsage, error)
-	PutOracleReview(ctx context.Context, r *OracleReview) error
-	// ListOracleCases returns stored cases with a verdict, newest first; reviewedOnly keeps
-	// those a reviewer has labelled.
-	ListOracleCases(ctx context.Context, tenant string, reviewedOnly bool, limit int) ([]OracleCase, error)
+
+	// SetSessionLabel stores a session's label, replacing the previous one, and appends
+	// the change to the audit trail in the same step. An empty label removes it.
+	SetSessionLabel(ctx context.Context, l *SessionLabel, action, remote string) error
+	GetSessionLabel(ctx context.Context, tenant, sessionID string) (*SessionLabel, error)
+	ListSessionLabels(ctx context.Context, tenant string, f OracleFilter) ([]SessionLabel, error)
+	// ListLabelAudit returns a session's label changes, newest first.
+	ListLabelAudit(ctx context.Context, tenant, sessionID string, limit int) ([]LabelAudit, error)
 }
 
 var (
