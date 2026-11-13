@@ -431,6 +431,11 @@ impl Bridge {
 /// A synthetic plugin stream for tests and for trying the bridge without the game: one
 /// human on the server's own machine (slot 1) against bots, one of which aims like a
 /// machine (instant snaps, headshots the moment a target appears). Deterministic.
+///
+/// Every player lands hits on an opponent that came into view, the two ordinary bots after
+/// a human-like delay. The gateway judges one player's reaction time against the rest of
+/// the lobby and needs samples from several other players to do it, so a lobby where only
+/// the human and the machine-like bot fight gives that rule nothing to compare against.
 pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
     use std::fmt::Write;
     let mut out = String::new();
@@ -443,11 +448,19 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
     };
     // slot, flags, team, name
     let roster = [(1u32, FLAG_LOCAL, 1u32, "Founder"), (2, FLAG_BOT, 2, "[BOT] Snap"), (3, FLAG_BOT, 2, "[BOT] Calm"), (4, FLAG_BOT, 1, "[BOT] Mate")];
-    let mut yaw = [10.0f64, 200.0, 90.0, 300.0];
+    // The ordinary bots start out facing the opponent they will fight.
+    let mut yaw = [10.0f64, 200.0, 265.0, 76.0];
     let mut pos = [[0.0f64, 0.0], [900.0, 0.0], [0.0, 900.0], [-200.0, 100.0]];
     let mut seq = 0u64;
     let mut client_ms = 0u64;
-    let mut visible = [false; 2];
+    // Line of sight per pair, one pair at a time: (slot, slot, second of the four-second
+    // cycle). Slot 2 comes into slot 1's sight first, then slots 3 and 4 meet, then 1 and 3.
+    let sight = [(1u32, 2u32, 0u32), (3, 4, 1), (1, 3, 2)];
+    let mut visible = [false; 3];
+    // An ordinary bot's fight: (index of the bot, index and slot of its opponent, entry of
+    // `sight`, weapon), and the tick of the cycle at which it fires first this time.
+    let duels = [(2usize, 0usize, 1u32, 2usize, "m4a1"), (3, 2, 3, 1, "famas")];
+    let mut fire_at = [0u32; 2];
     for t in 1..=seconds * rate {
         let _ = writeln!(out, "D {seq} {t}");
         seq += 1;
@@ -457,28 +470,35 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
                 let _ = writeln!(out, "P {slot} {flags} {team} {name}");
             }
         }
-        // Slot 2 comes into slot 1's sight for a second, every four seconds.
         let phase = t % (rate * 4);
         let exposed = phase < rate;
-        for (i, target) in [2u32, 3].into_iter().enumerate() {
-            let now = if target == 2 { exposed } else { phase >= rate * 2 && phase < rate * 3 };
+        for (i, (a, b, second)) in sight.into_iter().enumerate() {
+            let now = phase / rate == second;
             if now != visible[i] {
                 visible[i] = now;
-                let _ = writeln!(out, "V 1 {target} {}", now as u8);
+                let _ = writeln!(out, "V {a} {b} {}", now as u8);
+                // The bot of this pair reacts 280 to 380 ms after its opponent appears.
+                if let Some(d) = duels.iter().position(|duel| now && duel.3 == i) {
+                    fire_at[d] = phase + ((280.0 + rnd() * 100.0) * rate as f64 / 1000.0).round() as u32;
+                }
             }
         }
         for (i, (slot, ..)) in roster.iter().enumerate() {
             let to_enemy = |from: [f64; 2], to: [f64; 2]| (to[1] - from[1]).atan2(to[0] - from[0]).to_degrees();
+            let turn = |from: f64, to: f64| (to - from + 540.0).rem_euclid(360.0) - 180.0;
             match slot {
                 // The human turns toward a visible enemy over a third of a second, with jitter.
                 1 => {
-                    let want = if visible[0] { to_enemy(pos[0], pos[1]) } else if visible[1] { to_enemy(pos[0], pos[2]) } else { yaw[0] };
-                    let d = (want - yaw[0] + 540.0).rem_euclid(360.0) - 180.0;
-                    yaw[0] += d * 0.25 + (rnd() - 0.5) * 0.8;
+                    let want = if visible[0] { to_enemy(pos[0], pos[1]) } else if visible[2] { to_enemy(pos[0], pos[2]) } else { yaw[0] };
+                    yaw[0] += turn(yaw[0], want) * 0.25 + (rnd() - 0.5) * 0.8;
                 }
                 // The machine-like bot looks away, then lands on the target in one sample.
                 2 => yaw[1] = if exposed { to_enemy(pos[1], pos[0]) } else { 95.0 + (t / rate) as f64 * 37.0 },
-                _ => yaw[i] += (rnd() - 0.5) * 2.0,
+                // An ordinary bot keeps its aim near its opponent, without snapping.
+                _ => {
+                    let want = duels.iter().find(|duel| duel.0 == i).map_or(yaw[i], |duel| to_enemy(pos[i], pos[duel.1]));
+                    yaw[i] += turn(yaw[i], want) * 0.25 + (rnd() - 0.5) * 2.0;
+                }
             }
             pos[i][0] += (rnd() - 0.5) * 6.0;
             pos[i][1] += (rnd() - 0.5) * 6.0;
@@ -503,6 +523,13 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
             let _ = writeln!(out, "G 1 {client_ms}");
             let hit = rnd() < 0.6;
             let _ = writeln!(out, "S 1 usp {} {} 0 900", if hit { 2 } else { -1 }, if hit && rnd() < 0.2 { 1 } else { 3 });
+        }
+        // An ordinary bot fires short bursts at its opponent while it can see it.
+        for (d, (bot, _, opponent, pair, weapon)) in duels.into_iter().enumerate() {
+            if visible[pair] && phase >= fire_at[d] && (phase - fire_at[d]).is_multiple_of((rate / 4).max(1)) {
+                let hit = rnd() < 0.8;
+                let _ = writeln!(out, "S {} {weapon} {} {} 0 900", roster[bot].0, if hit { opponent as i64 } else { -1 }, if hit && rnd() < 0.15 { 1 } else { 3 });
+            }
         }
         if t % 16 == 0 {
             let ms = 16_000 / rate as u64;
@@ -610,5 +637,56 @@ mod tests {
         assert_eq!(b.stats.bad_lines, 0);
         assert!(out.len() >= 14 && out.last().unwrap().match_over);
         assert!(b.stats.shots > 20 && b.stats.hits > 10);
+    }
+
+    /// Reaction samples per slot in ticks, taken the way the gateway takes them: the first
+    /// hit on an opponent after that opponent came into view.
+    fn reactions(batches: &[pb::GameplayBatch]) -> BTreeMap<u32, Vec<u32>> {
+        let mut events: Vec<(u32, u8, u32, u32, bool)> = Vec::new();
+        for b in batches {
+            events.extend(b.visibility.iter().map(|v| (v.tick, 0, v.observer_slot, v.target_slot, v.visible)));
+            events.extend(b.shots.iter().filter(|s| s.hit).map(|s| (s.tick, 1, s.slot, s.target_slot as u32, true)));
+        }
+        events.sort();
+        let mut since: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        let mut out: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for (tick, kind, from, to, on) in events {
+            match (kind, on) {
+                (0, true) => {
+                    since.entry((from, to)).or_insert(tick);
+                }
+                (0, false) => {
+                    since.remove(&(from, to));
+                }
+                _ => {
+                    if let Some(seen) = since.get_mut(&(from, to)).filter(|seen| **seen != u32::MAX) {
+                        out.entry(from).or_default().push(tick - *seen);
+                        *seen = u32::MAX;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn synthetic_lobby_gives_the_reaction_rule_a_lobby_to_compare_against() {
+        let rate = 32;
+        let (_, out) = run(&synth(60, rate, "synth-test"), None);
+        let median = |v: &[u32]| {
+            let mut v = v.to_vec();
+            v.sort();
+            v[v.len() / 2]
+        };
+        let by_slot = reactions(&out);
+        assert_eq!(by_slot.keys().copied().collect::<Vec<_>>(), vec![1, 2, 3, 4], "every player reacts to an opponent");
+        // The gateway's defaults: 8 samples from the judged player, 12 from 3 other players.
+        assert!(by_slot[&2].len() >= 8, "machine-like bot: {} samples", by_slot[&2].len());
+        assert!(by_slot.iter().filter(|(slot, _)| **slot != 2).map(|(_, v)| v.len()).sum::<usize>() >= 12);
+        assert_eq!(median(&by_slot[&2]), 0, "the machine-like bot hits on the tick its target appears");
+        for slot in [1, 3, 4] {
+            let ms = median(&by_slot[&slot]) * 1000 / rate;
+            assert!((200..600).contains(&ms), "slot {slot} reacts in {ms} ms, which must look human");
+        }
     }
 }
