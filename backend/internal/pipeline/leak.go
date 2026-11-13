@@ -43,6 +43,7 @@ type v2State struct {
 	batches   uint64
 	dropped   uint64
 	summaries map[uint32]*store.GameplaySummary
+	results   map[uint32]knowledge.Result // set once, when the match is scored
 }
 
 // v2 handles the telemetry v2 part of a fresh batch: map geometry, raw storage,
@@ -216,7 +217,9 @@ func (p *Pipeline) leakEvidence(tenant string, ms *matchState, v *v2State, b *pb
 		}
 		evs = append(evs, ev)
 	}
+	v.results = map[uint32]knowledge.Result{}
 	for _, r := range v.scorer.Finish() {
+		v.results[r.Slot] = r
 		if s := v.summaries[r.Slot]; s != nil {
 			s.LeakScored, s.LeakScore, s.LeakFlagged = true, math.Round(r.Score*100)/100, r.Flagged
 		}
