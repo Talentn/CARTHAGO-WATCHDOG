@@ -431,7 +431,7 @@ func TestNumberedMigrations(t *testing.T) {
 		}
 		var number int
 		var name string
-		if err := s.db.QueryRow(`SELECT number, name FROM schema_migrations`).Scan(&number, &name); err != nil || number != 20 || name != "dashboard_auth" {
+		if err := s.db.QueryRow(`SELECT number, name FROM schema_migrations ORDER BY number LIMIT 1`).Scan(&number, &name); err != nil || number != 20 || name != "dashboard_auth" {
 			t.Fatalf("recorded migration: %d %q %v", number, name, err)
 		}
 		s.Close()
@@ -446,14 +446,14 @@ func TestNumberedMigrations(t *testing.T) {
 	if v >= 20 {
 		t.Fatalf("user_version %d: the position-based list reached the numbered range", v)
 	}
-	if _, err := db.Exec(`INSERT INTO schema_migrations (number, name, applied_ms) VALUES (21, 'from_the_future', 1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO schema_migrations (number, name, applied_ms) VALUES (9021, 'from_the_future', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
 	if s, err := OpenSQLite(path); err == nil {
 		s.Close()
 		t.Fatal("opened a database with an unknown numbered migration")
-	} else if !strings.Contains(err.Error(), "0021_from_the_future") || !strings.Contains(err.Error(), "newer than this gateway") {
+	} else if !strings.Contains(err.Error(), "9021_from_the_future") || !strings.Contains(err.Error(), "newer than this gateway") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -18,8 +18,8 @@ var sqliteTelemetryV2 string
 //go:embed sqlite/0005_bot_evidence.sql
 var sqliteBotEvidence string
 
-//go:embed sqlite/0006_oracle.sql
-var sqliteOracle string
-
 // SQLite lists the migrations in order; migration i+1 sets PRAGMA user_version = i+1.
-var SQLite = []string{SQLiteInit, sqliteEKChain, sqliteDetections, sqliteTelemetryV2, sqliteBotEvidence, sqliteOracle}
+//
+// This list is closed: it is the same on every branch, so a database can move between
+// their gateways. A new migration goes into SQLiteNumbered (numbered.go).
+var SQLite = []string{SQLiteInit, sqliteEKChain, sqliteDetections, sqliteTelemetryV2, sqliteBotEvidence}

@@ -41,6 +41,12 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		return err
 	}
+	if v > len(migrations.SQLite) {
+		var err error
+		if v, err = adoptPositioned(db, v); err != nil {
+			return err
+		}
+	}
 	// A database written by a newer gateway may have columns and meanings this version does
 	// not know; running on it could corrupt it quietly.
 	if v > len(migrations.SQLite) {
