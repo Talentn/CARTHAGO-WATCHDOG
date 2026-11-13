@@ -23,6 +23,13 @@ kick, ban or send anything to a client: the pipeline hands it copies of its numb
 one-way observer, and the engine holds no reference to the kick channel. A label never kicks
 or bans either.
 
+**The Oracle and the client notice are separate.** The gateway can tell a client that it was
+detected (`-client-notices`, the "detected" screen of the CS 1.6 kit). That notice comes from
+the rules' own short list of evidence and from nothing else. An Oracle score, an analyst
+opinion and a reviewer label never raise it, lower it or delay it; with the Oracle on or off,
+the same heartbeats produce the same notices. A test runs both ways and compares
+(`TestOracleNeverRaisesTheClientNotice`).
+
 ## Quick start
 
 ```bash
