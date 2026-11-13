@@ -70,7 +70,7 @@ type SessionLabel struct {
 	Label      string // LabelConfirmedCheat, LabelCleared or LabelUnsure
 	CheatType  string // optional
 	Note       string
-	Reviewer   string // the name the reviewer gave; the dashboard has one key per studio, not accounts
+	Reviewer   string // the dashboard account that set the label; with the demo login, the name the person gave
 	LabelledAt time.Time
 }
 

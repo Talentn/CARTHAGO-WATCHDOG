@@ -139,5 +139,7 @@ For trying the product on one PC there is still a shared studio key (studio `dem
   ones.
 - **No certificate helper for the dashboard.** HTTPS needs a certificate you bring, or a
   proxy.
-- **Reviewer actions.** The reviewer role is enforced now; the first reviewer action
-  (labelling a session) arrives with the session-review work.
+- **Reviewer actions.** There is one so far: labelling a session (the "Reviewer label" card,
+  see `docs/oracle.md`). It needs the reviewer role, is recorded under the signed-in
+  account's name and is written to the audit log. A read-only account sees labels and the
+  Oracle's results and cannot change them.

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -250,10 +252,19 @@ func TestReviewerLabel(t *testing.T) {
 	r := f.do("GET", "/sessions/cccc3333?labelled=1", c, nil, nil)
 	body := r.Body.String()
 	for _, want := range []string{`<span class="mark lbl-confirmed_cheat">Confirmed cheat</span>`, "Aim assistance", "Sam &lt;script&gt;", "&lt;b&gt;locks&lt;/b&gt;",
-		`<p class="saved">Label saved</p>`, `<option value="confirmed_cheat" selected>`, `<option value="aim_assistance" selected>`, "History (1)", "127.0.0.1"} {
+		`<p class="saved">Label saved</p>`, `<option value="confirmed_cheat" selected>`, `<option value="aim_assistance" selected>`, "History (1)", "Your name"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("labelled session page lacks %q", want)
 		}
+	}
+	// The demo login is nobody in particular, so the form keeps the name last given.
+	if body := f.doWith("GET", "/sessions/cccc3333", nil, nil, c, reviewer).Body.String(); !strings.Contains(body, `name="reviewer" maxlength="64" value="Sam &lt;script&gt;"`) {
+		t.Error("the demo login's form does not remember the name given")
+	}
+	// The address a label came from is for admins, like the audit log; the demo login is
+	// a reviewer.
+	if strings.Contains(body, "127.0.0.1") || strings.Contains(body, "<th>From</th>") {
+		t.Error("the demo login is shown where labels were set from")
 	}
 	if strings.Contains(body, "<script>") || strings.Contains(body, "<b>locks") {
 		t.Error("reviewer text is not escaped")
@@ -275,6 +286,23 @@ func TestReviewerLabel(t *testing.T) {
 	au, _ := f.st.ListLabelAudit(ctx, "demo", "cccc3333", 0)
 	if len(au) != 3 || au[0].Action != store.LabelRemove || au[1].Label != store.LabelCleared || au[2].Action != store.LabelSet || au[2].Remote != "127.0.0.1" || au[2].Reviewer != "Sam <script>" {
 		t.Fatalf("audit: %+v", au)
+	}
+
+	// Each step is also in the studio's audit log, where the name the demo login gave is
+	// marked as given, not known.
+	var steps []string
+	for _, e := range f.auditLog(t, "demo") {
+		if strings.HasPrefix(e.Action, "label.") {
+			if e.Actor != "demo" || e.ActorID != 0 || e.Target != "session cccc3333" || e.IP != "127.0.0.1" {
+				t.Errorf("audit entry: %+v", e)
+			}
+			steps = append(steps, e.Action+": "+e.Detail)
+		}
+	}
+	sort.Strings(steps)
+	if want := []string{"label.remove: label removed; player carol; demo login, name given: Kim", "label.set: cleared; player carol; demo login, name given: Kim",
+		"label.set: confirmed_cheat (aim_assistance); player carol; demo login, name given: Sam <script>"}; !slices.Equal(steps, want) {
+		t.Errorf("audit log:\n%s", strings.Join(steps, "\n"))
 	}
 
 	// A label is a note. It never touches the session, its evidence or the player's risk.

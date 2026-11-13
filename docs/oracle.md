@@ -358,17 +358,31 @@ the name and hash of the analyst model), feature vectors, case files, and the ps
 ## Reviewer labels and private tuning
 
 **Labelling.** Every session page has a "Reviewer label" card: confirmed cheat, cleared or
-unsure, an optional kind of cheat, a note of up to 280 characters and the reviewer's name. A
-label can be changed or removed; every change is appended to an audit table with who, when
-and from which address. The form carries a per-login token and the request must be
-same-origin, like the login form. A session with client integrity evidence of high or
-critical severity shows a suggested label ("Confirmed cheat · Client tampering") that the
-reviewer accepts with one click; the suggestion is never applied by itself. Labelling works
-for sessions that have integrity evidence but never joined a match, which is the case when a
-game is watched from outside without match data.
+unsure, an optional kind of cheat and a note of up to 280 characters. A label can be changed
+or removed; every change is appended to the label's history with who, when and from which
+address. A session with client integrity evidence of high or critical severity shows a
+suggested label ("Confirmed cheat · Client tampering") that the reviewer accepts with one
+click; the suggestion is never applied by itself. Labelling works for sessions that have
+integrity evidence but never joined a match, which is the case when a game is watched from
+outside without match data.
 
-The dashboard has one key per studio and no user accounts, so the reviewer's name is what the
-reviewer typed. Treat it as a note, not as proof of who labelled.
+**Who may label, and under which name.** Labelling needs the reviewer role (see
+`docs/dashboard-security.md`). An admin and a reviewer see the forms; a read-only account
+sees the Oracle's result, the label and its history, and no form, and the route refuses a
+request it makes by hand. The form carries the sign-in's token and the request must be
+same-origin, like every other form of the dashboard.
+
+- **Signed in with an account:** the label is recorded under the account's name. The form
+  has no name field, and a name sent anyway is ignored.
+- **Demo login** (the shared studio key, offered only on the gateway's own machine while the
+  studio has no account): nobody is known by name, so the form asks for one and remembers it
+  in the browser. Treat that name as a note, not as proof of who labelled.
+
+Every label change is also written to the studio's audit log (`label.set`,
+`label.accept_suggestion`, `label.remove`, under Audit, Changes) with the account, the
+address, the session and the player. For the demo login the entry says so and gives the name
+that was typed. The address a label came from is shown to admins only, in the history on the
+session page as in the audit log.
 
 **Export.** `carthago-oracle export -data <gateway data dir> -tenant <studio> -out <dir>`
 writes two files, readable by the owner only:

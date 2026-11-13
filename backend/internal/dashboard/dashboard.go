@@ -14,7 +14,6 @@ package dashboard
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -74,7 +73,6 @@ type Server struct {
 	authState
 	st           Store
 	keys         map[string]string
-	secret       []byte
 	secureCookie bool
 	online       time.Duration
 	now          func() time.Time
@@ -92,11 +90,7 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 	if cfg.OnlineWindow == 0 {
 		cfg.OnlineWindow = 2 * time.Minute
 	}
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		return nil, err
-	}
-	s := &Server{st: st, keys: cfg.Keys, secret: secret, secureCookie: cfg.SecureCookie, online: cfg.OnlineWindow, now: cfg.Now, log: log, oracle: cfg.Oracle}
+	s := &Server{st: st, keys: cfg.Keys, secureCookie: cfg.SecureCookie, online: cfg.OnlineWindow, now: cfg.Now, log: log, oracle: cfg.Oracle}
 	if len(cfg.AllowedHosts) > 0 {
 		s.hosts = map[string]bool{}
 		for _, h := range cfg.AllowedHosts {
@@ -173,7 +167,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.auth(s.overview))
 	mux.HandleFunc("GET /sessions", s.auth(s.sessions))
 	mux.HandleFunc("GET /sessions/{id}", s.auth(s.session))
-	mux.HandleFunc("POST /sessions/{id}/label", s.auth(s.setLabel))
+	mux.HandleFunc("POST /sessions/{id}/label", s.require(RoleReviewer, s.setLabel))
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))

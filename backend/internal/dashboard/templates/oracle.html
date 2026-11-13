@@ -59,10 +59,11 @@
   {{else}}
   <p class="empty">Not labelled yet</p>
   {{end}}
+  {{if .CanLabel}}
   {{with .Suggested}}
   <form method="post" action="/sessions/{{path $id}}/label" class="suggest">
     <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="suggested" value="1">
-    <input type="hidden" name="label" value="{{.Label}}"><input type="hidden" name="cheat_type" value="{{.CheatType}}"><input type="hidden" name="reviewer" value="{{$.View.Reviewer}}">
+    <input type="hidden" name="label" value="{{.Label}}"><input type="hidden" name="cheat_type" value="{{.CheatType}}">{{if $.View.Demo}}<input type="hidden" name="reviewer" value="{{$.View.Reviewer}}">{{end}}
     <p>Suggested: <b>{{labelName .Label}}</b> · {{cheatName .CheatType}} <span class="muted">from {{$.View.Why}}. Accept it only if you agree.</span></p>
     <button type="submit" class="secondary">Accept suggestion</button>
   </form>
@@ -86,20 +87,24 @@
     <label class="grow">Note <small class="muted">optional, 280 characters</small>
       <input type="text" name="note" maxlength="280" value="{{if $.View.Label}}{{$.View.Label.Note}}{{end}}" autocomplete="off">
     </label>
-    <label>Your name
+    {{if .Demo}}<label>Your name <small class="muted">demo login, not checked</small>
       <input type="text" name="reviewer" maxlength="64" value="{{.Reviewer}}" autocomplete="name">
-    </label>
+    </label>{{end}}
     <button type="submit" class="primary">Save label</button>
   </form>
+  {{if not .Demo}}<p class="replay-note">Saved under your account, <b>{{.Name}}</b>, and recorded in the audit log.</p>{{end}}
+  {{else}}
+  <p class="replay-note">Labelling a session needs the reviewer role. Your account is read-only.</p>
+  {{end}}
   {{if .Audit}}
   <details>
     <summary>History ({{len .Audit}})</summary>
     <table class="compact">
-      <thead><tr><th>When</th><th>Change</th><th>Label</th><th>By</th><th>From</th><th>Note</th></tr></thead>
+      <thead><tr><th>When</th><th>Change</th><th>Label</th><th>By</th>{{if $.View.ShowRemote}}<th>From</th>{{end}}<th>Note</th></tr></thead>
       <tbody>{{range .Audit}}<tr>
         <td class="when">{{when .At}}</td><td>{{auditName .Action}}</td>
         <td>{{if .Label}}{{labelName .Label}}{{if .CheatType}} <span class="muted">· {{cheatName .CheatType}}</span>{{end}}{{else}}<span class="muted">—</span>{{end}}</td>
-        <td>{{if .Reviewer}}{{.Reviewer}}{{else}}<span class="muted">no name</span>{{end}}</td><td class="mono">{{.Remote}}</td><td class="sum">{{.Note}}</td>
+        <td>{{if .Reviewer}}{{.Reviewer}}{{else}}<span class="muted">no name</span>{{end}}</td>{{if $.View.ShowRemote}}<td class="mono">{{.Remote}}</td>{{end}}<td class="sum">{{.Note}}</td>
       </tr>{{end}}</tbody>
     </table>
   </details>

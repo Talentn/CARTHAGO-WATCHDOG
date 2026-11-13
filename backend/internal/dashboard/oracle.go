@@ -171,16 +171,31 @@ type labelView struct {
 	Suggested *store.SessionLabel
 	Why       string
 	Audit     []store.LabelAudit
-	Reviewer  string // the name last used in this browser
-	Types     []string
-	Saved     bool
+	// CanLabel: the viewer holds the reviewer role, so the card shows its forms.
+	CanLabel bool
+	// Demo: signed in with the shared studio key. Nobody is known by name, so the form
+	// asks for one; Reviewer is the name last given in this browser.
+	Demo     bool
+	Reviewer string
+	// Name is the account a label will be recorded under.
+	Name string
+	// ShowRemote: the address a label was set from is shown to admins only, as in the
+	// audit log.
+	ShowRemote bool
+	Types      []string
+	Saved      bool
 }
 
+// reviewerCookie remembers the name a person gave with the demo login. Accounts do not
+// use it: their labels carry the account's name.
 const reviewerCookie = "cw_reviewer"
 
 func (s *Server) labelFor(r *http.Request, tenant string, sess *store.Session, evidence []store.Evidence) (*labelView, error) {
 	ctx := r.Context()
 	v := &labelView{Types: labelCheatTypes, Saved: r.URL.Query().Get("labelled") == "1"}
+	if viewer, ok := s.CurrentViewer(r); ok {
+		v.CanLabel, v.Demo, v.Name, v.ShowRemote = viewer.Reviewer(), viewer.Demo, viewer.Name, viewer.Admin()
+	}
 	l, err := s.st.GetSessionLabel(ctx, tenant, sess.SessionID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
@@ -189,12 +204,14 @@ func (s *Server) labelFor(r *http.Request, tenant string, sess *store.Session, e
 	if v.Audit, err = s.st.ListLabelAudit(ctx, tenant, sess.SessionID, 20); err != nil {
 		return nil, err
 	}
-	if c, err := r.Cookie(reviewerCookie); err == nil {
-		if name, err := url.QueryUnescape(c.Value); err == nil {
-			v.Reviewer = cleanText(name, 64)
+	if v.Demo {
+		if c, err := r.Cookie(reviewerCookie); err == nil {
+			if name, err := url.QueryUnescape(c.Value); err == nil {
+				v.Reviewer = cleanText(name, 64)
+			}
 		}
 	}
-	if l == nil {
+	if l == nil && v.CanLabel {
 		v.Suggested, v.Why = suggestLabel(sess, evidence)
 	}
 	return v, nil
@@ -263,13 +280,13 @@ func cleanText(s string, max int) string {
 
 // setLabel stores a reviewer's label for a session. It changes the label and its audit
 // trail and nothing else: no session state, no evidence, no risk, no kick.
-func (s *Server) setLabel(w http.ResponseWriter, r *http.Request, tenant string) {
-	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
-	if !sameOrigin(r) || !s.csrfOK(r) {
-		http.Error(w, "cross-site request", http.StatusForbidden)
-		return
-	}
+//
+// The route needs the reviewer role, the form's CSRF token and the same origin (require).
+// The label is recorded under the signed-in account's name; a name typed into the form
+// is used only with the demo login, which is not a person.
+func (s *Server) setLabel(w http.ResponseWriter, r *http.Request, v Viewer) {
 	ctx := r.Context()
+	tenant := v.Tenant
 	id := r.PathValue("id")
 	sess, err := s.st.GetSession(ctx, id)
 	if err == nil && sess.TenantID != tenant {
@@ -279,8 +296,12 @@ func (s *Server) setLabel(w http.ResponseWriter, r *http.Request, tenant string)
 		s.fail(w, err)
 		return
 	}
+	reviewer := v.Name
+	if v.Demo {
+		reviewer = cleanText(r.PostFormValue("reviewer"), 64)
+	}
 	l := &store.SessionLabel{TenantID: tenant, SessionID: id, PlayerHash: sess.PlayerHash, Label: r.PostFormValue("label"),
-		CheatType: r.PostFormValue("cheat_type"), Note: cleanText(r.PostFormValue("note"), 280), Reviewer: cleanText(r.PostFormValue("reviewer"), 64), LabelledAt: s.now()}
+		CheatType: r.PostFormValue("cheat_type"), Note: cleanText(r.PostFormValue("note"), 280), Reviewer: reviewer, LabelledAt: s.now()}
 	action := store.LabelSet
 	switch l.Label {
 	case store.LabelConfirmedCheat, store.LabelUnsure:
@@ -303,13 +324,34 @@ func (s *Server) setLabel(w http.ResponseWriter, r *http.Request, tenant string)
 	if r.PostFormValue("suggested") == "1" && action == store.LabelSet {
 		action = store.LabelAcceptSuggestion
 	}
-	if err := s.st.SetSessionLabel(ctx, l, action, clientIP(r)); err != nil {
+	remote := s.clientAddr(r)
+	if err := s.st.SetSessionLabel(ctx, l, action, remote); err != nil {
 		s.fail(w, err)
 		return
 	}
-	s.log.Info("dashboard label", "tenant", tenant, "session", id, "action", action, "label", l.Label, "remote", clientIP(r))
-	if l.Reviewer != "" {
-		http.SetCookie(w, &http.Cookie{Name: reviewerCookie, Value: url.QueryEscape(l.Reviewer), Path: "/", MaxAge: 90 * 24 * 3600,
+	detail := "label removed"
+	if action != store.LabelRemove {
+		detail = l.Label
+		if l.CheatType != "" {
+			detail += " (" + l.CheatType + ")"
+		}
+		if action == store.LabelAcceptSuggestion {
+			detail += ", suggestion accepted"
+		}
+	}
+	detail += "; player " + sess.PlayerHash
+	if v.Demo {
+		detail += "; demo login, name given: "
+		if reviewer == "" {
+			detail += "none"
+		} else {
+			detail += reviewer
+		}
+	}
+	s.Audit(r, "label."+action, "session "+id, detail)
+	s.log.Info("dashboard label", "tenant", tenant, "session", id, "action", action, "label", l.Label, "by", v.Name, "remote", remote)
+	if v.Demo && reviewer != "" {
+		http.SetCookie(w, &http.Cookie{Name: reviewerCookie, Value: url.QueryEscape(reviewer), Path: "/", MaxAge: 90 * 24 * 3600,
 			HttpOnly: true, Secure: s.secureCookie, SameSite: http.SameSiteStrictMode})
 	}
 	http.Redirect(w, r, "/sessions/"+url.PathEscape(id)+"?labelled=1#label", http.StatusSeeOther)
