@@ -6,14 +6,21 @@ use std::path::{Path, PathBuf};
 use carthago_crypto::VerifyingKey;
 
 pub const USAGE: &str = "\
-usage: carthago-cs16 --keys public-keys.json (--game-dir DIR | --exe PATH\\hl.exe | --attach PID)
+usage: carthago-cs16 --keys public-keys.json (--game-dir DIR | --exe PATH | --attach PID)
                      [--gateway wss://127.0.0.1:8750/v1/client] [--tenant demo] [--build cs16]
                      [--player ID] [--session-file FILE] [--log FILE] [--no-tpm]
                      [--input-monitor] [--max-secs N] [-- game arguments]
 
-Opens an attested session with the gateway, then starts hl.exe (default arguments:
+Opens an attested session with the gateway, then starts the game (default arguments:
 -game cstrike) and watches it from outside with read-only access until it exits.
---attach watches a game that is already running instead of starting one.";
+--game-dir starts hl.exe in DIR or, in a build that has none, cstrike.exe; --exe names the
+program. --attach watches a game that is already running instead of starting one.";
+
+/// The game program in a GoldSrc folder: `hl.exe`, or `cstrike.exe` in builds that ship the
+/// same program under that name and no `hl.exe`. Nothing else in the folder is ever chosen.
+pub fn engine_exe(dir: &Path) -> PathBuf {
+    ["hl.exe", "cstrike.exe"].iter().map(|n| dir.join(n)).find(|p| p.is_file()).unwrap_or_else(|| dir.join("hl.exe"))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Game {
@@ -60,7 +67,7 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
         let mut val = || it.next().cloned().ok_or_else(|| format!("{a} needs a value"));
         match a.as_str() {
             "--keys" => o.keys = val()?.into(),
-            "--game-dir" => exe = Some(PathBuf::from(val()?).join("hl.exe")),
+            "--game-dir" => exe = Some(engine_exe(Path::new(&val()?))),
             "--exe" => exe = Some(PathBuf::from(val()?)),
             "--attach" => attach = Some(val()?.parse::<u32>().map_err(|_| "--attach: not a process id")?),
             "--gateway" => o.gateway = val()?,
@@ -213,6 +220,23 @@ mod tests {
         let o = parse_args(&args(&["--keys", "k.json", "--exe", "hl.exe", "--no-tpm", "--", "-game", "cstrike", "+map", "de_dust2"])).unwrap();
         assert_eq!(o.game, Game::Launch { exe: "hl.exe".into(), args: args(&["-game", "cstrike", "+map", "de_dust2"]) });
         assert!(!o.allow_tpm);
+    }
+
+    #[test]
+    fn game_dir_picks_hl_then_cstrike_and_nothing_else() {
+        let dir = std::env::temp_dir().join(format!("carthago-cs16-exe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for other in ["crashpad_handler.exe", "hltv.exe", "unins000.exe"] {
+            std::fs::write(dir.join(other), b"x").unwrap();
+        }
+        assert_eq!(engine_exe(&dir), dir.join("hl.exe"));
+        std::fs::write(dir.join("cstrike.exe"), b"x").unwrap();
+        assert_eq!(engine_exe(&dir), dir.join("cstrike.exe"));
+        let o = parse_args(&args(&["--keys", "k.json", "--game-dir", dir.to_str().unwrap()])).unwrap();
+        assert_eq!(o.game, Game::Launch { exe: dir.join("cstrike.exe"), args: args(&["-game", "cstrike"]) });
+        std::fs::write(dir.join("hl.exe"), b"x").unwrap();
+        assert_eq!(engine_exe(&dir), dir.join("hl.exe"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
