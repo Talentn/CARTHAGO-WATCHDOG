@@ -99,16 +99,31 @@ func (m *Memory) ListDashUsers(_ context.Context, tenant string) ([]DashUser, er
 	return out, nil
 }
 
-func (m *Memory) UpdateDashUser(_ context.Context, u *DashUser) error {
+func (m *Memory) UpdateDashUser(_ context.Context, tenant string, id int64, ch DashUserChange) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cur := m.au().user(u.TenantID, u.ID)
+	cur := m.au().user(tenant, id)
 	if cur == nil {
 		return ErrNotFound
 	}
-	c := cloneUser(u)
-	cur.Role, cur.PasswordHash, cur.TOTPSecret, cur.Disabled = c.Role, c.PasswordHash, c.TOTPSecret, c.Disabled
-	cur.PasswordChangedAt, cur.LastLoginAt = c.PasswordChangedAt, c.LastLoginAt
+	if ch.Role != nil {
+		cur.Role = *ch.Role
+	}
+	if ch.Disabled != nil {
+		cur.Disabled = *ch.Disabled
+	}
+	if ch.PasswordHash != nil {
+		cur.PasswordHash, cur.PasswordChangedAt = *ch.PasswordHash, ch.PasswordChangedAt
+	}
+	if ch.TOTPSecret != nil {
+		cur.TOTPSecret, cur.TOTPLastStep = nil, 0
+		if len(*ch.TOTPSecret) > 0 {
+			cur.TOTPSecret = append([]byte(nil), *ch.TOTPSecret...)
+		}
+	}
+	if ch.LastLoginAt != nil {
+		cur.LastLoginAt = *ch.LastLoginAt
+	}
 	return nil
 }
 

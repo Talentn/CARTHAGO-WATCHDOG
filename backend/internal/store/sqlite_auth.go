@@ -81,10 +81,29 @@ func (s *SQLite) ListDashUsers(ctx context.Context, tenant string) ([]DashUser, 
 	return out, rows.Err()
 }
 
-func (s *SQLite) UpdateDashUser(ctx context.Context, u *DashUser) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE dashboard_users SET role = ?, password_hash = ?, totp_secret = ?, disabled = ?, password_changed_ms = ?, last_login_ms = ?
-		WHERE tenant_id = ? AND id = ?`,
-		u.Role, u.PasswordHash, u.TOTPSecret, u.Disabled, ms(u.PasswordChangedAt), msOrZero(u.LastLoginAt), u.TenantID, u.ID)
+func (s *SQLite) UpdateDashUser(ctx context.Context, tenant string, id int64, ch DashUserChange) error {
+	var set []string
+	var args []any
+	if ch.Role != nil {
+		set, args = append(set, "role = ?"), append(args, *ch.Role)
+	}
+	if ch.Disabled != nil {
+		set, args = append(set, "disabled = ?"), append(args, *ch.Disabled)
+	}
+	if ch.PasswordHash != nil {
+		set, args = append(set, "password_hash = ?", "password_changed_ms = ?"), append(args, *ch.PasswordHash, ms(ch.PasswordChangedAt))
+	}
+	if ch.TOTPSecret != nil {
+		set, args = append(set, "totp_secret = ?", "totp_last_step = 0"), append(args, *ch.TOTPSecret)
+	}
+	if ch.LastLoginAt != nil {
+		set, args = append(set, "last_login_ms = ?"), append(args, msOrZero(*ch.LastLoginAt))
+	}
+	if len(set) == 0 {
+		_, err := s.GetDashUser(ctx, tenant, id)
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE dashboard_users SET `+strings.Join(set, ", ")+` WHERE tenant_id = ? AND id = ?`, append(args, tenant, id)...)
 	if err != nil {
 		return err
 	}

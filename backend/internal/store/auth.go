@@ -37,6 +37,21 @@ type DashUser struct {
 	LastLoginAt       time.Time
 }
 
+// DashUserChange names the fields of an account to write. Fields left nil are not written,
+// so two changes to different fields of one account (a sign-in recording its time while an
+// admin disables the account) cannot undo each other.
+type DashUserChange struct {
+	Role     *string
+	Disabled *bool
+	// PasswordHash also sets PasswordChangedAt, which must be given with it.
+	PasswordHash      *string
+	PasswordChangedAt time.Time
+	// TOTPSecret replaces the sealed two-factor secret; a pointer to nil removes it. Either
+	// way the last used time step starts again, since it belonged to the old secret.
+	TOTPSecret  *[]byte
+	LastLoginAt *time.Time
+}
+
 // One-time link kinds.
 const (
 	InviteNew   = "invite"
@@ -115,8 +130,8 @@ type AuthStore interface {
 	GetDashUser(ctx context.Context, tenant string, id int64) (*DashUser, error)
 	GetDashUserByName(ctx context.Context, tenant, name string) (*DashUser, error)
 	ListDashUsers(ctx context.Context, tenant string) ([]DashUser, error)
-	// UpdateDashUser writes every mutable field of u except TOTPLastStep.
-	UpdateDashUser(ctx context.Context, u *DashUser) error
+	// UpdateDashUser writes the fields named in ch and leaves the others as they are.
+	UpdateDashUser(ctx context.Context, tenant string, id int64, ch DashUserChange) error
 	// AdvanceTOTPStep records step as used; false when that step or a later one already was.
 	AdvanceTOTPStep(ctx context.Context, userID, step int64) (bool, error)
 	SetRecoveryCodes(ctx context.Context, userID int64, hashes []string) error

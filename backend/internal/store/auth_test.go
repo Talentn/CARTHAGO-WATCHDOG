@@ -69,9 +69,8 @@ func TestDashUsers(t *testing.T) {
 			if err != nil || got.Name != "ala" || got.Role != RoleAdmin || got.TOTPSecret != nil || !got.LastLoginAt.IsZero() || !got.CreatedAt.Equal(authNow) || got.CreatedBy != "test" {
 				t.Fatalf("ala: %+v %v", got, err)
 			}
-			got.Role, got.PasswordHash, got.TOTPSecret, got.Disabled = RoleReviewer, "new-hash", []byte{1, 2, 3}, true
-			got.PasswordChangedAt, got.LastLoginAt = authNow.Add(time.Hour), authNow.Add(2*time.Hour)
-			if err := st.UpdateDashUser(ctx, got); err != nil {
+			role, hash, secret, disabled, login := RoleReviewer, "new-hash", []byte{1, 2, 3}, true, authNow.Add(2*time.Hour)
+			if err := st.UpdateDashUser(ctx, "t1", ala.ID, DashUserChange{Role: &role, PasswordHash: &hash, PasswordChangedAt: authNow.Add(time.Hour), TOTPSecret: &secret, Disabled: &disabled, LastLoginAt: &login}); err != nil {
 				t.Fatal(err)
 			}
 			again, _ := st.GetDashUser(ctx, "t1", ala.ID)
@@ -79,11 +78,21 @@ func TestDashUsers(t *testing.T) {
 				!again.PasswordChangedAt.Equal(authNow.Add(time.Hour)) || !again.LastLoginAt.Equal(authNow.Add(2*time.Hour)) {
 				t.Fatalf("after update: %+v", again)
 			}
-			// An update cannot move a user to another tenant or touch one there.
-			stray := *again
-			stray.TenantID = "t2"
-			if err := st.UpdateDashUser(ctx, &stray); !errors.Is(err, ErrNotFound) {
+			// A change writes only the fields it names: recording a sign-in does not put back
+			// a role or re-enable an account that someone else changed in the meantime.
+			later := authNow.Add(3 * time.Hour)
+			if err := st.UpdateDashUser(ctx, "t1", ala.ID, DashUserChange{LastLoginAt: &later}); err != nil {
+				t.Fatal(err)
+			}
+			if again, _ = st.GetDashUser(ctx, "t1", ala.ID); again.Role != RoleReviewer || !again.Disabled || again.PasswordHash != "new-hash" || len(again.TOTPSecret) != 3 || !again.LastLoginAt.Equal(later) {
+				t.Fatalf("a one-field change touched other fields: %+v", again)
+			}
+			// A change cannot reach a user through another tenant.
+			if err := st.UpdateDashUser(ctx, "t2", ala.ID, DashUserChange{Role: &role}); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("update through the wrong tenant: %v", err)
+			}
+			if err := st.UpdateDashUser(ctx, "t2", ala.ID, DashUserChange{}); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("empty update through the wrong tenant: %v", err)
 			}
 			list, err := st.ListDashUsers(ctx, "t1")
 			if err != nil || len(list) != 2 || list[0].Name != "ala" || list[1].ID != sam.ID {
@@ -99,12 +108,19 @@ func TestDashUsers(t *testing.T) {
 					t.Errorf("step %d: %v %v, want %v", c.step, ok, err, c.want)
 				}
 			}
-			// UpdateDashUser leaves the step alone, so saving a login time cannot reopen a used code.
-			samNow, _ := st.GetDashUser(ctx, "t1", sam.ID)
-			samNow.TOTPLastStep = 0
-			st.UpdateDashUser(ctx, samNow)
+			// Saving a login time cannot reopen a used code; a new secret starts again.
+			st.UpdateDashUser(ctx, "t1", sam.ID, DashUserChange{LastLoginAt: &later})
 			if ok, _ := st.AdvanceTOTPStep(ctx, sam.ID, 101); ok {
 				t.Error("an update reset the used time step")
+			}
+			st.UpdateDashUser(ctx, "t1", sam.ID, DashUserChange{TOTPSecret: &secret})
+			if ok, _ := st.AdvanceTOTPStep(ctx, sam.ID, 50); !ok {
+				t.Error("a new secret kept the old secret's used time step")
+			}
+			var none []byte
+			st.UpdateDashUser(ctx, "t1", sam.ID, DashUserChange{TOTPSecret: &none})
+			if u, _ := st.GetDashUser(ctx, "t1", sam.ID); u.TOTPSecret != nil {
+				t.Errorf("removed secret reads back as %v", u.TOTPSecret)
 			}
 
 			if err := st.SetRecoveryCodes(ctx, sam.ID, []string{"h1", "h2", "h3"}); err != nil {
