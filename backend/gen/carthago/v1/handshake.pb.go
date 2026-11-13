@@ -2541,6 +2541,145 @@ func (x *EnforcementNotice) GetServerKeyId() string {
 	return ""
 }
 
+type BanRefusalBody struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     []byte                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // the handshake this refusal answers, 16 bytes
+	TenantId      string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	PlayerIdHash  string                 `protobuf:"bytes,3,opt,name=player_id_hash,json=playerIdHash,proto3" json:"player_id_hash,omitempty"`
+	IssuedAtMs    uint64                 `protobuf:"varint,4,opt,name=issued_at_ms,json=issuedAtMs,proto3" json:"issued_at_ms,omitempty"`
+	BanRef        string                 `protobuf:"bytes,5,opt,name=ban_ref,json=banRef,proto3" json:"ban_ref,omitempty"` // what the player can quote to the studio
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BanRefusalBody) Reset() {
+	*x = BanRefusalBody{}
+	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BanRefusalBody) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BanRefusalBody) ProtoMessage() {}
+
+func (x *BanRefusalBody) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BanRefusalBody.ProtoReflect.Descriptor instead.
+func (*BanRefusalBody) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *BanRefusalBody) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *BanRefusalBody) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *BanRefusalBody) GetPlayerIdHash() string {
+	if x != nil {
+		return x.PlayerIdHash
+	}
+	return ""
+}
+
+func (x *BanRefusalBody) GetIssuedAtMs() uint64 {
+	if x != nil {
+		return x.IssuedAtMs
+	}
+	return 0
+}
+
+func (x *BanRefusalBody) GetBanRef() string {
+	if x != nil {
+		return x.BanRef
+	}
+	return ""
+}
+
+// Sent instead of Session when the account or the device key is banned. It says that and
+// carries the ban's reference, nothing about what was detected. Signed like a notice, so
+// the game can pass it on.
+type BanRefusal struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Body          []byte                 `protobuf:"bytes,1,opt,name=body,proto3" json:"body,omitempty"`                            // encoded BanRefusalBody; verified and passed on as these exact bytes
+	ServerSig     []byte                 `protobuf:"bytes,2,opt,name=server_sig,json=serverSig,proto3" json:"server_sig,omitempty"` // Ed25519 by the server identity key over "carthago/v1/ban-refusal" || body
+	ServerKeyId   string                 `protobuf:"bytes,3,opt,name=server_key_id,json=serverKeyId,proto3" json:"server_key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BanRefusal) Reset() {
+	*x = BanRefusal{}
+	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BanRefusal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BanRefusal) ProtoMessage() {}
+
+func (x *BanRefusal) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BanRefusal.ProtoReflect.Descriptor instead.
+func (*BanRefusal) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *BanRefusal) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *BanRefusal) GetServerSig() []byte {
+	if x != nil {
+		return x.ServerSig
+	}
+	return nil
+}
+
+func (x *BanRefusal) GetServerKeyId() string {
+	if x != nil {
+		return x.ServerKeyId
+	}
+	return ""
+}
+
 // Plaintext of every client->server sealed frame. seq must equal the frame seq.
 type ClientMsg struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
@@ -2558,7 +2697,7 @@ type ClientMsg struct {
 
 func (x *ClientMsg) Reset() {
 	*x = ClientMsg{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2570,7 +2709,7 @@ func (x *ClientMsg) String() string {
 func (*ClientMsg) ProtoMessage() {}
 
 func (x *ClientMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2583,7 +2722,7 @@ func (x *ClientMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientMsg.ProtoReflect.Descriptor instead.
 func (*ClientMsg) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{23}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ClientMsg) GetSeq() uint64 {
@@ -2660,6 +2799,7 @@ type ServerMsg struct {
 	//	*ServerMsg_Kicked
 	//	*ServerMsg_Error
 	//	*ServerMsg_EnforcementNotice
+	//	*ServerMsg_Banned
 	Body          isServerMsg_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2667,7 +2807,7 @@ type ServerMsg struct {
 
 func (x *ServerMsg) Reset() {
 	*x = ServerMsg{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2679,7 +2819,7 @@ func (x *ServerMsg) String() string {
 func (*ServerMsg) ProtoMessage() {}
 
 func (x *ServerMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2692,7 +2832,7 @@ func (x *ServerMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMsg.ProtoReflect.Descriptor instead.
 func (*ServerMsg) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{24}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ServerMsg) GetSeq() uint64 {
@@ -2768,6 +2908,15 @@ func (x *ServerMsg) GetEnforcementNotice() *EnforcementNotice {
 	return nil
 }
 
+func (x *ServerMsg) GetBanned() *BanRefusal {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMsg_Banned); ok {
+			return x.Banned
+		}
+	}
+	return nil
+}
+
 type isServerMsg_Body interface {
 	isServerMsg_Body()
 }
@@ -2792,6 +2941,10 @@ type ServerMsg_EnforcementNotice struct {
 	EnforcementNotice *EnforcementNotice `protobuf:"bytes,14,opt,name=enforcement_notice,json=enforcementNotice,proto3,oneof"`
 }
 
+type ServerMsg_Banned struct {
+	Banned *BanRefusal `protobuf:"bytes,15,opt,name=banned,proto3,oneof"`
+}
+
 func (*ServerMsg_Session) isServerMsg_Body() {}
 
 func (*ServerMsg_HeartbeatAck) isServerMsg_Body() {}
@@ -2801,6 +2954,8 @@ func (*ServerMsg_Kicked) isServerMsg_Body() {}
 func (*ServerMsg_Error) isServerMsg_Body() {}
 
 func (*ServerMsg_EnforcementNotice) isServerMsg_Body() {}
+
+func (*ServerMsg_Banned) isServerMsg_Body() {}
 
 var File_carthago_v1_handshake_proto protoreflect.FileDescriptor
 
@@ -2953,6 +3108,20 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x04body\x18\x01 \x01(\fR\x04body\x12\x1d\n" +
 	"\n" +
 	"server_sig\x18\x02 \x01(\fR\tserverSig\x12\"\n" +
+	"\rserver_key_id\x18\x03 \x01(\tR\vserverKeyId\"\xad\x01\n" +
+	"\x0eBanRefusalBody\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\fR\tsessionId\x12\x1b\n" +
+	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12$\n" +
+	"\x0eplayer_id_hash\x18\x03 \x01(\tR\fplayerIdHash\x12 \n" +
+	"\fissued_at_ms\x18\x04 \x01(\x04R\n" +
+	"issuedAtMs\x12\x17\n" +
+	"\aban_ref\x18\x05 \x01(\tR\x06banRef\"c\n" +
+	"\n" +
+	"BanRefusal\x12\x12\n" +
+	"\x04body\x18\x01 \x01(\fR\x04body\x12\x1d\n" +
+	"\n" +
+	"server_sig\x18\x02 \x01(\fR\tserverSig\x12\"\n" +
 	"\rserver_key_id\x18\x03 \x01(\tR\vserverKeyId\"\xca\x01\n" +
 	"\tClientMsg\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x1d\n" +
@@ -2963,7 +3132,7 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x05prove\x18\n" +
 	" \x01(\v2\x12.carthago.v1.ProveH\x00R\x05prove\x126\n" +
 	"\theartbeat\x18\v \x01(\v2\x16.carthago.v1.HeartbeatH\x00R\theartbeatB\x06\n" +
-	"\x04body\"\x86\x03\n" +
+	"\x04body\"\xb9\x03\n" +
 	"\tServerMsg\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x1d\n" +
 	"\n" +
@@ -2975,7 +3144,8 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\rheartbeat_ack\x18\v \x01(\v2\x19.carthago.v1.HeartbeatAckH\x00R\fheartbeatAck\x12-\n" +
 	"\x06kicked\x18\f \x01(\v2\x13.carthago.v1.KickedH\x00R\x06kicked\x12*\n" +
 	"\x05error\x18\r \x01(\v2\x12.carthago.v1.ErrorH\x00R\x05error\x12O\n" +
-	"\x12enforcement_notice\x18\x0e \x01(\v2\x1e.carthago.v1.EnforcementNoticeH\x00R\x11enforcementNoticeB\x06\n" +
+	"\x12enforcement_notice\x18\x0e \x01(\v2\x1e.carthago.v1.EnforcementNoticeH\x00R\x11enforcementNotice\x121\n" +
+	"\x06banned\x18\x0f \x01(\v2\x17.carthago.v1.BanRefusalH\x00R\x06bannedB\x06\n" +
 	"\x04body*v\n" +
 	"\fDeviceKeyAlg\x12\x1e\n" +
 	"\x1aDEVICE_KEY_ALG_UNSPECIFIED\x10\x00\x12#\n" +
@@ -3088,7 +3258,7 @@ func file_carthago_v1_handshake_proto_rawDescGZIP() []byte {
 }
 
 var file_carthago_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
-var file_carthago_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_carthago_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_carthago_v1_handshake_proto_goTypes = []any{
 	(DeviceKeyAlg)(0),             // 0: carthago.v1.DeviceKeyAlg
 	(FindingCode)(0),              // 1: carthago.v1.FindingCode
@@ -3125,8 +3295,10 @@ var file_carthago_v1_handshake_proto_goTypes = []any{
 	(*Error)(nil),                 // 32: carthago.v1.Error
 	(*EnforcementNoticeBody)(nil), // 33: carthago.v1.EnforcementNoticeBody
 	(*EnforcementNotice)(nil),     // 34: carthago.v1.EnforcementNotice
-	(*ClientMsg)(nil),             // 35: carthago.v1.ClientMsg
-	(*ServerMsg)(nil),             // 36: carthago.v1.ServerMsg
+	(*BanRefusalBody)(nil),        // 35: carthago.v1.BanRefusalBody
+	(*BanRefusal)(nil),            // 36: carthago.v1.BanRefusal
+	(*ClientMsg)(nil),             // 37: carthago.v1.ClientMsg
+	(*ServerMsg)(nil),             // 38: carthago.v1.ServerMsg
 }
 var file_carthago_v1_handshake_proto_depIdxs = []int32{
 	0,  // 0: carthago.v1.DeviceKey.alg:type_name -> carthago.v1.DeviceKeyAlg
@@ -3149,11 +3321,12 @@ var file_carthago_v1_handshake_proto_depIdxs = []int32{
 	31, // 17: carthago.v1.ServerMsg.kicked:type_name -> carthago.v1.Kicked
 	32, // 18: carthago.v1.ServerMsg.error:type_name -> carthago.v1.Error
 	34, // 19: carthago.v1.ServerMsg.enforcement_notice:type_name -> carthago.v1.EnforcementNotice
-	20, // [20:20] is the sub-list for method output_type
-	20, // [20:20] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	36, // 20: carthago.v1.ServerMsg.banned:type_name -> carthago.v1.BanRefusal
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_carthago_v1_handshake_proto_init() }
@@ -3161,16 +3334,17 @@ func file_carthago_v1_handshake_proto_init() {
 	if File_carthago_v1_handshake_proto != nil {
 		return
 	}
-	file_carthago_v1_handshake_proto_msgTypes[23].OneofWrappers = []any{
+	file_carthago_v1_handshake_proto_msgTypes[25].OneofWrappers = []any{
 		(*ClientMsg_Prove)(nil),
 		(*ClientMsg_Heartbeat)(nil),
 	}
-	file_carthago_v1_handshake_proto_msgTypes[24].OneofWrappers = []any{
+	file_carthago_v1_handshake_proto_msgTypes[26].OneofWrappers = []any{
 		(*ServerMsg_Session)(nil),
 		(*ServerMsg_HeartbeatAck)(nil),
 		(*ServerMsg_Kicked)(nil),
 		(*ServerMsg_Error)(nil),
 		(*ServerMsg_EnforcementNotice)(nil),
+		(*ServerMsg_Banned)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -3178,7 +3352,7 @@ func file_carthago_v1_handshake_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_handshake_proto_rawDesc), len(file_carthago_v1_handshake_proto_rawDesc)),
 			NumEnums:      12,
-			NumMessages:   25,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

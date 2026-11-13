@@ -414,6 +414,23 @@ message EnforcementNotice {
   string server_key_id = 3;
 }
 
+message BanRefusalBody {
+  bytes session_id = 1; // the handshake this refusal answers, 16 bytes
+  string tenant_id = 2;
+  string player_id_hash = 3;
+  uint64 issued_at_ms = 4;
+  string ban_ref = 5; // what the player can quote to the studio
+}
+
+// Sent instead of Session when the account or the device key is banned. It says that and
+// carries the ban's reference, nothing about what was detected. Signed like a notice, so
+// the game can pass it on.
+message BanRefusal {
+  bytes body = 1; // encoded BanRefusalBody; verified and passed on as these exact bytes
+  bytes server_sig = 2; // Ed25519 by the server identity key over "carthago/v1/ban-refusal" || body
+  string server_key_id = 3;
+}
+
 // Plaintext of every client->server sealed frame. seq must equal the frame seq.
 message ClientMsg {
   uint64 seq = 1;
@@ -435,5 +452,6 @@ message ServerMsg {
     Kicked kicked = 12;
     Error error = 13;
     EnforcementNotice enforcement_notice = 14;
+    BanRefusal banned = 15;
   }
 }
