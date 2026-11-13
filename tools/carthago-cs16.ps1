@@ -24,7 +24,14 @@
      game open for writing, or reading it while drawing over it). What the game build has
      shown since its first recorded start is not flagged unless -AlertOnIntegrity is
      given; the result names what was held back;
-  8. when the game closes, keeps the dashboard up until Enter is pressed.
+  8. with the plugin running, reads the map being played from the game's maps folder and
+     sends its walls with the match data, so the gateway can score information leaks:
+     aim and shots that follow enemies the player's team could not see, hear or be told
+     about. That score is evidence for review at the end of a match and raises no alert.
+     -AlertOnWallhackScore lets a strong score in two separate four-minute stretches of
+     one match raise the alert during the match: an opt-in for a test on your own server,
+     since it is a behaviour score and not proof;
+  9. when the game closes, keeps the dashboard up until Enter is pressed.
 
   What is changed in the game folder, and only there:
     - cstrike\addons\amxmodx\plugins\carthago_cs16.amxx           (added)
@@ -55,6 +62,7 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60 -EndMatchOnDetect
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -AlertOnIntegrity
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -ResetStartProfile
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Map de_dust2 -AlertOnWallhackScore
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Diagnose
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Stage 2
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -DashboardOnly
@@ -107,6 +115,14 @@ param(
     # new files of the game folder, read-only handles of unsigned programs, engine code
     # rewritten while server add-ons are loaded. Expect alerts on a clean game.
     [switch]$AlertOnIntegrity,
+    # Opt-in, for a test on your own server: also raise the alert when the information-leak
+    # (wallhack) score of the player on this PC is strong in two separate four-minute
+    # stretches of one match. Without it that score is evidence for review only. It is a
+    # behaviour score, not proof, and needs the plugin's match data.
+    [switch]$AlertOnWallhackScore,
+    # Forget the map hashes recorded for this game folder; this run records them anew. Use
+    # it after a map file was replaced on purpose.
+    [switch]$ResetMapPins,
     # Forget the recorded first start of this game folder; this run records it anew. Use
     # it after the game was updated or reinstalled, and only with no cheat running.
     [switch]$ResetStartProfile,
@@ -807,6 +823,63 @@ if (-not $DashboardOnly) {
     if (($plugin -or $Diagnose) -and -not (Test-Path -LiteralPath $bridgeExe)) { Die "missing $bridgeExe (run without -SkipBuild)" }
 }
 
+# The folders the game loads maps from, in the order the game looks in them.
+function MapDirs {
+    $mod = "cstrike"
+    for ($i = 0; $i -lt $GameArgs.Count - 1; $i++) { if ($GameArgs[$i] -eq "-game") { $mod = $GameArgs[$i + 1] } }
+    $names = @("${mod}_addon", $mod, "${mod}_downloads")
+    if ($mod -ne "valve") { $names += "valve" }
+    foreach ($n in $names) {
+        $d = J $script:GameDir $n "maps"
+        if (IsDir $d) { $d }
+    }
+}
+function GameKey {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hash = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($script:GameDir.TrimEnd('\', '/').ToLowerInvariant()))
+    $sha.Dispose()
+    return -join ($hash[0..5] | ForEach-Object { $_.ToString("x2") })
+}
+# Records the hash of every map's walls the first time the map is seen in this game folder
+# and gives the gateway that list: a map whose file changes later is refused there and the
+# match is not scored for information leaks. This cannot tell whether a file was already
+# changed when it was first seen.
+function PinMaps {
+    if (-not $script:mapDirs.Count) {
+        Note "no maps folder in the game folder: information-leak scoring is off"
+        return $null
+    }
+    $file = J $Scratch "map-pins-$(GameKey).txt"
+    if ($ResetMapPins) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+    if (-not (Test-Path -LiteralPath $file)) { Note "maps: reading the map files in $($script:mapDirs -join ', ') (once; this can take a moment)" }
+    $pinArgs = @("map-pins")
+    foreach ($d in $script:mapDirs) { $pinArgs += @("--maps", $d) }
+    $now = [ordered]@{}
+    & $bridgeExe @pinArgs 2>$null | ForEach-Object { if ("$_" -match '^([a-z0-9_-]+) ([0-9a-f]{64})$') { $now[$Matches[1]] = $Matches[2] } }
+    $known = [ordered]@{}
+    if (Test-Path -LiteralPath $file) {
+        Get-Content -LiteralPath $file | ForEach-Object { if ($_ -match '^([a-z0-9_-]+) ([0-9a-f]{64})$') { $known[$Matches[1]] = $Matches[2] } }
+    }
+    $first = -not $known.Count
+    $added = 0
+    $script:changedMaps = @()
+    foreach ($m in $now.Keys) {
+        if (-not $known.Contains($m)) { $known[$m] = $now[$m]; $added++ }
+        elseif ($known[$m] -ne $now[$m]) { $script:changedMaps += $m }
+    }
+    if (-not $known.Count) {
+        Note "no usable map file in $($script:mapDirs -join ', '): information-leak scoring is off"
+        return $null
+    }
+    Set-Content -LiteralPath $file -Value @($known.Keys | ForEach-Object { "$_ $($known[$_])" })
+    if ($first) { Note "maps: the walls of $($known.Count) maps were hashed and recorded in $file; a map file that changes later is refused" }
+    else { Note "maps: $($known.Count) recorded in $file$(if ($added) { ", $added of them new" })" }
+    foreach ($m in $script:changedMaps) {
+        Write-Host "NOTE  the file of map $m is not the one recorded for this game folder: matches on it are not scored for information leaks." -ForegroundColor Yellow
+        Note "      If you replaced that map on purpose, run once with -ResetMapPins."
+    }
+    return $file
+}
 # ---- gateway, dashboard, bridge -------------------------------------------------------------
 Step "start the gateway (wss://127.0.0.1:$gatewayPort) and the dashboard ($dashboardUrl)"
 StopGateway
@@ -820,6 +893,13 @@ $gwLog = J $logs "gateway.log"
 # the companion that the session was flagged, which is what raises the alert.
 $gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
 if ($AlertOnIntegrity) { $gwArgs += "-client-notices-strict" }
+$script:mapDirs = @()
+if ($plugin -and -not $DashboardOnly) {
+    $script:mapDirs = @(MapDirs)
+    $pins = PinMaps
+    if ($pins) { $gwArgs += @("-map-pins", "`"$pins`"") }
+    if ($AlertOnWallhackScore -and -not $Diagnose) { $gwArgs += "-leak-alert" }
+}
 if ($TestAlertAfter -gt 0 -and -not $Diagnose -and -not $DashboardOnly) { $gwArgs += @("-test-notice-after", "${TestAlertAfter}s") }
 $script:gateway = Start-Process $gatewayExe -ArgumentList $gwArgs -RedirectStandardError $gwLog `
     -RedirectStandardOutput (J $logs "gateway.out") -NoNewWindow -PassThru
@@ -844,6 +924,7 @@ function StartBridge($dir) {
     Remove-Item -LiteralPath $script:bridgeStop -Force -ErrorAction SilentlyContinue
     $brArgs = @("run", "--keys", "`"$keys`"", "--listen", "127.0.0.1:$bridgePort", "--ingest", "wss://127.0.0.1:$gatewayPort/v1/ingest",
         "--session-file", "`"$(J $dir 'session.json')`"", "--record", "`"$(J $dir 'plugin-stream.txt')`"", "--stop-file", "`"$script:bridgeStop`"", "--log", "`"$(J $dir 'bridge.log')`"")
+    foreach ($d in $script:mapDirs) { $brArgs += @("--maps", "`"$d`"") }
     $script:bridge = Start-Process $bridgeExe -ArgumentList $brArgs -RedirectStandardOutput $script:bridgeOut `
         -RedirectStandardError (J $dir "bridge.err") -NoNewWindow -PassThru
     Start-Sleep -Milliseconds 700
@@ -860,12 +941,7 @@ function StopBridge {
 }
 # The record of the first start of this game folder, one file per folder, in the scratch
 # folder.
-function StartProfilePath {
-    $sha = [Security.Cryptography.SHA256]::Create()
-    $hash = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($script:GameDir.TrimEnd('\', '/').ToLowerInvariant()))
-    $sha.Dispose()
-    return J $Scratch ("start-profile-" + (-join ($hash[0..5] | ForEach-Object { $_.ToString("x2") })) + ".txt")
-}
+function StartProfilePath { return J $Scratch "start-profile-$(GameKey).txt" }
 # Starts the game through the companion and waits until the game has closed.
 function RunGame($dir, $extra) {
     $script:compLog = J $dir "companion.log"
@@ -942,6 +1018,76 @@ function IntegrityReport {
     if (-not ($comp | Where-Object { $_ -match 'BASELINE taken' })) {
         Note "the game closed before the companion had taken its picture of the started game (about $BaselineSecs seconds after the engine loads): changes were not looked for"
     }
+}
+# What the bridge and the gateway said about the map and the information-leak scores.
+function LeakReport($matchData) {
+    $text = '"((?:[^"\\]|\\.)*)"'
+    $clean = { param($t) $t -replace '\\"', '"' -replace '\\\\', '\' }
+    foreach ($line in $matchData) {
+        $m = $line -replace '^\[[^\]]*\]\s*', ''
+        if ($m -match '^MAP (\S+): read (.*) \((\d+) splits.*geometry hash ([0-9a-f]{16})') {
+            Write-Host "OK    map $($Matches[1]): walls read from $($Matches[2]) (geometry $($Matches[4])...)" -ForegroundColor Green
+        } elseif ($m -match '^MAP not sent: (.*)$') {
+            Write-Host "NOTE  the map's walls were not sent: $($Matches[1])" -ForegroundColor Yellow
+        } elseif ($m -match '^MAP check .*does not match') {
+            Write-Host "NOTE  $m" -ForegroundColor Yellow
+        } elseif ($m -match '^MAP check') {
+            Note $m
+        }
+    }
+    $lines = @(Get-Content -LiteralPath $gwLog -ErrorAction SilentlyContinue)
+    $off = $false
+    foreach ($line in $lines) {
+        if ($line -match "msg=""map in use"" .* map=(\S+) .* note=$text") {
+            Note "map $($Matches[1]) at the gateway: $((& $clean $Matches[2]) -replace 'pinned by the operator', 'the one recorded when this script first saw the map file')"
+        } elseif ($line -match "msg=""map geometry refused"" .* map=(\S+) err=$text") {
+            $off = $true
+            Write-Host "NOTE  the gateway refused the walls of $($Matches[1]): $(& $clean $Matches[2]). No information-leak score for that match." -ForegroundColor Yellow
+        } elseif ($line -match 'msg="leak scores withheld') {
+            $off = $true
+            Write-Host "NOTE  information-leak scores withheld: the map file does not match where the players were" -ForegroundColor Yellow
+        }
+    }
+    $scores = @($lines | Where-Object { $_ -match 'msg="leak score"' })
+    $mine = 0
+    $others = 0
+    $flaggedOthers = @()
+    foreach ($line in $scores) {
+        if ($line -notmatch "match=(\S+) slot=(\d+) player=(?:$text|(\S+)) bound=(\w+) score=(\S+) flag_at=(\S+) flagged=(\w+) scored_features=(\d+) strong_windows=(\S+) .* features=(?:$text|(\S*))") { continue }
+        $who = "$($Matches[3])$($Matches[4])"
+        if ($Matches[5] -ne 'true') {
+            $others++
+            if ($Matches[8] -eq 'true') { $flaggedOthers += "$who (score $($Matches[6]))" }
+            continue
+        }
+        $mine++
+        $features = "$($Matches[11])$($Matches[12])"
+        if ($Matches[9] -eq '0') {
+            Write-Host "NOTE  information-leak score for you in match $($Matches[1]): not enough play to score (it needs about a minute of fights with enemies behind walls, more is better)" -ForegroundColor Yellow
+        } elseif ($Matches[8] -eq 'true') {
+            Write-Host "FLAG  information-leak score for you in match $($Matches[1]): $($Matches[6]), flagged for review (flag at $($Matches[7]))" -ForegroundColor Red
+        } else {
+            Write-Host "OK    information-leak score for you in match $($Matches[1]): $($Matches[6]), not flagged (flag at $($Matches[7]))" -ForegroundColor Green
+        }
+        if ($features) { Note "      $($features -replace 'hidden_aim', 'aim' -replace 'hidden_shots', 'shots' -replace 'hidden_route', 'routes' -replace 'true=', 'on hidden enemies ' -replace 'control=', 'against shifted in time ')" }
+        if ($Matches[10] -match '^(\d+)/(\d+)$') { Note "      -AlertOnWallhackScore: $($Matches[1]) of $($Matches[2]) four-minute stretches were strong; the alert needs 2" }
+    }
+    if ($scores.Count) {
+        if (-not $mine) { Note "no information-leak score for you: your player slot was not tied to the companion's session" }
+        if ($others) { Note "$others other players (bots included) were scored as well$(if ($flaggedOthers.Count) { '; flagged for review: ' + ($flaggedOthers -join ', ') })" }
+        Note "The score compares where you aimed and shot with where hidden enemies really were, against the same play shifted in time."
+        Note "It is evidence for review, not proof: see Evidence in the dashboard (rule information_leak)."
+    } elseif (-not $off -and ($matchData | Where-Object { $_ -match '\] MAP \S+: read' })) {
+        Note "no information-leak score yet: scores are made when a match ends (map change or leaving the game)"
+    }
+    # The local player's own is printed with the alert it raised; these are the others'.
+    foreach ($line in $lines) {
+        if ($line -match "msg=detection .* player=(?:$text|(\S+)) rule=information_leak_live severity=(\w+) summary=$text" -and "$($Matches[1])$($Matches[2])" -ne $Player) {
+            Write-Host "      evidence  information_leak_live ($($Matches[3])) for $($Matches[1])$($Matches[2]): $(& $clean $Matches[4])" -ForegroundColor Yellow
+        }
+    }
+    if ($AlertOnWallhackScore) { Note "-AlertOnWallhackScore was on: a strong score in two four-minute stretches of one match raises the alert (opt-in, your own server; a behaviour score, not proof)." }
+    else { Note "The score raises no alert by default; -AlertOnWallhackScore lets it (opt-in, for a test on your own server)." }
 }
 function CompanionVerdict($code, $exeName) {
     switch ($code) {
@@ -1060,6 +1206,10 @@ if ($script:firstStart) {
 } else {
     Note "This start is compared with the first recorded start of this game ($(StartProfilePath))."
 }
+if ($AlertOnWallhackScore) {
+    if ($plugin) { Note "-AlertOnWallhackScore: a strong information-leak score in two four-minute stretches of one match raises the alert. Opt-in, for your own server: it is a behaviour score, not proof. Play one map for 20 to 30 minutes." }
+    else { Note "-AlertOnWallhackScore needs the plugin's match data, which is off in this run: it does nothing." }
+}
 if ($AlertOnIntegrity) { Note "-AlertOnIntegrity: the alert is also raised for what a modified but honest game build shows. Expect alerts on a clean game." }
 $elevated = $false
 try { $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
@@ -1103,6 +1253,7 @@ if ($plugin) {
         Write-Host "NOTE  no player slot was tied to the companion's session: the plugin reported no player on this PC" -ForegroundColor Yellow
     }
     if ($status) { Note ($status -replace '^\[[^\]]*\]\s*', '') }
+    if (-not $noData) { LeakReport $matchData }
     PrintGameReport $info ($noData -or $exit -ne 0)
     if ($noData) {
         Write-Host "To find which part of the plugin fails, close the game and run:" -ForegroundColor Yellow
