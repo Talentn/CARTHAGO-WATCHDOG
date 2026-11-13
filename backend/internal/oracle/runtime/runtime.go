@@ -34,11 +34,16 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"carthago/backend/internal/oracle/analyst"
 )
+
+// niceness is the scheduling priority the model runs at where the system has nice values:
+// below everything interactive. On Windows the process runs in the below-normal class.
+const niceness = 10
 
 // ErrNotInstalled means the runtime directory lacks the server binary or the model.
 var ErrNotInstalled = errors.New("local analyst runtime is not installed")
@@ -256,6 +261,18 @@ func (r *Runtime) running() bool {
 	}
 }
 
+// childEnv is the gateway's environment without its own settings: the model server has no
+// use for them, and one of them may be the key of a hosted analyst.
+func childEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(strings.ToUpper(kv), "CARTHAGO_") {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 func fileSHA256(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -301,12 +318,14 @@ func (r *Runtime) ensure(ctx context.Context) error {
 	cmd := exec.Command(r.server,
 		"-m", r.model, "--host", "127.0.0.1", "--port", strconv.Itoa(port),
 		"-c", strconv.Itoa(r.cfg.ContextTokens), "-t", threads, "-tb", threads,
-		"-np", "1", "--no-webui", "--offline")
+		// One slot and no cache of earlier prompts: memory stays at the model plus one
+		// context, whatever the number of cases reviewed.
+		"-np", "1", "--cache-ram", "0", "--no-webui", "--offline")
 	dir := filepath.Dir(r.server)
 	cmd.Dir = dir
 	// The key travels in the environment, not on the command line, where any local user
 	// could read it from the process list.
-	cmd.Env = append(os.Environ(), "LLAMA_API_KEY="+key, "LD_LIBRARY_PATH="+dir+string(os.PathListSeparator)+os.Getenv("LD_LIBRARY_PATH"))
+	cmd.Env = append(childEnv(os.Environ()), "LLAMA_API_KEY="+key, "LD_LIBRARY_PATH="+dir+string(os.PathListSeparator)+os.Getenv("LD_LIBRARY_PATH"))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	lowPriority(cmd)
 	if err := cmd.Start(); err != nil {
@@ -347,6 +366,7 @@ func (r *Runtime) ensure(ctx context.Context) error {
 			break
 		}
 	}
+	afterReady(cmd)
 	local, err := analyst.NewLocal(endpoint+"/v1", key, r.cfg.ModelID)
 	if err != nil {
 		r.stop()

@@ -17,7 +17,7 @@ type Report struct {
 	AUC, Brier, LogLoss        float64
 	Thresholds                 oracle.Thresholds
 	// Honest sessions at or above each threshold, with the one-sided 95% upper bound on
-	// the true rate (Clopper-Pearson) that this many sessions can support.
+	// the true rate (Poisson) that this many sessions can support.
 	HonestWatch, HonestReview           int
 	HonestWatchBound, HonestReviewBound float64
 	// The rules alone on the same sessions: honest sessions with evidence of medium

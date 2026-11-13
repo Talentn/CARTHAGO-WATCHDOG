@@ -10,5 +10,7 @@ import (
 func lowPriority(*exec.Cmd) {}
 
 func afterStart(cmd *exec.Cmd) {
-	_ = syscall.Setpriority(syscall.PRIO_PROCESS, cmd.Process.Pid, 10)
+	_ = syscall.Setpriority(syscall.PRIO_PROCESS, cmd.Process.Pid, niceness)
 }
+
+func afterReady(*exec.Cmd) {}

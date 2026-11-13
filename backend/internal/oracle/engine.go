@@ -279,20 +279,14 @@ func (e *Engine) score(ctx context.Context, s *sessionState, match *Vector, matc
 		return g
 	}
 	v := full(s.gameplay)
-	sc, contrib := model.Score(v)
 	if match != nil {
-		if nv := full(*match); s.matchID == "" || first(model.Score(nv)) > sc {
+		if nv := full(*match); s.matchID == "" || first(model.Score(nv)) > first(model.Score(v)) {
 			s.gameplay, s.matchID, v = *match, matchID, nv
-			sc, contrib = model.Score(v)
 		}
 	}
 	s.scoredAt = at
-	band := e.cfg.Bundle.Manifest.Thresholds.Band(sc)
-	signals, _ := json.Marshal(TopSignals(contrib, 5))
-	features, _ := json.Marshal(v)
-	row := &store.OracleScore{TenantID: sess.TenantID, SessionID: sess.SessionID, PlayerHash: sess.PlayerHash, MatchID: s.matchID,
-		ModelID: e.cfg.Bundle.Manifest.Behaviour.ID, FeatureVersion: FeatureVersion, Score: math.Round(sc*1e4) / 1e4, Band: band,
-		Signals: string(signals), Features: string(features), UpdatedAt: at}
+	row := e.cfg.Bundle.ScoreRow(sess, v, s.matchID, at)
+	band := row.Band
 	if err := e.st.PutOracleScore(ctx, row); err != nil {
 		e.log.Warn("Carthago Oracle: store score", "session", sess.SessionID, "err", err)
 		return
@@ -307,6 +301,39 @@ func (e *Engine) score(ctx context.Context, s *sessionState, match *Vector, matc
 }
 
 func first(score float64, _ [NumFeatures]float64) float64 { return score }
+
+// ScoreRow scores a feature vector with the bundle's model and returns the row the
+// engine stores for the session.
+func (b *Bundle) ScoreRow(sess store.Session, v Vector, matchID string, at time.Time) *store.OracleScore {
+	sc, contrib := b.Model.Score(v)
+	signals, _ := json.Marshal(TopSignals(contrib, 5))
+	features, _ := json.Marshal(v)
+	return &store.OracleScore{TenantID: sess.TenantID, SessionID: sess.SessionID, PlayerHash: sess.PlayerHash, MatchID: matchID,
+		ModelID: b.Manifest.Behaviour.ID, FeatureVersion: FeatureVersion, Score: math.Round(sc*1e4) / 1e4, Band: b.Manifest.Thresholds.Band(sc),
+		Signals: string(signals), Features: string(features), UpdatedAt: at}
+}
+
+// CaseInput gathers what a case is built from: the session, its stored evidence (oldest
+// first, so a case's evidence ids do not shift when newer rows arrive) and its score row,
+// which may be nil.
+func CaseInput(sess store.Session, evidence []store.Evidence, row *store.OracleScore) analyst.Input {
+	evidence = append([]store.Evidence(nil), evidence...)
+	sort.SliceStable(evidence, func(i, j int) bool { return evidence[i].ID < evidence[j].ID })
+	in := analyst.Input{TenantID: sess.TenantID, PlayerHash: sess.PlayerHash, SessionID: sess.SessionID,
+		TrustLevel: sess.TrustLevel, Evidence: evidence, SignalKeys: signalKeys}
+	if row != nil {
+		in.Scored, in.Score, in.Band = true, row.Score, row.Band
+		var sigs []Signal
+		_ = json.Unmarshal([]byte(row.Signals), &sigs)
+		for _, sg := range sigs {
+			in.Signals = append(in.Signals, analyst.Signal{Key: sg.Key, Family: sg.Family, Effect: sg.Effect})
+		}
+	}
+	return in
+}
+
+// FlaggedByRules reports whether the rules produced something a reviewer would look at.
+func FlaggedByRules(evidence []store.Evidence) bool { return flaggedByRules(evidence) }
 
 // flaggedByRules reports whether the rules produced something a reviewer would look at.
 func flaggedByRules(evidence []store.Evidence) bool {
@@ -378,18 +405,11 @@ func (e *Engine) buildCase(ctx context.Context, s *sessionState) (caseJob, bool)
 	if err != nil {
 		return caseJob{}, false
 	}
-	// Oldest first, so a case's evidence ids do not shift when newer rows arrive.
-	sort.Slice(evidence, func(i, j int) bool { return evidence[i].ID < evidence[j].ID })
-	in := analyst.Input{TenantID: sess.TenantID, PlayerHash: sess.PlayerHash, SessionID: sess.SessionID,
-		TrustLevel: sess.TrustLevel, Evidence: evidence, SignalKeys: signalKeys}
-	if row, err := e.st.GetOracleScore(ctx, sess.TenantID, sess.SessionID); err == nil && row != nil {
-		in.Scored, in.Score, in.Band = true, row.Score, row.Band
-		var sigs []Signal
-		_ = json.Unmarshal([]byte(row.Signals), &sigs)
-		for _, sg := range sigs {
-			in.Signals = append(in.Signals, analyst.Signal{Key: sg.Key, Family: sg.Family, Effect: sg.Effect})
-		}
+	row, err := e.st.GetOracleScore(ctx, sess.TenantID, sess.SessionID)
+	if err != nil {
+		row = nil
 	}
+	in := CaseInput(sess, evidence, row)
 	c := analyst.Build(e.pseudo, in)
 	hash := a.CaseHash(c)
 	if prev, err := e.st.GetOracleVerdict(ctx, sess.TenantID, sess.SessionID); err == nil && prev != nil && prev.CaseHash == hash {

@@ -38,3 +38,5 @@ func afterStart(cmd *exec.Cmd) {
 	// The job handle is deliberately kept open for the life of the gateway process.
 	_ = windows.AssignProcessToJobObject(job, h)
 }
+
+func afterReady(*exec.Cmd) {}

@@ -75,6 +75,12 @@ type CaseEvidence struct {
 	Family     string `json:"family"`
 	Severity   string `json:"severity"`
 	Confidence int    `json:"confidence"` // 0..100, the rule's own score
+	// Weight says how much the item can carry, so a small model does not have to work
+	// it out: "strong" is a cheat family at medium severity or above, "weak" a cheat
+	// family at low severity, "context" a finding about the PC or the scanner.
+	Weight string `json:"weight"`
+	// PointsTo is the cheat type a cheat family's evidence supports.
+	PointsTo string `json:"points_to,omitempty"`
 	// Tamper marks evidence that the client itself was interfered with.
 	Tamper bool   `json:"client_tampering"`
 	Source string `json:"source"`
@@ -93,6 +99,13 @@ const (
 	FamilyScanner     = "scanner_health"
 	FamilyTrust       = "trust"
 	FamilyOther       = "other"
+)
+
+// Weights of a case's evidence.
+const (
+	WeightStrong  = "strong"
+	WeightWeak    = "weak"
+	WeightContext = "context"
 )
 
 // ruleFamily is the closed list of rule names a case may carry. A rule that is not here
@@ -276,6 +289,13 @@ func Build(p *Pseudonymiser, in Input) *Case {
 		}
 		ev := CaseEvidence{ID: id, Rule: g.rule, Family: fam, Severity: severityWord[g.sev],
 			Confidence: int(math.Round(100 * math.Max(0, math.Min(1, g.score)))), Tamper: g.tamper, Source: g.source, Count: g.count}
+		ev.Weight = WeightContext
+		if t, ok := familyType[fam]; ok {
+			ev.PointsTo, ev.Weight = t, WeightWeak
+			if g.sev >= 2 {
+				ev.Weight = WeightStrong
+			}
+		}
 		if g.match != "" {
 			m, ok := matches[g.match]
 			if !ok {
