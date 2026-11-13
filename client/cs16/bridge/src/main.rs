@@ -15,8 +15,9 @@
 //!   carthago-cs16-bridge send FILE [--to 127.0.0.1:27991] [--speed 8]
 //!       Plays a stream file over UDP the way the plugin would (for testing `run`).
 //!
-//!   carthago-cs16-bridge synth --out FILE [--seconds 120] [--rate 32] [--match ID]
+//!   carthago-cs16-bridge synth --out FILE [--seconds 120] [--rate 32] [--match ID] [--local-is-machine]
 //!       Writes a synthetic match: one local human against bots, one of them machine-like.
+//!       With --local-is-machine the local player is the machine-like one.
 //!
 //! Exit code 0 = every batch was acknowledged by the gateway.
 
@@ -38,6 +39,9 @@ impl Args {
     }
     fn get_or(&self, name: &str, default: &str) -> String {
         self.get(name).unwrap_or_else(|| default.to_owned())
+    }
+    fn has(&self, name: &str) -> bool {
+        self.0.iter().any(|a| a == name)
     }
 }
 
@@ -168,7 +172,7 @@ impl SessionWatch {
             Ok(c) => {
                 let b = Binding { session_id: c.session_id, player_hash: c.player_hash };
                 if self.bound.as_ref() != Some(&b) {
-                    log.line(&format!("SESSION bound: the local player's slot is session {} (player {}, trust level {})", b.session_id, b.player_hash, c.trust_level));
+                    log.line(&format!("SESSION ready: the companion's token verified (session {}, player {}, trust level {}); waiting for its player in a match", b.session_id, b.player_hash, c.trust_level));
                     self.bound = Some(b.clone());
                     bridge.bind(Some(b));
                 }
@@ -181,6 +185,15 @@ impl SessionWatch {
             Err(e) => log.line(&format!("SESSION not bound: the companion's token did not verify ({})", e.class())),
         }
     }
+}
+
+/// Says so, once per slot, when a player slot is actually tied to the companion's session.
+fn report_bound(bridge: &Bridge, seen: &mut Vec<(u32, String)>, log: &mut Log) {
+    let now = bridge.bound_slots();
+    for (slot, name) in now.iter().filter(|b| !seen.contains(b)) {
+        log.line(&format!("SLOT bound: slot {slot} ({name}) is tied to the companion's session"));
+    }
+    *seen = now;
 }
 
 fn status(bridge: &Bridge, sink: &Sink, log: &mut Log) {
@@ -226,6 +239,7 @@ fn run(a: &Args) -> Result<bool, String> {
     let mut buf = vec![0u8; 4096];
     let (mut last_data, mut last_status, mut last_poll) = (Instant::now(), Instant::now(), Instant::now() - Duration::from_secs(5));
     let mut live = false;
+    let mut bound = Vec::new();
     loop {
         match sock.recv_from(&mut buf) {
             Ok((n, from)) if from.ip().is_loopback() => {
@@ -240,6 +254,7 @@ fn run(a: &Args) -> Result<bool, String> {
                 last_data = Instant::now();
                 let batches = bridge.feed(&text);
                 sink.send(batches, &mut log);
+                report_bound(&bridge, &mut bound, &mut log);
             }
             Ok(_) => {}
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
@@ -250,6 +265,7 @@ fn run(a: &Args) -> Result<bool, String> {
         if last_poll.elapsed() >= Duration::from_secs(1) {
             last_poll = Instant::now();
             watch.poll(&mut bridge, &mut log);
+            report_bound(&bridge, &mut bound, &mut log);
             sink.drain(&mut log);
             if live && last_data.elapsed() >= idle {
                 live = false;
@@ -282,9 +298,11 @@ fn replay(a: &Args, file: &str) -> Result<bool, String> {
     let mut watch = SessionWatch::new(a);
     let mut bridge = Bridge::new();
     watch.poll(&mut bridge, &mut log);
+    let mut bound = Vec::new();
     for chunk in datagrams(&text) {
         let batches = bridge.feed(chunk);
         sink.send(batches, &mut log);
+        report_bound(&bridge, &mut bound, &mut log);
     }
     let batches = bridge.finish();
     sink.send(batches, &mut log);
@@ -336,7 +354,7 @@ fn main() {
             let out = a.get("--out").ok_or("--out is required")?;
             let seconds = a.get_or("--seconds", "120").parse().map_err(|_| "--seconds: not a number")?;
             let rate = a.get_or("--rate", "32").parse().map_err(|_| "--rate: not a number")?;
-            let text = synth(seconds, rate, &a.get_or("--match", "cs16-synth"));
+            let text = synth(seconds, rate, &a.get_or("--match", "cs16-synth"), a.has("--local-is-machine"));
             std::fs::write(Path::new(&out), &text).map_err(|e| format!("{out}: {e}"))?;
             println!("wrote {out}: {} lines", text.lines().count());
             Ok(true)

@@ -44,6 +44,12 @@ type Config struct {
 	// kicks regardless of this setting.
 	AutoKick         bool
 	AutoKickSeverity analyzer.Severity
+	// Notices tells a session's client when the session is flagged by evidence that stands
+	// on its own (notice.go lists it). Off by default. A notice informs; it never kicks.
+	Notices bool
+	// NoticesOptIn also sends the notices that a guard holds back by default (notice.go
+	// lists them): evidence that a modified but honest game build can produce too.
+	NoticesOptIn bool
 	// ClientIdle and MatchIdle bound how long analyzer state is kept without traffic.
 	ClientIdle time.Duration
 	MatchIdle  time.Duration
@@ -95,6 +101,7 @@ type Pipeline struct {
 	st       store.EvidenceStore
 	sessions SessionLookup
 	kick     Kicker
+	notify   Notifier
 	log      *slog.Logger
 
 	q    chan func()
@@ -120,6 +127,10 @@ type clientState struct {
 	mitApplied    uint64
 	mitFailed     uint64
 	lastSeen      time.Time
+	// Programs with a handle to the game's memory that the rules single out, and programs
+	// that draw a transparent window over the game, by process id.
+	holders  map[uint64]analyzer.Holder
+	overlays map[uint64]bool
 }
 
 type matchState struct {
@@ -135,6 +146,9 @@ type matchState struct {
 // evidence table without bound. The session gets one low-severity note when the cap is hit.
 const maxSeenPerSession = 1024
 
+// maxWatchedPids caps the handle holders and overlay owners remembered per session.
+const maxWatchedPids = 256
+
 func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker, log *slog.Logger) *Pipeline {
 	cfg.defaults()
 	p := &Pipeline{
@@ -146,6 +160,9 @@ func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker
 	go p.run()
 	return p
 }
+
+// SetNotifier sets who delivers client notices. Call it before the first heartbeat.
+func (p *Pipeline) SetNotifier(n Notifier) { p.notify = n }
 
 // Close drains queued work and stops the worker.
 func (p *Pipeline) Close() {
@@ -239,7 +256,12 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 	cs.lastSeen = at
 
 	var evs []store.Evidence
-	add := func(key string, e analyzer.Evidence, raw string) {
+	type notice struct {
+		cat pb.EnforcementCategory
+		sev pb.EnforcementSeverity
+	}
+	var notices []notice
+	add := func(key string, e analyzer.Evidence, raw string, f *pb.Finding) {
 		if cs.seen[key] {
 			return
 		}
@@ -253,6 +275,13 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			raw = ""
 		} else {
 			cs.seen[key] = true
+		}
+		cat, sev, send, held := clientNotice(e, f, p.cfg.NoticesOptIn)
+		if send {
+			notices = append(notices, notice{cat, sev})
+			p.log.Info("notice raised by", "session", sess.SessionID, "rule", e.Rule, "category", noticeCategoryName(cat), "summary", e.Summary)
+		} else if held != "" && p.cfg.Notices {
+			p.log.Info("notice withheld", "session", sess.SessionID, "rule", e.Rule, "category", noticeCategoryName(cat), "why", held, "summary", e.Summary)
 		}
 		evs = append(evs, store.Evidence{
 			TenantID: sess.TenantID, PlayerHash: sess.PlayerHash, SessionID: sess.SessionID, Source: store.SourceClient,
@@ -272,14 +301,40 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		}
 		raw, _ := json.Marshal(map[string]any{"job": f.Job, "code": pb.FindingCode(f.Code).String(), "a": fmt.Sprintf("%#x", f.A), "b": fmt.Sprintf("%#x", f.B), "detail": f.Detail})
 		key := fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail)
+		if pb.FindingCode(f.Code) == pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE {
+			// The same program may come back with more access than it had at first.
+			key += fmt.Sprintf("|%x", uint32(f.B))
+		}
 		if e.Severity == analyzer.SeverityInfo {
 			// One informational row per rule and module, not one per address.
 			key = fmt.Sprintf("i|%d|%s", f.Code, f.Detail)
 		}
-		add(key, e, string(raw))
+		add(key, e, string(raw), f)
+		// One program that reads the game's memory and also draws over the game.
+		switch pb.FindingCode(f.Code) {
+		case pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE:
+			if h, ok := analyzer.HolderOf(f); ok && h.Suspect && len(cs.holders) < maxWatchedPids {
+				if cs.holders == nil {
+					cs.holders = map[uint64]analyzer.Holder{}
+				}
+				cs.holders[h.Pid] = h
+			}
+		case pb.FindingCode_FINDING_CODE_OVERLAY_WINDOW:
+			if len(cs.overlays) < maxWatchedPids {
+				if cs.overlays == nil {
+					cs.overlays = map[uint64]bool{}
+				}
+				cs.overlays[f.A] = true
+			}
+		default:
+			continue
+		}
+		if h, ok := cs.holders[f.A]; ok && cs.overlays[f.A] {
+			add(fmt.Sprintf("o|%x", f.A), analyzer.OverlayReader(h), string(raw), nil)
+		}
 	}
 	for _, e := range p.cfg.Rules.Heartbeat(&cs.an, hb, at) {
-		add("h|"+e.Rule, e, "")
+		add("h|"+e.Rule, e, "", nil)
 	}
 
 	if len(evs) > 0 {
@@ -290,6 +345,11 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			p.log.Info("detection", "session", sess.SessionID, "player", sess.PlayerHash, "rule", e.Rule, "severity", analyzer.Severity(e.Severity).String(), "summary", e.Summary)
 		}
 		p.maybeKick(sess.SessionID, evs)
+	}
+	if p.cfg.Notices && p.notify != nil {
+		for _, n := range notices {
+			p.notify.Notice(sess.SessionID, n.cat, n.sev)
+		}
 	}
 	if err := p.st.PutTelemetry(ctx, telemetry(sess.SessionID, hb, cs, at)); err != nil {
 		p.log.Warn("persist telemetry", "session", sess.SessionID, "err", err)
@@ -402,6 +462,7 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 		for _, e := range evs {
 			p.log.Info("detection", "match", b.MatchId, "player", e.PlayerHash, "rule", e.Rule, "severity", analyzer.Severity(e.Severity).String(), "summary", e.Summary)
 		}
+		p.notifyGameplay(ms)
 	}
 	if b.MatchOver {
 		p.closeMatch(key)

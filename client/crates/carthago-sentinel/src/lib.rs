@@ -20,6 +20,7 @@ pub const CARTHAGO_ERR_BUFFER_TOO_SMALL: i32 = 4;
 pub const CARTHAGO_ERR_NO_SESSION: i32 = 5;
 pub const CARTHAGO_ERR_ABI_MISMATCH: i32 = 6;
 pub const CARTHAGO_ERR_SESSION_FAILED: i32 = 7;
+pub const CARTHAGO_ERR_NO_NOTICE: i32 = 8;
 pub const CARTHAGO_ERR_INTERNAL: i32 = 99;
 
 pub const CARTHAGO_FLAG_NO_TPM: u32 = 1;
@@ -41,6 +42,50 @@ fn mitigation_profile(flags: u32) -> carthago_core::MitigationProfile {
 pub type CarthagoLogFn = unsafe extern "C" fn(level: i32, msg: *const c_char, user: *mut c_void);
 pub type CarthagoSessionCb = unsafe extern "C" fn(result: i32, trust_level: u32, attest_flags: u64, user: *mut c_void);
 pub type CarthagoKickCb = unsafe extern "C" fn(reason: *const c_char, user: *mut c_void);
+pub type CarthagoNoticeCb = unsafe extern "C" fn(notice: *const CarthagoNotice, user: *mut c_void);
+
+pub const CARTHAGO_NOTICE_TEST: u32 = carthago_core::notice::CATEGORY_TEST;
+pub const CARTHAGO_NOTICE_GAME_INTEGRITY: u32 = carthago_core::notice::CATEGORY_GAME_INTEGRITY;
+pub const CARTHAGO_NOTICE_DEBUGGER: u32 = carthago_core::notice::CATEGORY_DEBUGGER;
+pub const CARTHAGO_NOTICE_TIME_MANIPULATION: u32 = carthago_core::notice::CATEGORY_TIME_MANIPULATION;
+pub const CARTHAGO_NOTICE_AIM_ASSISTANCE: u32 = carthago_core::notice::CATEGORY_AIM_ASSISTANCE;
+pub const CARTHAGO_NOTICE_VISIBILITY: u32 = carthago_core::notice::CATEGORY_VISIBILITY;
+
+pub const CARTHAGO_NOTICE_SEVERITY_NOTICE: u32 = carthago_core::notice::SEVERITY_NOTICE;
+pub const CARTHAGO_NOTICE_SEVERITY_HIGH: u32 = carthago_core::notice::SEVERITY_HIGH;
+pub const CARTHAGO_NOTICE_SEVERITY_CRITICAL: u32 = carthago_core::notice::SEVERITY_CRITICAL;
+
+/// The gateway's notice that this session was flagged: a category and a severity for the
+/// game's own screen. The SDK has verified its signature and that it is about this session.
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+pub struct CarthagoNotice {
+    pub struct_size: u32,
+    /// `CARTHAGO_NOTICE_*`; treat unknown values as "flagged".
+    pub category: u32,
+    /// `CARTHAGO_NOTICE_SEVERITY_*`.
+    pub severity: u32,
+    pub reserved: u32,
+    pub issued_at_ms: u64,
+    pub notice_id: [u8; 16],
+    pub session_id: [u8; 16],
+}
+
+fn c_notice(n: &carthago_core::Notice) -> CarthagoNotice {
+    CarthagoNotice {
+        struct_size: size_of::<CarthagoNotice>() as u32,
+        category: n.category,
+        severity: n.severity,
+        reserved: 0,
+        issued_at_ms: n.issued_at_ms,
+        notice_id: n.notice_id,
+        session_id: n.session_id,
+    }
+}
+
+/// The notice `carthago_poll_notice` reported as too large for the caller's buffer; it is
+/// handed out again on the next call.
+static HELD_NOTICE: std::sync::Mutex<Option<carthago_core::Notice>> = std::sync::Mutex::new(None);
 
 #[repr(C)]
 pub struct CarthagoConfig {
@@ -356,10 +401,63 @@ pub extern "C" fn carthago_set_kick_callback(cb: Option<CarthagoKickCb>, user: *
     })
 }
 
+/// The gateway flagged this session. `cb` runs on the SDK thread; `notice` is valid for the
+/// duration of the call. Nothing else happens: the session stays up and what the game shows
+/// or does is its own decision.
+#[no_mangle]
+pub extern "C" fn carthago_set_notice_callback(cb: Option<CarthagoNoticeCb>, user: *mut c_void) {
+    guard((), || {
+        let Some(rt) = runtime() else { return };
+        let user = UserPtr(user);
+        rt.set_notice_callback(cb.map(|f| {
+            Box::new(move |n: &carthago_core::Notice| {
+                let user = user;
+                let c = c_notice(n);
+                unsafe { f(&c, user.0) };
+            }) as carthago_core::NoticeFn
+        }));
+    })
+}
+
+/// Takes the oldest notice not yet taken: `CARTHAGO_OK` and `*out` filled, or
+/// `CARTHAGO_ERR_NO_NOTICE`. For a game that polls from its own thread; notices are queued
+/// whether or not a callback is set. `signed`/`signed_len` are optional: when given, the
+/// signed notice is copied there for passing on to the game's server (`*signed_len`: in =
+/// buffer size, out = length). On `CARTHAGO_ERR_BUFFER_TOO_SMALL`, `*signed_len` is the
+/// size needed and the notice is returned again by the next call.
+///
+/// # Safety
+/// `out` must point to a `CarthagoNotice` with `struct_size` set. `signed`, if not null,
+/// must have room for `*signed_len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn carthago_poll_notice(out: *mut CarthagoNotice, signed: *mut u8, signed_len: *mut usize) -> i32 {
+    guard(CARTHAGO_ERR_INTERNAL, || {
+        let Some(out) = (unsafe { out.as_mut() }) else { return CARTHAGO_ERR_INVALID_ARG };
+        if (out.struct_size as usize) < size_of::<CarthagoNotice>() {
+            return CARTHAGO_ERR_ABI_MISMATCH;
+        }
+        let Some(rt) = runtime() else { return CARTHAGO_ERR_NOT_INITIALIZED };
+        let mut held = HELD_NOTICE.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(n) = held.take().or_else(|| rt.poll_notice()) else { return CARTHAGO_ERR_NO_NOTICE };
+        if let Some(len) = unsafe { signed_len.as_mut() } {
+            if signed.is_null() || *len < n.signed.len() {
+                *len = n.signed.len();
+                *held = Some(n);
+                return CARTHAGO_ERR_BUFFER_TOO_SMALL;
+            }
+            unsafe { std::ptr::copy_nonoverlapping(n.signed.as_ptr(), signed, n.signed.len()) };
+            *len = n.signed.len();
+        }
+        *out = c_notice(&n);
+        CARTHAGO_OK
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn carthago_shutdown() {
     guard((), || {
         let rt = RT.write().unwrap_or_else(|e| e.into_inner()).take();
+        HELD_NOTICE.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(rt) = rt {
             rt.shutdown();
         }
@@ -398,6 +496,39 @@ mod tests {
     }
 
     #[test]
+    fn a_notice_keeps_its_layout_and_values() {
+        assert_eq!(size_of::<CarthagoNotice>(), 56);
+        assert_eq!(std::mem::offset_of!(CarthagoNotice, issued_at_ms), 16);
+        assert_eq!(std::mem::offset_of!(CarthagoNotice, notice_id), 24);
+        assert_eq!(std::mem::offset_of!(CarthagoNotice, session_id), 40);
+        assert_eq!(
+            [
+                CARTHAGO_NOTICE_TEST,
+                CARTHAGO_NOTICE_GAME_INTEGRITY,
+                CARTHAGO_NOTICE_DEBUGGER,
+                CARTHAGO_NOTICE_TIME_MANIPULATION,
+                CARTHAGO_NOTICE_AIM_ASSISTANCE,
+                CARTHAGO_NOTICE_VISIBILITY
+            ],
+            [1, 2, 3, 4, 5, 6]
+        );
+        assert_eq!([CARTHAGO_NOTICE_SEVERITY_NOTICE, CARTHAGO_NOTICE_SEVERITY_HIGH, CARTHAGO_NOTICE_SEVERITY_CRITICAL], [1, 2, 3]);
+        let n = carthago_core::Notice {
+            notice_id: [7; 16],
+            session_id: [9; 16],
+            tenant_id: "demo".into(),
+            player_id_hash: "p".into(),
+            issued_at_ms: 1_794_225_800_000,
+            category: CARTHAGO_NOTICE_AIM_ASSISTANCE,
+            severity: CARTHAGO_NOTICE_SEVERITY_HIGH,
+            signed: vec![1, 2, 3],
+        };
+        let c = c_notice(&n);
+        assert_eq!((c.struct_size, c.category, c.severity, c.issued_at_ms), (56, 5, 2, 1_794_225_800_000));
+        assert_eq!((c.notice_id, c.session_id), ([7; 16], [9; 16]));
+    }
+
+    #[test]
     fn rejects_bad_config_and_reports_uninitialized() {
         let good_key = c"290184ec194e65f6578796e87f8cd2c3beaa96857a0d883c19ee85b71781a548";
         unsafe {
@@ -426,6 +557,12 @@ mod tests {
             assert_eq!(carthago_init(&cfg(good_key)), CARTHAGO_ERR_ALREADY_INITIALIZED);
             assert_eq!(carthago_get_session_token(std::ptr::null_mut(), &mut len), CARTHAGO_ERR_NO_SESSION);
             assert_eq!(carthago_begin_session(c"".as_ptr(), None, std::ptr::null_mut()), CARTHAGO_ERR_INVALID_ARG);
+            let mut notice = CarthagoNotice { struct_size: size_of::<CarthagoNotice>() as u32, ..Default::default() };
+            assert_eq!(carthago_poll_notice(&mut notice, std::ptr::null_mut(), std::ptr::null_mut()), CARTHAGO_ERR_NO_NOTICE);
+            assert_eq!(carthago_poll_notice(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()), CARTHAGO_ERR_INVALID_ARG);
+            notice.struct_size = 8;
+            assert_eq!(carthago_poll_notice(&mut notice, std::ptr::null_mut(), std::ptr::null_mut()), CARTHAGO_ERR_ABI_MISMATCH);
+            carthago_set_notice_callback(None, std::ptr::null_mut());
             let mut st = CarthagoStatus { struct_size: size_of::<CarthagoStatus>() as u32, ..Default::default() };
             assert_eq!(carthago_get_status(&mut st), CARTHAGO_OK);
             st.struct_size = 4;

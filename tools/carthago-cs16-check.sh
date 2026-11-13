@@ -16,10 +16,25 @@
 #      the game process and report the third as a failure;
 #   5. if pwsh is installed, tools/carthago-cs16.ps1 finds that folder by searching, takes
 #      cstrike.exe as the game program, installs the plugin, and -Uninstall restores the
-#      folder byte for byte.
+#      folder byte for byte;
+#   6. its staged check (-Diagnose) is run against the stand-in game, which writes what the
+#      plugin would write and can end at a chosen stage: the failing step must be named, the
+#      working stage left installed, and a later run must use it. A player slot must be
+#      reported as tied to the session only when match data says so;
+#   7. the alert: a test notice, a debugger on the stand-in game, a flagged match, and
+#      what the companion sees change in the started game. For the last the stand-in game
+#      changes itself while it runs (loads a library from outside its folder, maps a
+#      second image, rewrites an export of its own stand-in libraries, starts with a
+#      renderer library in its folder): a clean start must stay silent, each change must
+#      raise the alert under the right category, and what the build has always shown
+#      must be held back unless -AlertOnIntegrity is given. Nothing is injected into any
+#      process and no real game or system file is touched.
 #
 # Needs: cargo with the x86_64-pc-windows-gnu target, mingw-w64 (i686 and x86_64), wine, go.
-# Usage: tools/carthago-cs16-check.sh       (ports 28750, 28751 and UDP 27992)
+# Usage: tools/carthago-cs16-check.sh       (ports 28750, 28751 and UDP 27992; part 6 uses the
+#        script's own 8750, 8751 and UDP 27991)
+#        CARTHAGO_AMXXPC_DIR=<AMX Mod X scripting folder with a Linux amxxpc> also checks that
+#        the script builds the plugin with the game's own compiler.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,6 +45,14 @@ dash_port=28751
 udp_port=27992
 export WINEDEBUG=-all
 pids=()
+# The alert is a window. Without a display Wine cannot open one, and only the alert's log
+# lines are checked; with Xvfb installed the window itself is opened as well.
+if [[ -z "${DISPLAY:-}" ]] && command -v Xvfb >/dev/null; then
+  Xvfb :98 -screen 0 1280x720x24 >/dev/null 2>&1 &
+  pids+=($!)
+  export DISPLAY=:98
+  sleep 1
+fi
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 step() { printf '\n=== %s\n' "$*"; }
@@ -41,6 +64,13 @@ i686-w64-mingw32-gcc -O1 -o "$game/cstrike.exe" "$root/client/cs16/fakegame/fake
 i686-w64-mingw32-gcc -shared -o "$game/hw.dll" "$root/client/cs16/fakegame/fake_dll.c"
 i686-w64-mingw32-gcc -shared -o "$game/cstrike/dlls/mp.dll" "$root/client/cs16/fakegame/fake_dll.c"
 i686-w64-mingw32-gcc -O1 -o "$game/launcher.exe" "$root/client/cs16/fakegame/fake_launcher.c"
+i686-w64-mingw32-gcc -O1 -o "$run/bin/fake_debugger.exe" "$root/client/cs16/fakegame/fake_debugger.c"
+# A library outside the game folder for the stand-in game to load late, and a stand-in for a
+# renderer library that a case below puts into the game folder for the length of one run.
+mkdir -p "$run/outside"
+i686-w64-mingw32-gcc -shared -o "$run/outside/late.dll" "$root/client/cs16/fakegame/fake_dll.c"
+i686-w64-mingw32-gcc -shared -o "$run/bin/opengl32.dll" "$root/client/cs16/fakegame/fake_dll.c"
+i686-w64-mingw32-gcc -O1 -o "$run/bin/fake_holder.exe" "$root/client/cs16/fakegame/fake_holder.c" -lgdi32
 # Programs that sit in the real folder and must never be taken for the game.
 for other in crashpad_handler.exe hltv.exe unins000.exe; do echo "not the game" >"$game/$other"; done
 printf 'game "Counter-Strike"\r\ngamedll "dlls\\mp.dll"\r\ngamedll_linux "dlls/cs_i386.so"\r\n' >"$game/cstrike/liblist.gam"
@@ -77,12 +107,12 @@ wait "$companion_pid" || { cat "$run/companion.log"; fail "the companion exited 
 touch "$run/bridge.stop"
 wait "$bridge_pid" || { cat "$run/bridge.log"; fail "the bridge did not deliver every batch"; }
 grep -E 'SESSION|GAME|DONE' "$run/companion.log"
-grep -E 'SESSION bound|RESULT' "$run/bridge.log"
+grep -E 'SLOT bound|RESULT' "$run/bridge.log"
 
 step "check what the gateway recorded"
 log="$run/gateway.log"
 grep -q 'GAME pid=.* 32-bit watched with read-only access' "$run/companion.log" || fail "the game was not watched as a 32-bit process"
-grep -q 'SESSION bound' "$run/bridge.log" || fail "the local player's slot was not bound to the companion's session"
+grep -q 'SLOT bound: slot 1 ' "$run/bridge.log" || fail "the local player's slot was not bound to the companion's session"
 grep -q 'lost=0 .* bad_lines=0' "$run/bridge.log" || fail "the bridge lost or rejected plugin data"
 grep -q 'starting .*cstrike\.exe"\? -game cstrike' "$run/companion.log" || fail "the companion did not start cstrike.exe"
 for m in cstrike.exe hw.dll mp.dll; do
@@ -101,6 +131,18 @@ fi
 echo "ok   the human player has nothing above info"
 ! grep -q 'msg=detection .*player=bot:_BOT__\(Calm\|Mate\) ' "$log" || fail "an ordinary bot has evidence"
 ! grep -qi 'kick' "$log" || fail "something was kicked"
+! grep -q 'ALERT' "$run/companion.log" || fail "an alert was raised although the gateway runs without -client-notices"
+! grep -q 'msg="enforcement notice"' "$log" || fail "the gateway issued a notice without -client-notices"
+echo "ok   no notice and no alert unless the gateway is started with -client-notices"
+
+if [[ -n "${DISPLAY:-}" ]]; then
+  step "companion --test-alert: the alert screen as a preview (3 s)"
+  wine "$companion" --test-alert --alert-secs 3 >"$run/preview.log" 2>&1 || { cat "$run/preview.log"; fail "--test-alert failed"; }
+  grep -q 'ALERT preview: closed' "$run/preview.log" || fail "--test-alert did not show and close the screen"
+  echo "ok   the alert screen opens and closes by itself"
+else
+  echo "skip the alert window itself (no display; install Xvfb to check it)"
+fi
 
 # The companion started on a launcher. $1 names the case, the rest are game arguments.
 launcher_case() {
@@ -146,30 +188,277 @@ echo "ok   dashboard: bot labelled and not flagged; the session shows the match 
 if command -v pwsh >/dev/null; then
   step "carthago-cs16.ps1: find the game by searching, install the plugin, then -Uninstall"
   mkdir -p "$game/cstrike/addons/metamod/dlls" "$game/cstrike/addons/amxmodx/dlls" "$game/cstrike/addons/amxmodx/modules"
-  for f in addons/metamod/dlls/metamod.dll addons/amxmodx/dlls/amxmodx_mm.dll addons/amxmodx/modules/fakemeta_amxx.dll \
+  for f in addons/amxmodx/dlls/amxmodx_mm.dll addons/amxmodx/modules/fakemeta_amxx.dll \
            addons/amxmodx/modules/hamsandwich_amxx.dll addons/amxmodx/modules/sockets_amxx.dll; do
     echo stand-in >"$game/cstrike/$f"
   done
+  # A loadable stand-in: with FAKE_CS16_ADDONS=1 the game has a server add-on in its process.
+  i686-w64-mingw32-gcc -shared -o "$game/cstrike/addons/metamod/dlls/metamod.dll" "$root/client/cs16/fakegame/fake_dll.c"
   cp -a "$game" "$run/game.before"
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -SearchRoot "$run/drive" -Scratch "$run/carthago-scratch" -InstallOnly >"$run/install.log" 2>&1 || { cat "$run/install.log"; fail "install"; }
+  ps1() { pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -Scratch "$run/carthago-scratch" "$@"; }
+  ps1 -SearchRoot "$run/drive" -InstallOnly >"$run/install.log" 2>&1 || { cat "$run/install.log"; fail "install"; }
   grep -qF "game folder : $game" "$run/install.log" || { cat "$run/install.log"; fail "the search did not find the game folder"; }
   grep -q 'game program: cstrike\.exe ' "$run/install.log" || { cat "$run/install.log"; fail "the script did not choose cstrike.exe"; }
   echo "ok   the search finds the folder and takes cstrike.exe as the game program"
   for bad in crashpad_handler.exe hltv.exe unins000.exe; do
-    ! pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -GameExe "$bad" -Scratch "$run/carthago-scratch" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
-      || fail "-GameExe $bad was accepted"
+    ! ps1 -GameDir "$game" -GameExe "$bad" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 || fail "-GameExe $bad was accepted"
   done
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -GameExe launcher.exe -Scratch "$run/carthago-scratch" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
+  ps1 -GameDir "$game" -GameExe launcher.exe -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
     && grep -q 'game program: launcher\.exe ' "$run/gameexe.log" || { cat "$run/gameexe.log"; fail "-GameExe launcher.exe was not accepted"; }
   echo "ok   -GameExe names another program; the crash reporter, hltv and the uninstaller are refused"
+  amx="$game/cstrike/addons/amxmodx"
   grep -q '^gamedll "addons\\metamod\\dlls\\metamod.dll"' "$game/cstrike/liblist.gam" || fail "liblist.gam does not load Metamod"
   grep -q '^win32 addons\\amxmodx\\dlls\\amxmodx_mm.dll' "$game/cstrike/addons/metamod/plugins.ini" || fail "Metamod does not load AMX Mod X"
-  cmp -s "$root/client/cs16/plugin/carthago_cs16.amxx" "$game/cstrike/addons/amxmodx/plugins/carthago_cs16.amxx" || fail "plugin not installed"
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -Scratch "$run/carthago-scratch" -Uninstall >"$run/uninstall.log" 2>&1 || { cat "$run/uninstall.log"; fail "uninstall"; }
+  cmp -s "$root/client/cs16/plugin/carthago_cs16_stage4.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "plugin not installed"
+  ps1 -GameDir "$game" -Stage 2 -InstallOnly >"$run/install2.log" 2>&1 || { cat "$run/install2.log"; fail "install of stage 2"; }
+  cmp -s "$root/client/cs16/plugin/carthago_cs16_stage2.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "-Stage 2 did not install the stage 2 plugin"
+  ps1 -Uninstall >"$run/uninstall.log" 2>&1 || { cat "$run/uninstall.log"; fail "uninstall"; }
   diff -r "$run/game.before" "$game" || fail "the game folder differs after -Uninstall"
   echo "ok   install is reversible: the game folder is identical after -Uninstall"
+
+  # The whole script, with the stand-in game writing what the plugin would write. The script
+  # looks for release builds; point it at the debug builds made above (the companion through
+  # Wine) and at the gateway built above.
+  mkdir -p "$run/target/release" "$run/carthago-scratch/bin"
+  # Wine takes Linux paths, but the companion compares the game's path with the paths of
+  # its modules, which Wine reports as Z:\ paths: name the game program the same way.
+  cat >"$run/target/release/carthago-cs16" <<WRAP
+#!/bin/bash
+args=()
+while (( \$# )); do
+  if [[ \$1 == --exe ]]; then args+=(--exe "Z:\$2"); shift 2; else args+=("\$1"); shift; fi
+done
+exec wine "$companion" "\${args[@]}"
+WRAP
+  chmod +x "$run/target/release/carthago-cs16"
+  cp "$bridge" "$run/target/release/carthago-cs16-bridge"
+  cp "$run/bin/carthago-gateway" "$run/carthago-scratch/bin/carthago-gateway"
+  full() { CARGO_TARGET_DIR="$run/target" ps1 -GameDir "$game" -SkipBuild -NoBrowser -NoTpm "$@" </dev/null; }
+
+  step "carthago-cs16.ps1 -Diagnose: a game that cannot even load the plugin (two short runs)"
+  code=0
+  FAKE_CS16_CRASH_STAGE=1 full -Diagnose -DiagnoseSecs 2 >"$run/diagnose1.log" 2>&1 || code=$?
+  grep -E '^(PASS|FAIL|NOTE)|plugin cannot run' "$run/diagnose1.log" || true
+  [[ $code == 20 ]] || { cat "$run/diagnose1.log"; fail "-Diagnose should end with 20 when stage 1 fails, got $code"; }
+  grep -q 'trying once more with the plugin listed in configs.plugins.ini' "$run/diagnose1.log" || fail "-Diagnose did not retry with plugins.ini"
+  diff -r "$run/game.before" "$game" || fail "a failed -Diagnose left changes in the game folder"
+  [[ "$(cat "$run/carthago-scratch/plugin-stage.txt")" == 0 ]] || fail "the failed stage was not remembered"
+  echo "ok   stage 1 fails: reported, the plugin is removed again, and later runs go without it"
+
+  step "carthago-cs16.ps1 -Diagnose: a game that ends when user commands are hooked, and reads plugins.ini only"
+  # With the game's own compiler in place (a wrapper around a Linux amxxpc, if one is given).
+  if [[ -n "${CARTHAGO_AMXXPC_DIR:-}" && -x "$CARTHAGO_AMXXPC_DIR/amxxpc" ]]; then
+    mkdir -p "$amx/scripting"
+    cp -r "$CARTHAGO_AMXXPC_DIR/include" "$amx/scripting/include"
+    printf '#!/bin/sh\ncd "%s" && exec ./amxxpc "$@"\n' "$CARTHAGO_AMXXPC_DIR" >"$amx/scripting/amxxpc.exe"
+    chmod +x "$amx/scripting/amxxpc.exe"
+    rm -rf "$run/game.before" && cp -a "$game" "$run/game.before"
+  fi
+  code=0
+  FAKE_CS16_CRASH_STAGE=3 FAKE_CS16_IGNORE_EXTRA_INI=1 full -Diagnose -DiagnoseSecs 2 >"$run/diagnose3.log" 2>&1 || code=$?
+  grep -E '^(PASS|FAIL|NOTE)|plugin  |left installed' "$run/diagnose3.log" || true
+  [[ $code == 22 ]] || { cat "$run/diagnose3.log"; fail "-Diagnose should end with 22 when stage 3 fails, got $code"; }
+  grep -q '^PASS  2 ' "$run/diagnose3.log" || fail "-Diagnose: stage 2 should pass"
+  grep -q '^FAIL  3 .*last line: step 3 commands: hooking CmdStart' "$run/diagnose3.log" || fail "-Diagnose did not name the failing step"
+  grep -q 'Exe build: ' "$run/diagnose3.log" || fail "-Diagnose did not print the version lines from the game console"
+  [[ "$(cat "$run/carthago-scratch/plugin-stage.txt")" == "2 main" ]] || fail "the working stage was not remembered"
+  grep -q '^carthago_cs16.amxx' "$amx/configs/plugins.ini" || fail "the plugin is not listed in plugins.ini"
+  grep -q '^stage=2' "$amx/configs/carthago_cs16.ini" || fail "the working stage was not left installed"
+  ls "$run"/carthago-scratch/logs/*/stage3/{plugin-steps.txt,console.log,companion.log} >/dev/null || fail "-Diagnose did not collect the logs of the failing run"
+  if [[ -x "$amx/scripting/amxxpc.exe" ]]; then
+    grep -q "built here with the game's own AMX Mod X compiler, stage 2" "$run/diagnose3.log" || { cat "$run/diagnose3.log"; fail "the game's compiler was not used"; }
+    ! cmp -s "$root/client/cs16/plugin/carthago_cs16_stage2.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "the locally built plugin was not installed"
+    echo "ok   the plugin is built with the game's own compiler when it ships one"
+  else
+    cmp -s "$root/client/cs16/plugin/carthago_cs16_stage2.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "the stage 2 plugin was not left installed"
+    echo "skip building with the game's compiler (set CARTHAGO_AMXXPC_DIR to an AMX Mod X scripting folder with amxxpc)"
+  fi
+  echo "ok   stage 3 fails: the failing step is named and stage 2 is left installed"
+
+  step "carthago-cs16.ps1: a run with the stage found above, first without and then with match data"
+  code=0
+  full -Map de_dust2 -GameArgs:"-game cstrike -secs 6" >"$run/full-nodata.log" 2>&1 || code=$?
+  grep -E '^(OK|FAIL|NOTE)' "$run/full-nodata.log" || true
+  [[ $code == 21 ]] || { cat "$run/full-nodata.log"; fail "a run without match data should end with 21, got $code"; }
+  grep -q 'plugin stage 2 .*as found by the last -Diagnose run' "$run/full-nodata.log" || fail "the remembered stage was not used"
+  ! grep -q 'your player slot was tied' "$run/full-nodata.log" || fail "a slot is reported as tied although the plugin sent nothing"
+  grep -q 'load token=.* stage=2 ' "$run/full-nodata.log" || fail "the plugin's lines are missing from the result"
+  "$bridge" synth --out "$run/synth-short.txt" --seconds 60 >/dev/null
+  full -Map de_dust2 -GameArgs:"-game cstrike -secs 16" >"$run/full-data.log" 2>&1 &
+  full_pid=$!
+  for _ in $(seq 200); do grep -q 'GAME pid=' "$run/full-data.log" 2>/dev/null && break; sleep 0.1; done
+  "$bridge" send "$run/synth-short.txt" --to 127.0.0.1:27991 --speed 12
+  wait "$full_pid" || { cat "$run/full-data.log"; fail "a run with match data failed"; }
+  grep -E '^(OK|FAIL|NOTE)' "$run/full-data.log"
+  grep -q '^OK    match data reached the gateway' "$run/full-data.log" || fail "match data did not reach the gateway"
+  grep -q "^OK    your player slot was tied to the companion's session" "$run/full-data.log" || fail "the player's slot was not tied to the session"
+  echo "ok   the slot is reported as tied only when the plugin reported the player"
+  for f in full-nodata full-data; do
+    grep -q '^OK    no alert: the gateway did not flag this session' "$run/$f.log" || fail "$f: the result does not say that no alert was raised"
+  done
+  echo "ok   an ordinary run raises no alert, and the result says so"
+
+  step "carthago-cs16.ps1 -NoPlugin -TestAlertAfter: a test notice over the running game, alert only"
+  rm -rf "$run/game.mid" && cp -a "$game" "$run/game.mid"
+  full -NoPlugin -TestAlertAfter 4 -AlertSecs 3 -GameArgs:"-game cstrike -secs 14" >"$run/full-testalert.log" 2>&1 || { cat "$run/full-testalert.log"; fail "the run with a test alert failed"; }
+  grep -E '^(OK|FAIL|NOTE|ALERT)|ALERT|END MATCH' "$run/full-testalert.log"
+  grep -q '^ALERT (test) Test of the alert screen. Nothing was detected.' "$run/full-testalert.log" || fail "the test alert is missing from the result"
+  grep -q 'ALERT notice=[0-9a-f]\{32\} category=test severity=notice test=true' "$run/full-testalert.log" || fail "the companion did not log the test notice"
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/full-testalert.log")
+  [[ -n "$secs" && "$secs" -ge 13 ]] || fail "alert only: the game should have run its 14 s, ran ${secs:-?}"
+  ! grep -q 'END MATCH' "$run/full-testalert.log" || fail "the game was closed although -EndMatchOnDetect was not given"
+  diff -r "$run/game.mid" "$game" || fail "-NoPlugin changed the game folder"
+  echo "ok   test notice: alert raised, labelled as a test, the game left running"
+
+  step "carthago-cs16.ps1 -NoPlugin: a debugger attached to the game raises a real alert, and the game keeps running"
+  full -NoPlugin -AlertSecs 3 -GameArgs:"-game cstrike -secs 50" >"$run/full-debugger.log" 2>&1 &
+  full_pid=$!
+  for _ in $(seq 200); do grep -q 'GAME pid=' "$run/full-debugger.log" 2>/dev/null && break; sleep 0.1; done
+  game_pid=$(sed -n 's/.*GAME pid=\([0-9]*\) .*/\1/p' "$run/full-debugger.log" | head -1)
+  wine "$run/bin/fake_debugger.exe" "$game_pid" 35 >"$run/debugger.log" 2>&1 || { cat "$run/debugger.log"; fail "the stand-in debugger could not attach"; }
+  wait "$full_pid" || { cat "$run/full-debugger.log"; fail "the run with a debugger failed"; }
+  grep -E '^(OK|FAIL|NOTE|ALERT)' "$run/full-debugger.log"
+  grep -q '^ALERT the session was flagged: A debugger is attached to the game. \[category debugger, severity high, notice [0-9a-f]\{32\}\]' "$run/full-debugger.log" \
+    || { cat "$run/full-debugger.log"; fail "a debugger on the game raised no alert"; }
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/full-debugger.log")
+  [[ -n "$secs" && "$secs" -ge 49 ]] || fail "alert only: the game should have run its 50 s, ran ${secs:-?}"
+  echo "ok   debugger on the game: a real alert without the plugin, the game left running"
+
+  step "carthago-cs16.ps1 -EndMatchOnDetect: the local player aims like a machine; the alert is real and the game is closed"
+  "$bridge" synth --out "$run/synth-machine.txt" --seconds 150 --match cs16-flagged --local-is-machine >/dev/null
+  FAKE_CS16_WINDOW=1 full -Map de_dust2 -EndMatchOnDetect -AlertSecs 3 -GameArgs:"-game cstrike -secs 90" >"$run/full-flagged.log" 2>&1 &
+  full_pid=$!
+  for _ in $(seq 200); do grep -q 'GAME pid=' "$run/full-flagged.log" 2>/dev/null && break; sleep 0.1; done
+  "$bridge" send "$run/synth-machine.txt" --to 127.0.0.1:27991 --speed 12
+  wait "$full_pid" || { cat "$run/full-flagged.log"; fail "the flagged run failed"; }
+  grep -E '^(OK|FAIL|NOTE|ALERT)|END MATCH' "$run/full-flagged.log"
+  grep -q '^ALERT the session was flagged: Aim assistance was detected in this match. \[category aim_assistance, severity high, notice [0-9a-f]\{32\}\]' "$run/full-flagged.log" \
+    || { cat "$run/full-flagged.log"; fail "the machine-like local player raised no alert"; }
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/full-flagged.log")
+  [[ -n "$secs" && "$secs" -lt 60 ]] || fail "-EndMatchOnDetect: the game should have been closed early, ran ${secs:-?} s"
+  if [[ -n "${DISPLAY:-}" ]]; then
+    grep -q 'END MATCH asked the game (pid=[0-9]*) to close (1 window)' "$run/full-flagged.log" || fail "the game's window was not asked to close"
+    grep -q 'END MATCH the game closed' "$run/full-flagged.log" || fail "the game did not close when asked"
+    echo "ok   flagged session: alert raised, the game asked to close, and it closed"
+  else
+    grep -Eq 'END MATCH (the game closed|the game did not close within 5 s; ended the process this companion started)' "$run/full-flagged.log" || fail "the game was not ended"
+    echo "ok   flagged session: alert raised, the game ended"
+  fi
+  ! grep -qi 'kick' "$run"/carthago-scratch/logs/*/gateway.log || fail "the gateway kicked a session"
+
+  if [[ -n "${DISPLAY:-}" ]]; then
+    step "carthago-cs16.ps1 -EndMatchOnDetect: a game that ignores the request to close"
+    FAKE_CS16_WINDOW=2 full -NoPlugin -TestAlertAfter 3 -EndMatchOnDetect -AlertSecs 2 -GameArgs:"-game cstrike -secs 60" >"$run/full-hung.log" 2>&1 || { cat "$run/full-hung.log"; fail "the run with a game that ignores the request failed"; }
+    grep -E 'END MATCH' "$run/full-hung.log"
+    grep -q 'END MATCH the game did not close within 5 s; ended the process this companion started' "$run/full-hung.log" || fail "a game that ignores the request was not ended"
+    echo "ok   a game that does not close when asked is ended, and only because the companion started it"
+  fi
+
+  # What the companion sees change in the started game. $1 names the case, variables for
+  # the stand-in game follow up to "--", then options of the script. The picture of the
+  # started game is taken early (-BaselineSecs 2) and the stand-in changes itself 22 s in.
+  integ() {
+    local name="$1" vars=()
+    shift
+    while [[ $1 != -- ]]; do vars+=("$1"); shift; done
+    shift
+    (
+      for v in "${vars[@]}"; do export "$v"; done
+      full -NoPlugin -AlertSecs 2 -BaselineSecs 2 "$@"
+    ) >"$run/integ-$name.log" 2>&1 || { cat "$run/integ-$name.log"; fail "integrity case $name: the run failed"; }
+    grep -E '^(OK|FAIL|NOTE|ALERT)|^ +(evidence|raised by) ' "$run/integ-$name.log" | cut -c1-230
+  }
+  has() { grep -q -- "$2" "$run/integ-$1.log" || { cat "$run/integ-$1.log"; fail "integrity case $1: missing: $2"; }; }
+  hasnt() { ! grep -q -- "$2" "$run/integ-$1.log" || { cat "$run/integ-$1.log"; fail "integrity case $1: unexpected: $2"; }; }
+  late='FAKE_CS16_LATE_AFTER=22'
+  integrity_alert='^ALERT the session was flagged: The game.s code, memory or libraries were tampered with. \[category game_integrity, severity high,'
+  visibility_alert='^ALERT the session was flagged: A visibility cheat (wallhack) was detected on this game. \[category visibility, severity high,'
+
+  step "integrity: a first start that is closed after a few seconds is continued by the next start"
+  profile() { cat "$run"/carthago-scratch/start-profile-*.txt; }
+  integ short -- -ResetStartProfile -GameArgs:"-game cstrike -secs 7"
+  has short '^OK    no alert: the gateway did not flag this session'
+  # Mapped code is looked for every ten seconds, so a game closed this early has usually
+  # not shown it; the record says so and the next start still counts as a first one for it.
+  profile | grep -q '^whole mapped' || has short 'the game was closed before the companion had looked at everything a clean start shows'
+  integ continued -- -GameArgs:"-game cstrike -secs 25"
+  has continued '^OK    no alert: the gateway did not flag this session'
+  hasnt continued '^ \+evidence '
+  profile | grep -q '^whole mapped' || fail "the second start did not complete the record of the first"
+  profile | grep -q '^start mapped:' || fail "the image the stand-in maps at every start was not recorded"
+  echo "ok   a start that was cut short alerts on nothing later: the next start completes the record"
+
+  step "integrity: the first recorded start of a clean game, then a clean start with a hook that is taken out again"
+  integ first -- -ResetStartProfile -GameArgs:"-game cstrike -secs 25"
+  has first '^OK    no alert: the gateway did not flag this session'
+  has first 'the first start of this game was recorded in '
+  has first 'BASELINE taken [0-9]* s after pid=[0-9]* started, [0-9]* modules loaded (first recorded start)'
+  # The stand-in maps an image itself at every start, as build 4554 does with its engine:
+  # part of the build, named in the result, never alerted on by default.
+  has first '^NOTE  no alert by default for: an image of 256 KB was mapped by hand'
+  hasnt first '^ \+evidence '
+  integ clean "$late" FAKE_CS16_LATE_REWRITE=hw.dll:restore -- -GameArgs:"-game cstrike -secs 45"
+  has clean '^OK    no alert: the gateway did not flag this session'
+  has clean 'This start is compared with the first recorded start of this game'
+  hasnt clean '^ \+evidence '
+  clean_log=$(ls -d "$run"/carthago-scratch/logs/*/ | tail -1)gateway.log
+  grep -q 'rule=code_changed severity=info .*a jump into kernel32.dll, a Windows library' "$clean_log" || fail "the hook that was taken out again was not seen"
+  [[ $(grep -c 'rule=code_changed' "$clean_log") == 1 ]] || fail "taking a hook out again was reported as a second change"
+  ! grep 'msg=detection ' "$clean_log" | grep -v 'severity=info' | grep -v 'rule=scanner_stalled' || fail "a clean start has evidence above info"
+  echo "ok   a clean start raises no alert and leaves nothing above info; a hook into a Windows library that is removed again is information"
+
+  step "integrity: a library from outside the game folder loaded late, a second mapped image, and the engine hooked by that library"
+  integ injected "$late" "FAKE_CS16_LATE_DLL=Z:$run/outside/late.dll" FAKE_CS16_LATE_IMAGE=1 FAKE_CS16_LATE_REWRITE=hw.dll:dll -- -GameArgs:"-game cstrike -secs 45"
+  has injected "$integrity_alert"
+  has injected 'evidence  foreign_module (high): module late.dll (outside the game folder): not signed; loaded [0-9]* s after the game started'
+  has injected 'evidence  mapped_image (high): an image of 256 KB was mapped by hand at 0x[0-9a-f]*, outside the Windows loader (appeared after the game had finished starting)'
+  has injected 'evidence  code_changed (high): code of hw.dll was rewritten at 0x[0-9a-f]* after the game had finished starting: a jump into late.dll, an unsigned file from outside the game folder, itself loaded after start'
+  hasnt injected 'category visibility'
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/integ-injected.log")
+  [[ -n "$secs" && "$secs" -ge 44 ]] || fail "alert only: the game should have run its 45 s, ran ${secs:-?}"
+  echo "ok   late library, mapped image and hooked engine: a game-integrity alert without the plugin, each named in the result"
+
+  step "integrity: engine code rewritten while a server add-on is loaded is held back by default"
+  integ addons "$late" FAKE_CS16_ADDONS=1 FAKE_CS16_LATE_REWRITE=hw.dll:unbacked -- -GameArgs:"-game cstrike -secs 45"
+  has addons '^OK    no alert: the gateway did not flag this session'
+  has addons 'evidence  code_changed (high): code of hw.dll was rewritten at 0x[0-9a-f]* after the game had finished starting: a jump to 0x[0-9a-f]*, memory that no file backs'
+  has addons '^NOTE  no alert by default for: code of hw.dll was rewritten'
+  has addons 'why: server add-ons are loaded in this process'
+  has addons '-AlertOnIntegrity raises the alert for these as well'
+  echo "ok   engine hooked from unbacked memory beside server add-ons: evidence, a note, no alert"
+
+  step "wallhack delivery: a renderer library dropped into the game folder"
+  cp "$run/bin/opengl32.dll" "$game/opengl32.dll"
+  integ proxy FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b -- -GameArgs:"-game cstrike -secs 30"
+  has proxy "$visibility_alert"
+  has proxy 'evidence  renderer_replaced (high): renderer library opengl32.dll is not the Windows one: an unsigned file of that name was loaded from outside the system directory (present at start, but not at the first recorded start of this game)'
+  echo "ok   a renderer library that was not there at the first recorded start: a visibility alert"
+
+  step "wallhack delivery: a build that has always shipped its own renderer library, and that library hooked while the game runs"
+  integ shipped "$late" FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b FAKE_CS16_LATE_REWRITE=opengl32.dll:unbacked -- -ResetStartProfile -GameArgs:"-game cstrike -secs 45"
+  has shipped '^NOTE  no alert by default for: renderer library opengl32.dll is not the Windows one'
+  has shipped 'why: it was already there at the first recorded start of this game'
+  has shipped "$visibility_alert"
+  has shipped 'evidence  code_changed (high): code of opengl32.dll was rewritten at 0x[0-9a-f]* after the game had finished starting: a jump to 0x[0-9a-f]*, memory that no file backs'
+  hasnt shipped 'evidence  renderer_replaced'
+  echo "ok   the build's own renderer library is held back; rewriting its code while the game runs is a visibility alert"
+
+  step "wallhack delivery: -AlertOnIntegrity also alerts on what the build has always shipped"
+  integ strict FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b -- -AlertOnIntegrity -GameArgs:"-game cstrike -secs 30"
+  has strict "$visibility_alert"
+  has strict '-AlertOnIntegrity: the alert is also raised for what a modified but honest game build shows'
+  hasnt strict '^NOTE  no alert by default'
+  has strict 'raised by renderer_replaced: renderer library opengl32.dll is not the Windows one'
+  grep -q -- '-client-notices-strict' "$root/tools/carthago-cs16.ps1" || fail "the script does not pass the opt-in to the gateway"
+  rm "$game/opengl32.dll"
+  ! grep -qi 'kick' "$run"/carthago-scratch/logs/*/gateway.log || fail "the gateway kicked a session"
+  echo "ok   with the opt-in, the build's own renderer library raises the alert"
+
+  ps1 -Uninstall >"$run/uninstall2.log" 2>&1 || { cat "$run/uninstall2.log"; fail "uninstall after the staged check"; }
+  diff -r "$run/game.before" "$game" || fail "the game folder differs after the staged check and -Uninstall"
+  echo "ok   after -Diagnose and two runs, -Uninstall leaves the game folder identical"
 else
-  echo "skip the PowerShell install check (pwsh not installed)"
+  echo "skip the PowerShell checks (pwsh not installed)"
 fi
 
 printf '\nPASS (logs in %s)\n' "$run"

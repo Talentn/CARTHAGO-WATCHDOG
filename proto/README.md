@@ -32,7 +32,7 @@ S->C Challenge  { body = ChallengeBody{ nonce_s, eph_pub_s, session_id, attest_r
                   server_sig = Ed25519_identity("carthago/v1/challenge-sig" || th) }
 C->S Sealed#0   ClientMsg{ Prove{ device_sig(prove_digest), TpmEvidence? } }
 S->C Sealed#0   ServerMsg{ Session{ token, trust_level, attest_flags, exp } }
-then Heartbeat / HeartbeatAck (and Kicked) both ways, seq strictly +1 per direction
+then Heartbeat / HeartbeatAck (and Kicked, EnforcementNotice) both ways, seq strictly +1 per direction
 ```
 
 - `th = SHA-256("carthago/v1/transcript" || u32be(len H) || H || u32be(len B) || B)`, where `H` is the
@@ -45,6 +45,32 @@ then Heartbeat / HeartbeatAck (and Kicked) both ways, seq strictly +1 per direct
 - `quote_nonce = SHA-256("carthago/v1/quote" || th)` is the qualifying data of the TPM2_Quote and of
   TPM2_Certify(device key by AK), which binds the attestation to this handshake.
 - `device_id = hex(SHA-256("carthago/v1/device-id" || alg_u8 || device_public_key)[..16])`.
+
+## Enforcement notice
+
+`ServerMsg.enforcement_notice` tells a client that its session was flagged, so the game can
+show its own screen. It may arrive at any time after `Session`, not only in answer to a
+heartbeat, and it changes nothing else: the session stays up, and a kick remains a separate
+message decided by the game server's side.
+
+```
+EnforcementNotice { body = EnforcementNoticeBody{ notice_id, session_id, tenant_id, player_id_hash,
+                                                  issued_at_ms, category, severity },
+                    server_sig = Ed25519_identity("carthago/v1/enforcement-notice" || body),
+                    server_key_id }
+```
+
+- The body carries a category (`EnforcementCategory`) and a severity. It never names the rule
+  that fired, a score or a threshold.
+- The signature covers the exact body bytes, under the identity key pinned in the client, so
+  the notice can leave the sealed channel: a game may pass the encoded `EnforcementNotice` to
+  its own server, which checks it with the same key. A client accepts a notice only if the
+  key id and signature match the pinned key and `session_id` is its own session.
+- The gateway sends at most one notice per session and category. Category `TEST` (severity
+  `NOTICE`) is sent only on an operator's request and means that nothing was detected.
+- Which evidence raises a notice is server policy (`backend/internal/pipeline/notice.go`);
+  it is off unless the gateway runs with `-client-notices`.
+- Golden vectors: `proto/testvectors/notice.json`.
 
 ## Sealed frames
 

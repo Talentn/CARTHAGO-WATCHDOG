@@ -9,10 +9,14 @@
 //! 3. heartbeats while the game runs, carrying what the read-only scanners in
 //!    `carthago_scan::external` see;
 //! 4. writes the session token to a file so the telemetry bridge can bind the local player's
-//!    match slot to this session.
+//!    match slot to this session;
+//! 5. shows a full-screen alert, in a window of its own, when the gateway reports that the
+//!    session was flagged.
 //!
-//! It never injects into, patches, suspends or terminates the game, and it ignores kick
-//! messages: a kick only ends the session.
+//! It never injects into, patches or suspends the game, and it ignores kick messages: a kick
+//! only ends the session. It leaves the game running whatever the gateway says, unless it
+//! was started with `--end-match-on-detect`: then a flagged session makes it ask the game
+//! to close, and end the process it started itself if the game does not.
 
 #[cfg(not(windows))]
 fn main() {
@@ -26,6 +30,9 @@ fn main() {
 }
 
 #[cfg(windows)]
+mod alert;
+
+#[cfg(windows)]
 mod win {
     use std::io::Write;
     use std::path::Path;
@@ -33,12 +40,19 @@ mod win {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    use carthago_core::{Config, MitigationProfile, Runtime, SessionReady, State};
-    use carthago_cs16_companion::{command_line, exit, never_the_game, parse_args, parse_keys, Game, Options, SessionFile, ENGINE_MODULES, USAGE};
-    use carthago_scan::external::{find_started_game, Target, TargetCell};
+    use carthago_core::{Config, MitigationProfile, Notice, Runtime, SessionReady, State};
+    use carthago_cs16_companion::{
+        alert_text, command_line, exit, never_the_game, parse_args, parse_keys, Game, Options, SessionFile, CODE_MODULES, ENGINE_MODULES, USAGE,
+    };
+    use carthago_scan::external::{find_started_game, Target, TargetCell, Watch, WatchConfig};
+    use carthago_scan::watch::{Settle, StartProfile};
     use carthago_sched::Activity;
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
+    use windows_sys::Win32::Foundation::{CloseHandle, DuplicateHandle, HANDLE};
+    use windows_sys::Win32::System::Threading::{
+        CreateProcessW, GetCurrentProcess, TerminateProcess, PROCESS_INFORMATION, PROCESS_TERMINATE, STARTUPINFOW,
+    };
+
+    use crate::alert::{self, Alert};
 
     struct Log {
         file: Mutex<Option<std::fs::File>>,
@@ -65,7 +79,20 @@ mod win {
         }
     }
 
-    fn launch(exe: &Path, args: &[String]) -> std::io::Result<Target> {
+    /// The right to end the process this companion created, kept only when it was started
+    /// with `--end-match-on-detect`. It carries no other access to the game.
+    struct Closer {
+        pid: u32,
+        handle: HANDLE,
+    }
+
+    impl Drop for Closer {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.handle) };
+        }
+    }
+
+    fn launch(exe: &Path, args: &[String], keep_closer: bool) -> std::io::Result<(Target, Option<Closer>)> {
         let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
         let app = wide(&exe.to_string_lossy());
         let mut cmd = wide(&command_line(exe, args));
@@ -100,7 +127,84 @@ mod win {
             return Err(e);
         }
         unsafe { CloseHandle(pi.hThread) };
-        unsafe { Target::from_created(pi.hProcess) }
+        let mut closer = None;
+        if keep_closer {
+            let (me, mut h) = (unsafe { GetCurrentProcess() }, std::ptr::null_mut());
+            if unsafe { DuplicateHandle(me, pi.hProcess, me, &mut h, PROCESS_TERMINATE, 0, 0) } != 0 {
+                closer = Some(Closer { pid: pi.dwProcessId, handle: h });
+            }
+        }
+        unsafe { Target::from_created(pi.hProcess) }.map(|t| (t, closer))
+    }
+
+    /// `--end-match-on-detect`: asks the watched game to close, as its window's close button
+    /// does. A game that does not is ended only if it is the process this companion created.
+    fn end_game(log: &Log, target: &Target, closer: Option<&Closer>) {
+        if !target.alive() {
+            return;
+        }
+        let asked = alert::ask_to_close(target.pid());
+        log.warn(&format!("END MATCH asked the game (pid={}) to close ({asked} window{})", target.pid(), if asked == 1 { "" } else { "s" }));
+        if target.wait_exit(Duration::from_secs(5)) {
+            log.info("END MATCH the game closed");
+            return;
+        }
+        match closer {
+            Some(c) if c.pid == target.pid() => {
+                unsafe { TerminateProcess(c.handle, 0) };
+                log.warn("END MATCH the game did not close within 5 s; ended the process this companion started");
+            }
+            _ => log.warn("END MATCH the game did not close within 5 s. This companion did not start that process itself, so it is left running."),
+        }
+    }
+
+    /// What happens when the gateway flags the session: a log line, the alert screen, and
+    /// with `--end-match-on-detect` the end of the game.
+    fn on_notice(log: &Log, o: &Options, n: &Notice, target: &Target, closer: Option<&Closer>, alerts: &mut Vec<std::thread::JoinHandle<bool>>) {
+        log.warn(&format!(
+            "ALERT notice={} category={} severity={} test={}: {}",
+            n.notice_id_hex(),
+            n.category_name(),
+            n.severity_name(),
+            n.is_test(),
+            n.reason()
+        ));
+        if o.alert {
+            let text = alert_text(n.reason(), n.is_test(), &o.player, &n.session_id_hex(), n.issued_at_ms, o.end_match_on_detect);
+            alerts.push(alert::show(Alert { text, seconds: o.alert_secs, game_pid: Some(target.pid()) }));
+            log.info("ALERT screen opened in this program's own window (Esc, a click or the timer closes it)");
+        }
+        if o.end_match_on_detect {
+            end_game(log, target, closer);
+        } else if target.alive() {
+            log.info("ALERT only: the game is left running (--end-match-on-detect was not given)");
+        }
+    }
+
+    /// `--test-alert`: the alert screen as a preview, without a gateway or a game.
+    fn preview(o: &Options) -> i32 {
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        let test = Notice {
+            notice_id: [0; 16],
+            session_id: [0; 16],
+            tenant_id: o.tenant.clone(),
+            player_id_hash: o.player.clone(),
+            issued_at_ms: now_ms,
+            category: carthago_core::notice::CATEGORY_TEST,
+            severity: carthago_core::notice::SEVERITY_NOTICE,
+            signed: Vec::new(),
+        };
+        println!("ALERT preview: showing the alert screen now. Esc or a click closes it{}.", match o.alert_secs {
+            0 => String::new(),
+            s => format!("; it closes by itself after {s} s"),
+        });
+        let text = alert_text(test.reason(), true, &o.player, "", now_ms, o.end_match_on_detect);
+        if !alert::show(Alert { text, seconds: o.alert_secs, game_pid: None }).join().unwrap_or(false) {
+            eprintln!("carthago-cs16: the alert screen could not be opened on this desktop");
+            return exit::USAGE;
+        }
+        println!("ALERT preview: closed. Nothing was detected and nothing was started.");
+        exit::OK
     }
 
     fn begin(rt: &Runtime, player: &str) -> Result<SessionReady, String> {
@@ -137,6 +241,9 @@ mod win {
                 return exit::USAGE;
             }
         };
+        if o.test_alert {
+            return preview(&o);
+        }
         let log = Arc::new(Log { file: Mutex::new(o.log.as_ref().and_then(|p| std::fs::File::create(p).ok())), t0: Instant::now() });
         let keys = match std::fs::read_to_string(&o.keys).map_err(|e| format!("{}: {e}", o.keys.display())).and_then(|j| parse_keys(&j)) {
             Ok(k) => k,
@@ -162,7 +269,46 @@ mod win {
 
         let cell = TargetCell::new();
         let dirs = Arc::new(carthago_scan::dirs_for(&exe_for_dirs));
-        let (job_cell, sdk_log) = (cell.clone(), log.clone());
+        let profile = match &o.start_profile {
+            Some(path) => {
+                let p = StartProfile::load(std::fs::read_to_string(path).ok().as_deref());
+                if p.learning() {
+                    log.info(&format!(
+                        "START PROFILE {} does not exist yet: this run records what a start of this game looks like, and nothing it shows at start is reported as new",
+                        path.display()
+                    ));
+                } else {
+                    log.info(&format!(
+                        "START PROFILE {}: {} items recorded at the first start, {} game files{}",
+                        path.display(),
+                        p.start_entries(),
+                        p.file_entries(),
+                        if p.unrecorded().is_empty() { "" } else { "; the earlier run was cut short, so this one still records part of what a start shows" }
+                    ));
+                }
+                p
+            }
+            None => StartProfile::none(),
+        };
+        let watch = Watch::new(
+            cell.clone(),
+            WatchConfig {
+                engine_modules: ENGINE_MODULES.iter().map(|m| m.to_string()).collect(),
+                code_modules: CODE_MODULES.iter().map(|m| m.to_string()).collect(),
+                settle: Settle::after(o.baseline_secs),
+                profile,
+            },
+        );
+        let save_profile = |log: &Log| {
+            let (Some(path), Some(text)) = (&o.start_profile, watch.save_profile()) else { return };
+            let tmp = path.with_extension("tmp");
+            match std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)) {
+                Ok(()) => log.info(&format!("START PROFILE written to {}", path.display())),
+                Err(e) => log.warn(&format!("START PROFILE could not be written to {}: {e}", path.display())),
+            }
+        };
+        let mut baseline_logged = false;
+        let (job_watch, sdk_log) = (watch.clone(), log.clone());
         let rt = match Runtime::start(Config {
             tenant_id: o.tenant.clone(),
             build_id: o.build.clone(),
@@ -175,7 +321,7 @@ mod win {
             // not the game, so it would protect nothing that matters here.
             mitigations: MitigationProfile::Off,
             input_monitor: o.input_monitor,
-            jobs: Some(Box::new(move || carthago_scan::external::jobs(job_cell, dirs))),
+            jobs: Some(Box::new(move || carthago_scan::external::jobs(job_watch, dirs))),
         }) {
             Ok(rt) => rt,
             Err(e) => {
@@ -186,6 +332,12 @@ mod win {
         // A companion cannot see menus or loading screens; it keeps the strictest budgets
         // for as long as the game runs.
         rt.set_activity(Activity::Gameplay);
+        let (notice_tx, notices) = channel::<Notice>();
+        rt.set_notice_callback(Some(Box::new(move |n| {
+            let _ = notice_tx.send(n.clone());
+        })));
+        let mut alerts = Vec::new();
+        let mut alerts_raised = 0u32;
 
         log.info(&format!("connecting to {} as player {:?} (tenant {}, build {})", o.gateway, o.player, o.tenant, o.build));
         let mut ready = match begin(&rt, &o.player) {
@@ -207,12 +359,12 @@ mod win {
         let target = match &o.game {
             Game::Launch { exe, args } => {
                 log.info(&format!("starting {}", command_line(exe, args)));
-                launch(exe, args)
+                launch(exe, args, o.end_match_on_detect)
             }
-            Game::Attach(pid) => Target::open(*pid),
+            Game::Attach(pid) => Target::open(*pid).map(|t| (t, None)),
         };
-        let mut target = match target {
-            Ok(t) => Arc::new(t),
+        let (mut target, closer) = match target {
+            Ok((t, closer)) => (Arc::new(t), closer),
             Err(e) => {
                 log.error(&format!("could not start or open the game: {e}"));
                 rt.shutdown();
@@ -221,6 +373,12 @@ mod win {
         };
         let bits = |t: &Target| if t.is_wow64() { "32-bit" } else { "64-bit" };
         log.info(&format!("GAME pid={} {} watched with read-only access (query, read memory, wait)", target.pid(), bits(&target)));
+        if o.end_match_on_detect {
+            log.info(match closer {
+                Some(_) => "--end-match-on-detect: if the session is flagged, the game is asked to close; the right to end the process started here is kept for that",
+                None => "--end-match-on-detect: if the session is flagged, the game is asked to close",
+            });
+        }
         cell.set(target.clone());
         if o.input_monitor {
             carthago_scan::input::watch_pid(target.pid());
@@ -294,6 +452,7 @@ mod win {
                     ));
                     target = Arc::new(t);
                     cell.set(target.clone());
+                    baseline_logged = false;
                     if o.input_monitor {
                         carthago_scan::input::watch_pid(target.pid());
                     }
@@ -313,6 +472,24 @@ mod win {
                 break exit::OK;
             }
             rt.tick();
+            if !baseline_logged {
+                if let Some(secs) = watch.status().settled_after {
+                    baseline_logged = true;
+                    let st = watch.status();
+                    log.info(&format!(
+                        "BASELINE taken {secs} s after pid={} started, {} modules loaded{}. From here on a new module, an image mapped by hand and rewritten code of {} are reported as changes.",
+                        target.pid(),
+                        st.modules,
+                        if st.first_start { " (first recorded start)" } else { "" },
+                        CODE_MODULES.join(", ")
+                    ));
+                    save_profile(&log);
+                }
+            }
+            while let Ok(n) = notices.try_recv() {
+                alerts_raised += 1;
+                on_notice(&log, &o, &n, &target, closer.as_ref(), &mut alerts);
+            }
             if o.max_secs.is_some_and(|m| started.elapsed().as_secs() >= m) {
                 log.info("--max-secs reached; leaving the game running and ending the session");
                 break exit::OK;
@@ -321,7 +498,7 @@ mod win {
             let down = [State::Kicked as u32, State::Failed as u32, State::Disconnected as u32].contains(&st.state);
             if down && retry_at.is_none() {
                 if st.state == State::Kicked as u32 {
-                    log.warn("the gateway ended the session. The game is left running; this companion never closes it.");
+                    log.warn("the gateway ended the session. The game is left running; a kick never closes it.");
                 }
                 if reconnects >= 5 {
                     log.error("the session could not be re-established after 5 attempts; the game keeps running unwatched");
@@ -350,6 +527,7 @@ mod win {
             }
             if last_status.elapsed() >= Duration::from_secs(10) {
                 last_status = Instant::now();
+                save_profile(&log);
                 if st.heartbeats_acked > 0 {
                     reconnects = 0;
                 }
@@ -379,6 +557,25 @@ mod win {
             None => log.info("leaving while the game is still running"),
         }
         cell.clear();
+        save_profile(&log);
+        let lacking: Vec<&str> = watch
+            .unrecorded()
+            .into_iter()
+            .map(|k| match k {
+                "mapped" => "code mapped by hand",
+                "holder" => "other programs that hold the game open",
+                other => other,
+            })
+            .collect();
+        if baseline_logged && o.start_profile.is_some() && !lacking.is_empty() {
+            log.info(&format!(
+                "START PROFILE incomplete: the game closed before the companion had looked for {}; the next run still records that as part of a clean start",
+                lacking.join(" and ")
+            ));
+        }
+        if !baseline_logged {
+            log.info("the game ended before it had finished starting: no picture was taken and nothing was recorded");
+        }
         write_session(&ready, target.pid(), "ended");
         // One last heartbeat so findings from the final seconds are not lost.
         rt.heartbeat_now();
@@ -387,15 +584,29 @@ mod win {
         while Instant::now() < deadline && rt.status().heartbeats_acked == st0.heartbeats_acked && st0.state == State::Active as u32 {
             std::thread::sleep(Duration::from_millis(50));
         }
+        // A notice that arrived with the last heartbeat is still shown; there is no game
+        // left to close.
+        while let Ok(n) = notices.try_recv() {
+            alerts_raised += 1;
+            on_notice(&log, &Options { end_match_on_detect: false, ..o.clone() }, &n, &target, None, &mut alerts);
+        }
         let st = rt.status();
         log.info(&format!(
-            "DONE heartbeats={}/{} acked, scanner cpu {:.1} ms over {} s",
+            "DONE heartbeats={}/{} acked, scanner cpu {:.1} ms over {} s, alerts={alerts_raised}",
             st.heartbeats_acked,
             st.heartbeats_sent,
             st.sched_worker_cpu_ns as f64 / 1e6,
             started.elapsed().as_secs()
         ));
         rt.shutdown();
+        if !alerts.is_empty() {
+            log.info("waiting for the alert screen to be closed (Esc, a click, or it closes by itself)");
+            for a in alerts {
+                if !a.join().unwrap_or(false) {
+                    log.warn("ALERT screen could not be opened on this desktop; the lines above are the alert");
+                }
+            }
+        }
         exit
     }
 }

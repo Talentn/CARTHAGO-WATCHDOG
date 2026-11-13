@@ -153,7 +153,11 @@ enum FindingCode {
   // detail = "patched_module>target_module" (target "?" = not image-backed).
   FINDING_CODE_CODE_PATCH = 7;
   // Another process holds a handle to the game with memory or thread access.
-  // a = holder pid, b = granted access mask, detail = holder image base name.
+  // a = holder pid, b = granted access mask in the low 32 bits, detail = holder image base
+  // name. A companion adds, in b >> 32, what it knows about the holder's program file:
+  // ModuleSignature in bits 0-7, ModulePathClass + 1 in bits 8-15 (0 = under the Windows
+  // directory), HOLDER_FLAGS_KNOWN (bit 16) to say that those two fields are filled in, and
+  // ObservedFlags in bits 24-31 for when the holder was first seen with its handle.
   FINDING_CODE_EXTERNAL_HANDLE = 8;
   // Layered, transparent, topmost window of another process over the game window.
   // a = owner pid, b = extended window style, detail = owner image base name. Never titles.
@@ -169,7 +173,8 @@ enum FindingCode {
   FINDING_CODE_MITIGATIONS = 13;
   // Authenticode state of a module loaded into the game process from outside the system
   // directory, as an out-of-process companion sees it. a = base, b = ModuleSignature in the
-  // low 8 bits plus ModulePathClass << 8, detail = base name.
+  // low 8 bits, ModulePathClass << 8, ObservedFlags << 16 and, in bits 32-47, the seconds
+  // between the start of the game and the first sight of the module. detail = base name.
   FINDING_CODE_MODULE_SIGNATURE = 14;
   // Committed executable memory with no backing image in the game process, summarised by an
   // out-of-process companion. a = region count, b = total bytes in the low 48 bits plus the
@@ -177,6 +182,62 @@ enum FindingCode {
   // loader or a script JIT cannot be told apart from foreign code, so this is a summary and
   // not a per-region verdict.
   FINDING_CODE_EXTERNAL_EXEC_REGIONS = 15;
+  // Executable memory in the game process that no file backs and that begins with a PE
+  // header: an image mapped by hand instead of by the Windows loader, seen by an
+  // out-of-process companion. a = allocation base, b = size in the low 32 bits plus
+  // ObservedFlags << 32, detail = a hash of the header (the same image has the same hash
+  // in every run).
+  FINDING_CODE_EXTERNAL_MAPPED_IMAGE = 16;
+  // Code of a watched module (the renderer library, the engine, the client library) that
+  // changed after the companion took its picture of the started game. a = address of the
+  // first changed byte, b = where a jump written there leads in the low 32 bits plus
+  // CodeChange << 32, detail = "changed_module>target_module" (target empty when no jump
+  // was written, "?" when the jump leads to memory no file backs).
+  FINDING_CODE_EXTERNAL_CODE_CHANGE = 17;
+}
+
+// What a companion knows about when it first saw something. It takes a picture of the game
+// once the game has finished starting, and may keep the picture of the first start it ever
+// saw of this game folder.
+enum ObservedFlags {
+  OBSERVED_FLAGS_NONE = 0;
+  // First seen after the picture was taken: it arrived while the game was running.
+  OBSERVED_FLAGS_AFTER_START = 1;
+  // Already there when the picture was taken.
+  OBSERVED_FLAGS_AT_START = 2;
+  // It was also seen during the first recorded start of this game folder, or the companion
+  // keeps no such record. A modified game build shows the same things at every start; this
+  // bit is how they are told from something that is new. Set with AT_START, and for a
+  // library that shadows a system one whenever it was loaded.
+  OBSERVED_FLAGS_KNOWN_START = 4;
+  // FINDING_CODE_MODULE_SIGNATURE: the file has the name of a library in the Windows
+  // system directory, was loaded from somewhere else, and is not a copy of that library.
+  OBSERVED_FLAGS_SHADOWS_SYSTEM = 8;
+  // FINDING_CODE_MODULE_SIGNATURE, game folder: the file is not the one that had this
+  // path at the first recorded start.
+  OBSERVED_FLAGS_FILE_CHANGED = 16;
+  // FINDING_CODE_MODULE_SIGNATURE, game folder: no file was ever seen loaded from this
+  // path before this run, and this run is not the first recorded one.
+  OBSERVED_FLAGS_NEW_FILE = 32;
+}
+
+// FINDING_CODE_EXTERNAL_HANDLE b >> 32, bit 16.
+enum HolderFlags {
+  HOLDER_FLAGS_NONE = 0;
+  HOLDER_FLAGS_KNOWN = 0x10000;
+}
+
+// FINDING_CODE_EXTERNAL_CODE_CHANGE b >> 32: CodeChangeKind in bits 0-3, then about the
+// module a written jump leads to: ModulePathClass + 1 in bits 8-15 (0 = under the Windows
+// directory or not a module), ModuleSignature in bits 16-23, and bit 24 set when that
+// module was itself loaded after the picture was taken. Bit 25 is about the process: set
+// when it has server add-ons loaded (a module from an "addons" folder of the game), which
+// rewrite engine code of a listen server for their own hooks.
+enum CodeChangeKind {
+  CODE_CHANGE_KIND_BYTES = 0;      // bytes changed, no jump recognised
+  CODE_CHANGE_KIND_JUMP_MODULE = 1; // a jump into a loaded module
+  CODE_CHANGE_KIND_JUMP_UNBACKED = 2; // a jump into memory no file backs
+  CODE_CHANGE_KIND_BREAKPOINT = 3;
 }
 
 // FINDING_CODE_MODULE_SIGNATURE b & 0xff: what WinVerifyTrust says about the file on disk
@@ -304,6 +365,52 @@ message Error {
   string message = 2;
 }
 
+// Why a session was flagged, as a broad category. Which rule fired, its scores and its
+// thresholds never leave the server.
+enum EnforcementCategory {
+  ENFORCEMENT_CATEGORY_UNSPECIFIED = 0;
+  // Sent on an operator's request to try the client's screen. Nothing was detected.
+  ENFORCEMENT_CATEGORY_TEST = 1;
+  // The game's code or memory was changed while it ran.
+  ENFORCEMENT_CATEGORY_GAME_INTEGRITY = 2;
+  // A debugger is attached to the game.
+  ENFORCEMENT_CATEGORY_DEBUGGER = 3;
+  // The game's clocks were manipulated.
+  ENFORCEMENT_CATEGORY_TIME_MANIPULATION = 4;
+  // Aiming in the match was not that of a person.
+  ENFORCEMENT_CATEGORY_AIM_ASSISTANCE = 5;
+  // Something changes what the player can see: a replaced or hooked renderer, an overlay
+  // fed from the game's memory, or play that shows knowledge of hidden opponents.
+  ENFORCEMENT_CATEGORY_VISIBILITY = 6;
+}
+
+enum EnforcementSeverity {
+  ENFORCEMENT_SEVERITY_UNSPECIFIED = 0;
+  ENFORCEMENT_SEVERITY_NOTICE = 1; // no detection behind it (a test)
+  ENFORCEMENT_SEVERITY_HIGH = 2;
+  ENFORCEMENT_SEVERITY_CRITICAL = 3;
+}
+
+message EnforcementNoticeBody {
+  bytes notice_id = 1; // 16 random bytes
+  bytes session_id = 2; // the session this notice is about, 16 bytes
+  string tenant_id = 3;
+  string player_id_hash = 4;
+  uint64 issued_at_ms = 5;
+  uint32 category = 6; // EnforcementCategory
+  uint32 severity = 7; // EnforcementSeverity
+}
+
+// Tells a client that its session was flagged, so the game can show its own screen. It is
+// information only: the session stays up, and ending it remains the game server's decision
+// (Kick). The signature lets the game pass the notice on and anyone holding the pinned
+// server identity key check it, outside the sealed channel it arrived on.
+message EnforcementNotice {
+  bytes body = 1; // encoded EnforcementNoticeBody; verified and passed on as these exact bytes
+  bytes server_sig = 2; // Ed25519 by the server identity key over "carthago/v1/enforcement-notice" || body
+  string server_key_id = 3;
+}
+
 // Plaintext of every client->server sealed frame. seq must equal the frame seq.
 message ClientMsg {
   uint64 seq = 1;
@@ -324,5 +431,6 @@ message ServerMsg {
     HeartbeatAck heartbeat_ack = 11;
     Kicked kicked = 12;
     Error error = 13;
+    EnforcementNotice enforcement_notice = 14;
   }
 }

@@ -57,6 +57,15 @@ type Evidence struct {
 	Score     float64
 	Integrity bool
 	Summary   string
+
+	// Notice is the category under which this evidence may tell the player (an
+	// enforcement notice), zero when it is for the dashboard only. It is set by the rules
+	// that read a companion's findings; for the older rules the pipeline keeps a list.
+	Notice pb.EnforcementCategory
+	// NoticeOptIn holds the notice back unless the operator opted in, because the guard
+	// named in Held applies. Such evidence need not be integrity evidence.
+	NoticeOptIn bool
+	Held        string
 }
 
 // Config carries every threshold a rule uses. Defaults() gives values tuned for the Phase 1
@@ -185,6 +194,10 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 		}
 		return ev("code_patch", SeverityHigh, 0.9, true, fmt.Sprintf(".text patched: %s", detail)), true
 	case pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE:
+		f := &pb.Finding{Code: code, A: a, B: b, Detail: detail}
+		if h, ok := HolderOf(f); ok {
+			return c.classifyHolder(f, h), true
+		}
 		if allowed {
 			return ev("external_handle", SeverityInfo, 0.1, false, "handle from allowlisted "+detail), true
 		}
@@ -211,7 +224,14 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 		// that neither flags the player on its own nor counts as tampering.
 		return ev("vulnerable_driver", SeverityLow, 0.5, false, "known-vulnerable driver loaded: "+detail), true
 	case pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE:
+		if b>>16&0xffff != 0 {
+			return classifyObservedModule(b, detail), true
+		}
 		return classifyModuleSignature(b, detail), true
+	case pb.FindingCode_FINDING_CODE_EXTERNAL_MAPPED_IMAGE:
+		return classifyMappedImage(a, b), true
+	case pb.FindingCode_FINDING_CODE_EXTERNAL_CODE_CHANGE:
+		return classifyCodeChange(a, b, detail), true
 	case pb.FindingCode_FINDING_CODE_EXTERNAL_EXEC_REGIONS:
 		// Seen from outside the process, the engine's own loader (GoldSrc maps hw.dll itself on
 		// older builds) and script JITs look the same as foreign code, so this is context for a
@@ -243,10 +263,11 @@ func timingAPI(api uint64) bool {
 	return false
 }
 
-// classifyModuleSignature turns a companion's module report into evidence. Everything is
-// informational except two cases: an unsigned module loaded from outside the game folder and
-// Program Files, and a signed file that was modified after signing. Neither is integrity
-// evidence, so neither can kick.
+// classifyModuleSignature turns a companion's module report into evidence by the file
+// alone, without regard to when the module was seen (classifyObservedModule adds that).
+// Everything is informational except two cases: an unsigned module loaded from outside the
+// game folder and Program Files, and a signed file that was modified after signing. Neither
+// is integrity evidence, so neither can kick.
 func classifyModuleSignature(b uint64, detail string) Evidence {
 	state, class := pb.ModuleSignature(b&0xff), pb.ModulePathClass(b>>8&0xff)
 	where := map[pb.ModulePathClass]string{

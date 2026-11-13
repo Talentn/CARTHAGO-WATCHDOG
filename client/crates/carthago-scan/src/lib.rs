@@ -13,6 +13,7 @@ pub mod pe;
 pub mod seen;
 pub mod signature;
 pub mod time;
+pub mod watch;
 
 #[cfg(windows)]
 pub mod external;

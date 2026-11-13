@@ -161,6 +161,15 @@ impl Bridge {
         self.slots.iter().map(|(s, p)| (*s, p.name.clone(), p.flags & FLAG_BOT != 0, p.flags & FLAG_LOCAL != 0)).collect()
     }
 
+    /// The slots that are tied to the companion's session right now: a session is known, a
+    /// match is running, and the plugin reported a human on this machine in that slot.
+    pub fn bound_slots(&self) -> Vec<(u32, String)> {
+        if self.binding.is_none() || self.rec.is_none() {
+            return Vec::new();
+        }
+        self.slots.iter().filter(|(_, p)| p.flags & (FLAG_BOT | FLAG_HLTV) == 0 && p.flags & FLAG_LOCAL != 0).map(|(s, p)| (*s, p.name.clone())).collect()
+    }
+
     /// Sets or clears the companion's session. The local human's slot is declared with it
     /// from the next batch on.
     pub fn bind(&mut self, binding: Option<Binding>) {
@@ -436,7 +445,11 @@ impl Bridge {
 /// a human-like delay. The gateway judges one player's reaction time against the rest of
 /// the lobby and needs samples from several other players to do it, so a lobby where only
 /// the human and the machine-like bot fight gives that rule nothing to compare against.
-pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
+///
+/// With `local_is_machine` the roles are swapped: the player on this machine is the one
+/// that aims like a machine, which is how the kit shows what a flagged session looks like
+/// without anyone cheating.
+pub fn synth(seconds: u32, rate: u32, match_id: &str, local_is_machine: bool) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     let mut rng = 0x9e37_79b9_7f4a_7c15u64;
@@ -447,7 +460,8 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
         (rng >> 11) as f64 / (1u64 << 53) as f64
     };
     // slot, flags, team, name
-    let roster = [(1u32, FLAG_LOCAL, 1u32, "Founder"), (2, FLAG_BOT, 2, "[BOT] Snap"), (3, FLAG_BOT, 2, "[BOT] Calm"), (4, FLAG_BOT, 1, "[BOT] Mate")];
+    let (first, second) = if local_is_machine { ((FLAG_BOT, "[BOT] Slow"), (FLAG_LOCAL, "Founder")) } else { ((FLAG_LOCAL, "Founder"), (FLAG_BOT, "[BOT] Snap")) };
+    let roster = [(1u32, first.0, 1u32, first.1), (2, second.0, 2, second.1), (3, FLAG_BOT, 2, "[BOT] Calm"), (4, FLAG_BOT, 1, "[BOT] Mate")];
     // The ordinary bots start out facing the opponent they will fight.
     let mut yaw = [10.0f64, 200.0, 265.0, 76.0];
     let mut pos = [[0.0f64, 0.0], [900.0, 0.0], [0.0, 900.0], [-200.0, 100.0]];
@@ -487,12 +501,12 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
             let to_enemy = |from: [f64; 2], to: [f64; 2]| (to[1] - from[1]).atan2(to[0] - from[0]).to_degrees();
             let turn = |from: f64, to: f64| (to - from + 540.0).rem_euclid(360.0) - 180.0;
             match slot {
-                // The human turns toward a visible enemy over a third of a second, with jitter.
+                // Slot 1 turns toward a visible enemy over a third of a second, with jitter.
                 1 => {
                     let want = if visible[0] { to_enemy(pos[0], pos[1]) } else if visible[2] { to_enemy(pos[0], pos[2]) } else { yaw[0] };
                     yaw[0] += turn(yaw[0], want) * 0.25 + (rnd() - 0.5) * 0.8;
                 }
-                // The machine-like bot looks away, then lands on the target in one sample.
+                // The machine-like player looks away, then lands on the target in one sample.
                 2 => yaw[1] = if exposed { to_enemy(pos[1], pos[0]) } else { 95.0 + (t / rate) as f64 * 37.0 },
                 // An ordinary bot keeps its aim near its opponent, without snapping.
                 _ => {
@@ -513,11 +527,11 @@ pub fn synth(seconds: u32, rate: u32, match_id: &str) -> String {
                 (rnd() * 250.0) as i64
             );
         }
-        // The machine-like bot fires the sample its target appears, mostly at the head.
+        // The machine-like player fires the sample its target appears, mostly at the head.
         if exposed && phase < 3 {
             let _ = writeln!(out, "S 2 ak47 1 {} 0 900", if rnd() < 0.9 { 1 } else { 2 });
         }
-        // The human fires a pistol about a third of a second after seeing someone.
+        // Slot 1 fires a pistol about a third of a second after seeing someone.
         if visible[0] && phase >= rate / 3 && (phase - rate / 3).is_multiple_of((rate / 4).max(1)) {
             client_ms += 240 + (rnd() * 90.0) as u64;
             let _ = writeln!(out, "G 1 {client_ms}");
@@ -577,6 +591,20 @@ mod tests {
     }
 
     #[test]
+    fn a_slot_is_bound_only_when_a_local_human_is_in_a_match() {
+        let bind = Binding { session_id: "ab".repeat(16), player_hash: "cs16-local-player".into() };
+        let mut b = Bridge::new();
+        b.bind(Some(bind));
+        assert!(b.bound_slots().is_empty(), "a session alone binds nothing");
+        b.feed("D 0 1\nH m1 de_dust2 32 12 0\nP 2 1 2 Bot\nP 3 0 1 Remote\n");
+        assert!(b.bound_slots().is_empty(), "bots and remote humans are not the companion's player");
+        b.feed("D 1 2\nP 1 4 1 Ala\n");
+        assert_eq!(b.bound_slots(), vec![(1, "Ala".to_owned())]);
+        b.bind(None);
+        assert!(b.bound_slots().is_empty());
+    }
+
+    #[test]
     fn an_unbound_local_human_is_a_named_player_not_a_bot() {
         let (_, out) = run("D 0 1\nH m1 de_dust2 32 32 0\nP 1 4 1 Ala\n", None);
         let p = players(&out);
@@ -633,7 +661,7 @@ mod tests {
 
     #[test]
     fn synthetic_stream_is_well_formed() {
-        let (b, out) = run(&synth(30, 32, "synth-test"), None);
+        let (b, out) = run(&synth(30, 32, "synth-test", false), None);
         assert_eq!(b.stats.bad_lines, 0);
         assert!(out.len() >= 14 && out.last().unwrap().match_over);
         assert!(b.stats.shots > 20 && b.stats.hits > 10);
@@ -672,7 +700,7 @@ mod tests {
     #[test]
     fn synthetic_lobby_gives_the_reaction_rule_a_lobby_to_compare_against() {
         let rate = 32;
-        let (_, out) = run(&synth(60, rate, "synth-test"), None);
+        let (_, out) = run(&synth(60, rate, "synth-test", false), None);
         let median = |v: &[u32]| {
             let mut v = v.to_vec();
             v.sort();

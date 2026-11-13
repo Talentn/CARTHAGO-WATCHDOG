@@ -3,8 +3,10 @@
 //! on its own worker, and the game thread only calls [`Runtime::tick`].
 
 pub mod device;
+pub mod notice;
 pub mod session;
 
+use std::collections::VecDeque;
 use std::net::{Shutdown, TcpStream};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::Relaxed};
@@ -19,6 +21,7 @@ use carthago_sched::{Activity, Scheduler};
 use tungstenite::Message as WsMessage;
 
 use device::DeviceIdentity;
+pub use notice::Notice;
 
 pub use carthago_harden::Profile as MitigationProfile;
 
@@ -105,6 +108,11 @@ impl Drop for Ready {
     }
 }
 
+pub type NoticeFn = Box<dyn Fn(&Notice) + Send>;
+
+/// Notices kept for [`Runtime::poll_notice`]; the gateway sends one per category.
+const NOTICE_QUEUE: usize = 8;
+
 enum Cmd {
     Begin { player_id_hash: String, on_ready: Ready },
 }
@@ -129,6 +137,8 @@ struct Inner {
     kick_cb: Mutex<Option<KickFn>>,
     /// The socket of the session in progress; shutdown closes it to end a blocked read.
     conn: Mutex<Option<TcpStream>>,
+    notice_cb: Mutex<Option<NoticeFn>>,
+    notices: Mutex<VecDeque<Notice>>,
     /// Findings produced outside the scheduler (mitigation outcome), sent with the next heartbeat.
     startup_findings: Mutex<Vec<pb::Finding>>,
     #[cfg(windows)]
@@ -190,6 +200,8 @@ impl Runtime {
             activity: AtomicU8::new(Activity::Menu as u8),
             kick_cb: Mutex::new(None),
             conn: Mutex::new(None),
+            notice_cb: Mutex::new(None),
+            notices: Mutex::new(VecDeque::new()),
             startup_findings: Mutex::new(Vec::new()),
             #[cfg(windows)]
             input: Mutex::new(None),
@@ -274,6 +286,19 @@ impl Runtime {
 
     pub fn set_kick_callback(&self, cb: Option<KickFn>) {
         *lock(&self.inner.kick_cb) = cb;
+    }
+
+    /// Called on the SDK thread when the gateway reports that this session was flagged. The
+    /// notice has been verified against the pinned server identity key and is about this
+    /// session. It is information for the game's own screen; nothing else changes.
+    pub fn set_notice_callback(&self, cb: Option<NoticeFn>) {
+        *lock(&self.inner.notice_cb) = cb;
+    }
+
+    /// The oldest notice not yet taken, for a game that polls from its own thread instead
+    /// of using the callback. Notices are queued whether or not a callback is set.
+    pub fn poll_notice(&self) -> Option<Notice> {
+        lock(&self.inner.notices).pop_front()
     }
 
     /// Safe to call from any thread, including from a session or kick callback (which run
@@ -560,6 +585,7 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
                         notify_kick(inner, &k.reason);
                         return;
                     }
+                    Some(pb::server_msg::Body::EnforcementNotice(n)) => accept_notice(inner, &n, est.chan.session_id()),
                     Some(pb::server_msg::Body::Error(e)) => inner.log(LOG_WARN, &format!("gateway error {}: {}", e.code, e.message)),
                     _ => {}
                 },
@@ -582,6 +608,29 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
                 return;
             }
         }
+    }
+}
+
+/// Verifies a notice from the gateway, queues it and tells the game. A notice that does not
+/// verify, or is about another session, is dropped.
+fn accept_notice(inner: &Inner, n: &pb::EnforcementNotice, session_id: &[u8]) {
+    let notice = match Notice::verify_for_session(&inner.cfg.server_identity, n, session_id) {
+        Ok(notice) => notice,
+        Err(e) => {
+            inner.log(LOG_WARN, &format!("ignoring a notice from the gateway: {e}"));
+            return;
+        }
+    };
+    inner.log(LOG_WARN, &format!("gateway notice {}: session flagged, category {} severity {}", notice.notice_id_hex(), notice.category_name(), notice.severity_name()));
+    {
+        let mut q = lock(&inner.notices);
+        if q.len() == NOTICE_QUEUE {
+            q.pop_front();
+        }
+        q.push_back(notice.clone());
+    }
+    if let Some(cb) = lock(&inner.notice_cb).as_ref() {
+        cb(&notice);
     }
 }
 

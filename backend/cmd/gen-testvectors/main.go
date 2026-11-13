@@ -28,10 +28,13 @@ func main() {
 	}
 	aead, err := protocol.BuildAEADVectors()
 	must(err)
+	notice, err := protocol.BuildNoticeVectors()
+	must(err)
 	must(os.MkdirAll(*out, 0o755))
 	write(*out, "token.json", tok)
 	write(*out, "handshake.json", hs)
 	write(*out, "aead.json", aead)
+	write(*out, "notice.json", notice)
 }
 
 func write(dir, name string, v any) {

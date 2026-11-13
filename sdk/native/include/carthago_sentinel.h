@@ -30,6 +30,7 @@ typedef int32_t CarthagoResult;
 #define CARTHAGO_ERR_NO_SESSION 5
 #define CARTHAGO_ERR_ABI_MISMATCH 6
 #define CARTHAGO_ERR_SESSION_FAILED 7
+#define CARTHAGO_ERR_NO_NOTICE 8
 #define CARTHAGO_ERR_INTERNAL 99
 
 /* CarthagoConfig.flags */
@@ -78,6 +79,35 @@ typedef void (*CarthagoLogFn)(int32_t level, const char* msg, void* user);
 typedef void (*CarthagoSessionCb)(CarthagoResult result, uint32_t trust_level, uint64_t attest_flags, void* user);
 typedef void (*CarthagoKickCb)(const char* reason, void* user);
 
+/* CarthagoNotice.category: why the session was flagged, as a broad category. Which rule
+ * fired and its thresholds stay on the server. Treat values not listed here as "flagged". */
+#define CARTHAGO_NOTICE_TEST 1u              /* sent on an operator's request; nothing was detected */
+#define CARTHAGO_NOTICE_GAME_INTEGRITY 2u    /* the game's code, memory or libraries were tampered with */
+#define CARTHAGO_NOTICE_DEBUGGER 3u          /* a debugger is attached to the game */
+#define CARTHAGO_NOTICE_TIME_MANIPULATION 4u /* the game's clocks were manipulated */
+#define CARTHAGO_NOTICE_AIM_ASSISTANCE 5u    /* aiming in the match was not that of a person */
+#define CARTHAGO_NOTICE_VISIBILITY 6u        /* the renderer was replaced or changed, or a program read the game and drew over it */
+
+/* CarthagoNotice.severity */
+#define CARTHAGO_NOTICE_SEVERITY_NOTICE 1u /* no detection behind it (a test) */
+#define CARTHAGO_NOTICE_SEVERITY_HIGH 2u
+#define CARTHAGO_NOTICE_SEVERITY_CRITICAL 3u
+
+/* The gateway's notice that this session was flagged, for the game's own screen. The SDK
+ * has checked its signature against the pinned identity key and that it is about this
+ * session. It is information only: the session stays up, and kicking stays with the game
+ * server. */
+typedef struct CarthagoNotice {
+    uint32_t struct_size; /* set to sizeof(CarthagoNotice) before carthago_poll_notice */
+    uint32_t category;    /* CARTHAGO_NOTICE_* */
+    uint32_t severity;    /* CARTHAGO_NOTICE_SEVERITY_* */
+    uint32_t reserved;
+    uint64_t issued_at_ms; /* gateway clock, Unix milliseconds */
+    uint8_t notice_id[16];
+    uint8_t session_id[16];
+} CarthagoNotice;
+typedef void (*CarthagoNoticeCb)(const CarthagoNotice* notice, void* user);
+
 typedef struct CarthagoConfig {
     uint32_t abi_version;  /* CARTHAGO_ABI_VERSION */
     uint32_t struct_size;  /* sizeof(CarthagoConfig) */
@@ -122,6 +152,16 @@ void carthago_set_activity(CarthagoActivity activity);
 CarthagoResult carthago_heartbeat_now(void);
 CarthagoResult carthago_get_status(CarthagoStatus* out);
 void carthago_set_kick_callback(CarthagoKickCb cb, void* user);
+/* cb runs on the SDK thread when the gateway flags this session; notice is valid during
+ * the call. */
+void carthago_set_notice_callback(CarthagoNoticeCb cb, void* user);
+/* For a game that polls instead: takes the oldest notice not yet taken (CARTHAGO_OK), or
+ * returns CARTHAGO_ERR_NO_NOTICE. Notices are queued whether or not a callback is set.
+ * signed/signed_len may be NULL. When given, the signed notice is copied there so the game
+ * can pass it to its server, which verifies it with the gateway identity key
+ * (*signed_len: in = buffer size, out = length; 256 bytes are enough). On
+ * CARTHAGO_ERR_BUFFER_TOO_SMALL the same notice is returned by the next call. */
+CarthagoResult carthago_poll_notice(CarthagoNotice* out, uint8_t* signed_notice, size_t* signed_len);
 void carthago_shutdown(void);
 
 #ifdef CARTHAGO_DEV_HOOKS

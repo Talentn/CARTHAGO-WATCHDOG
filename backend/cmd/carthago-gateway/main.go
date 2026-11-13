@@ -68,6 +68,9 @@ func main() {
 	maxHandshakesIP := flag.Int("max-handshakes-per-ip", 0, "client handshakes allowed in progress per remote address (0 = default 32; raise behind a proxy)")
 	autoKick := flag.Bool("auto-kick", false, "kick sessions on critical client integrity evidence (behavioural evidence never kicks)")
 	dashHosts := flag.String("dashboard-host", "", "comma-separated host names the dashboard answers to, besides localhost when it listens on loopback (e.g. the name a reverse proxy forwards)")
+	clientNotices := flag.Bool("client-notices", false, "tell a client when its session is flagged by evidence that stands on its own (a signed notice with a category and a severity; it never kicks)")
+	clientNoticesStrict := flag.Bool("client-notices-strict", false, "with -client-notices: also send the notices that are held back by default because an honest, modified game build can produce the same evidence (things present since the first recorded start of a game, changed or new files of the game folder, read-only handles, engine code rewritten while server add-ons are loaded)")
+	testNotice := flag.Duration("test-notice-after", 0, "development: send every session a notice of category test this long after its client connected (0 = never)")
 	flag.Parse()
 	if len(tenants) == 0 {
 		tenants["demo"] = demoServerKey
@@ -138,12 +141,13 @@ func main() {
 
 	var gw *gateway.Gateway
 	kick := kickFunc(func(id, reason string) { gw.Sessions().Kick(id, reason) })
-	detections := pipeline.New(pipeline.Config{AutoKick: *autoKick}, st, st, kick, log)
+	detections := pipeline.New(pipeline.Config{AutoKick: *autoKick, Notices: *clientNotices, NoticesOptIn: *clientNoticesStrict}, st, st, kick, log)
 	defer detections.Close()
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP,
+		Detections: detections, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
 	}, keys, st, log)
+	detections.SetNotifier(gw)
 	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

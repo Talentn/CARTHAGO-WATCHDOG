@@ -141,7 +141,11 @@ go run ./cmd/carthago-gateway -data gateway-data
 ```
 
 Useful flags: `-tenant id=server-key` and `-dashboard-key id=login-key` (both repeatable),
-`-store memory`, `-auto-kick` (critical integrity evidence only),
+`-store memory`, `-auto-kick` (critical integrity evidence only), `-client-notices` (tell a
+client when its session is flagged, see [Enforcement notice](#enforcement-notice); off by
+default), `-client-notices-strict` (also send the notices that are held back because an
+honest, modified game build produces the same evidence),
+`-test-notice-after 30s` (send every new session a notice labelled as a test),
 `-dashboard-listen ""` (disables the dashboard), `-dashboard-secure-cookie` (behind HTTPS),
 `-hb-interval` / `-hb-timeout`, `-max-handshakes` / `-max-handshakes-per-ip` (raise the
 per-address limit behind a proxy or load balancer, where every player shares one address),
@@ -191,6 +195,7 @@ shows the two halves separately, on the owner's own PC and own game server:
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1             # find the game on E:\, build, install the plugin, run
 powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin   # companion and dashboard only; the game folder is not touched
+powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -TestAlert  # preview of the alert screen; nothing else is started
 powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # restore the game folder
 ```
 
@@ -204,17 +209,64 @@ powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # r
   never taken for the game. It runs `carthago_scan::external` on the
   usual budgeted scheduler: loader module list with each file's Authenticode state, a summary
   of executable memory with no backing image, debugger attachment, other processes' handles
-  to the game, overlay windows, vulnerable drivers. All of it is recorded as context, none of
-  it as integrity evidence, and the companion never closes the game.
-- **What a companion cannot see** that the in-process SDK does: thread start addresses,
-  images missing from the loader list, API hooks, patched code pages, the mitigation profile
-  and the game's own clocks. Executable private memory cannot be judged per region from
-  outside, because the engine's own loader and script JITs look the same as foreign code.
-- **Match data**: `carthago_cs16.amxx` (AMX Mod X 1.8.2+, read-only hooks) reports view
-  angles, positions, user commands, shots, hits and engine line-of-sight traces for every
-  player and bot over loopback UDP; `carthago-cs16-bridge` turns that into `GameplayBatch`
-  v1 and v2, marks bots (`MatchPlayer.bot`: analysed and shown, never counted toward risk)
-  and binds the local human's slot to the companion's verified session.
+  to the game, overlay windows, vulnerable drivers. That much is context for a reviewer,
+  except a debugger attached to the game process, which is integrity evidence.
+- **Changes in the started game**: such a build has no manifest (it ships its own unsigned
+  and modified files), so the companion goes by time. It takes a picture once the game has
+  finished starting (20 s after the engine is loaded and no new module for 5 s;
+  `-BaselineSecs`) and keeps a record of the first start of each game folder in the scratch
+  folder (`-ResetStartProfile` records it anew). Against those it reports, still through
+  the read-only handle: a module that arrives later or was not there at the first start; a
+  library named like a Windows system library that is loaded from elsewhere and is not a
+  copy of it (`opengl32.dll` and the other names a GoldSrc game loads by search order); an
+  executable allocation that begins with a PE header (an image mapped by hand); code of
+  `opengl32.dll`, `hw.dll`, `sw.dll` and `client.dll` that differs from the copy taken at
+  the picture, with the module a written jump leads to; and, for each program with a
+  handle to the game, where its file lies and whether it is signed. The gateway turns
+  these into integrity evidence when they are changes: an unsigned replacement of a
+  renderer or system library, an unsigned module from outside the game folder, a mapped
+  image, rewritten code, an unsigned program from outside the game folder with a handle
+  that can write, a memory editor, and an unsigned program that reads the game and draws a
+  transparent window over it. A valid signature always excuses a file; a name never does.
+- **Alert**: when the gateway flags the session (an [enforcement notice](#enforcement-notice)),
+  the companion shows a full-screen, topmost, red "CHEATER DETECTED" screen with the player,
+  a one-line reason and the session id. It is a window of the companion process; nothing is
+  drawn in or sent to the game. Esc, a click or a timer closes it. By default that is all:
+  the game keeps running. With `-EndMatchOnDetect` the companion also asks the game it
+  started to close (as the window's close button does) and, if it has not closed after five
+  seconds, ends that process; it never ends a process it did not start, and the server never
+  kicks. `-TestAlert` shows the screen as a preview, and `-TestAlertAfter 60` has the gateway
+  send a notice labelled as a test over the running game. In the kit a real alert is
+  raised by a debugger attached to the game; by the changes listed above, under the
+  category "game integrity" or, for the renderer and for a reading overlay, "visibility";
+  and, with the plugin, by the local player's own aim tripping `angle_snap` together with
+  `headshot_rate` or `time_to_damage`. What the build has shown since its first recorded
+  start, changed or new files of the game folder, read-only handles, engine code rewritten
+  while server add-ons are loaded, and jumps into files of the game folder do not raise
+  it: the result names each as "no alert by default", and `-AlertOnIntegrity` raises the
+  alert for them too.
+- **What a companion cannot see**: thread start addresses, function pointers in the game's
+  data (engine and client function tables, which many GoldSrc cheats hook instead of code),
+  the mitigation profile and the game's own clocks. Code that was already rewritten when
+  the picture was taken is part of the picture. Executable private memory without a PE
+  header cannot be judged per region, because script JITs and graphics drivers look the
+  same as foreign code. A file inside the game folder looks like the game's own unless it
+  shadows a system library. Programs that run elevated, or in the kernel, cannot be seen
+  holding the game open by a companion that is not elevated.
+- **Match data**: `carthago_cs16.amxx` (AMX Mod X 1.8+, fakemeta and sockets only, read-only
+  hooks) reports view angles, positions, user commands, shots, hits and engine line-of-sight
+  traces for every player and bot over loopback UDP; `carthago-cs16-bridge` turns that into
+  `GameplayBatch` v1 and v2, marks bots (`MatchPlayer.bot`: analysed and shown, never counted
+  toward risk) and binds the local human's slot to the companion's verified session.
+- **Unknown game builds**: the plugin hooks nothing while it loads, switches its parts on one
+  per second after the map is up, writes a line before and after each (`addons\amxmodx\logs\
+  carthago_cs16.log`) and stays off with a log line when a module or native is missing. It is
+  built in four stages (loaded only; positions; user commands and line of sight; shots and
+  hits). `tools\carthago-cs16.ps1 -Diagnose` runs them one after the other on a map, each
+  closing the game by itself, names the step a failing stage stopped at, copies the plugin,
+  AMX Mod X, console and crash-dump information into the run's log folder, and leaves the
+  highest working stage installed. Where the game ships `amxxpc.exe`, the script builds the
+  plugin with it, so the build matches the AMX Mod X that loads it.
 - **Not done**: map occluders are not derived from the BSP, so information-leak scoring is
   off for these matches; thresholds are the synthetic defaults, not tuned for CS 1.6.
 
@@ -247,6 +299,7 @@ cfg.flags = 0;                                       // or CARTHAGO_FLAG_STRICT_
 carthago_init(&cfg);                                 // ≤ 50 ms, work happens off the main thread
 
 carthago_set_kick_callback(on_kick, nullptr);
+carthago_set_notice_callback(on_notice, nullptr);    // the gateway flagged this session: draw your own screen
 carthago_begin_session(player_id_hmac, on_session_ready, nullptr); // async; you get trust level + flags
 
 // every frame, on the game thread:
@@ -276,6 +329,39 @@ thread and may call any SDK function, including `carthago_shutdown`.
 For the behavioural rules, record gameplay with `MatchRecorder` (view angles, shots,
 visibility changes, command counts, trigger timestamps) and send each flushed batch through
 `GameplayStream` (it takes the same pins). `send` never blocks the tick.
+
+### Enforcement notice
+
+A gateway started with `-client-notices` tells a client when its session is flagged, so the
+game can show its own screen. The notice is a small message on the session channel, signed
+with the gateway's identity key: session id, time, a category (game integrity, debugger, time
+manipulation, aim assistance, visibility, or test) and a severity. It never carries rule names, thresholds
+or measurements. The SDK checks the signature and the session id and hands it to
+`carthago_set_notice_callback` (or `carthago_poll_notice`; `Runtime::set_notice_callback` and
+`poll_notice` in Rust). A notice informs: it does not end the session, and kicking stays a
+separate switch (`-auto-kick`).
+
+Only evidence that stands on its own raises one, at most once per session and category:
+
+- patched game code, a hooked API, an image mapped outside the loader list;
+- a debugger attached to the game process itself;
+- the game's clocks disagreeing with each other;
+- `angle_snap` together with `headshot_rate` or `time_to_damage` for the same player in the
+  same match, when that slot is bound to a verified session;
+- from a companion beside a game without the SDK: a change against the started game or
+  against its first recorded start (replaced renderer or system library, unsigned module
+  from outside the game folder, image mapped by hand, rewritten renderer, engine or client
+  code, unsigned program with a write handle, memory editor, reading overlay). Renderer
+  findings and the reading overlay use the visibility category.
+
+Evidence that an honest, modified game build produces too is held back and logged as
+`notice withheld`; `-client-notices-strict` sends it.
+
+Rules that flag a player for review never raise one, alone or together: `information_leak`,
+`decoy_reaction`, command rate and input timing, unsigned files as such, overlays as such,
+handles of signed programs, vulnerable drivers, a kernel debugger setting, executable memory
+without a PE header seen from outside, and scanner health. The lists are in
+`backend/internal/pipeline/notice.go` and `backend/internal/analyzer/companion.go`.
 
 ### Unity and Unreal (coming)
 

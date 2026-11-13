@@ -193,3 +193,39 @@ func TestTrustLevel(t *testing.T) {
 		}
 	}
 }
+
+func TestNoticeVectors(t *testing.T) {
+	v := load[NoticeVectors](t, "notice.json")
+	gen, err := BuildNoticeVectors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameJSON(t, "notice.json", v, gen)
+	pub := ed25519.PublicKey(v.ServerIdentityPub)
+	for _, c := range v.Valid {
+		var n pb.EnforcementNotice
+		if err := proto.Unmarshal(c.NoticeBytes, &n); err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		body, err := VerifyNotice(pub, &n)
+		if err != nil {
+			t.Fatalf("%s: %v", c.Name, err)
+		}
+		if !bytes.Equal(n.Body, c.BodyBytes) || !bytes.Equal(body.NoticeId, c.NoticeID) || !bytes.Equal(body.SessionId, c.SessionID) || body.TenantId != c.TenantID ||
+			body.PlayerIdHash != c.PlayerIDHash || body.IssuedAtMs != c.IssuedAtMs || body.Category != c.Category || body.Severity != c.Severity {
+			t.Errorf("%s: decoded body %v does not match the fields", c.Name, body)
+		}
+	}
+	if len(v.Invalid) == 0 {
+		t.Fatal("no invalid notices")
+	}
+	for _, c := range v.Invalid {
+		var n pb.EnforcementNotice
+		if err := proto.Unmarshal(c.NoticeBytes, &n); err != nil {
+			continue
+		}
+		if _, err := VerifyNotice(pub, &n); err == nil {
+			t.Errorf("%s: accepted", c.Name)
+		}
+	}
+}
