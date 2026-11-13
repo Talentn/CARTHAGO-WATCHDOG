@@ -936,6 +936,9 @@ function IntegrityReport {
     } elseif ($script:firstStart) {
         Note "the game closed before its start could be recorded; the next run records it"
     }
+    if ($comp | Where-Object { $_ -match 'START PROFILE incomplete' }) {
+        Note "the game was closed before the companion had looked at everything a clean start shows (about $($BaselineSecs + 25) seconds after the game opens); the next run still records the rest, so keep that one clean as well"
+    }
     if (-not ($comp | Where-Object { $_ -match 'BASELINE taken' })) {
         Note "the game closed before the companion had taken its picture of the started game (about $BaselineSecs seconds after the engine loads): changes were not looked for"
     }
