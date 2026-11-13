@@ -54,6 +54,10 @@ type PlayerSpec struct {
 	SessionID  string
 	PlayerHash string
 	MMR        int32
+	// Counter-Strike matches only: a bot of the game, and the human playing on the machine
+	// the game server runs on.
+	Bot   bool
+	Local bool
 }
 
 type Spec struct {
@@ -64,6 +68,11 @@ type Spec struct {
 	Seed         uint64
 	MotionStride uint32
 	Players      []PlayerSpec
+	// CS plays the match the way Counter-Strike 1.6 does, on the Counter-Strike build of
+	// the yard (cs.go): rounds, deaths, the game's own sound distances, no automatic
+	// spotting, and dead human players who watch and call out enemy positions.
+	CS       bool
+	RoundSec int // length of a round (default 90)
 }
 
 // DefaultPlayers is a 5v5 (shooter) or five teams of two (extraction) with the given roles
@@ -94,6 +103,7 @@ type PlayerFrame struct {
 
 type Frame struct {
 	Tick    uint32
+	Sight   [][3]uint32 // Counter-Strike: (a, b, 0|1) when the line of sight between two opponents changes
 	Players []PlayerFrame
 	Sounds  []*pb.SoundEvent
 	Team    []*pb.TeamInfo
@@ -150,6 +160,8 @@ type simPlayer struct {
 	prefire    int
 	visited    []int
 	hsRate     float64
+	dead       bool
+	hp         int
 }
 
 type simItem struct {
@@ -173,6 +185,11 @@ type sim struct {
 	spotOut map[[2]uint32]float64
 	items   []*simItem
 	frame   *Frame
+	// Counter-Strike rounds.
+	cs        bool
+	roundEnd  float64
+	restartAt float64
+	sight     map[[2]uint32]bool
 }
 
 var yardMap = func() *knowledge.Map {
@@ -192,11 +209,20 @@ func v3(n node, z float64) knowledge.Vec3 { return knowledge.Vec3{X: n.x, Y: n.y
 func Run(spec Spec, emit func(*Frame)) {
 	if spec.TickRate == 0 {
 		spec.TickRate = 64
+		if spec.CS {
+			spec.TickRate = CSTickRate
+		}
 	}
 	s := &sim{spec: spec, m: yardMap, r: rng{spec.Seed*0x9e37_79b9_7f4a_7c15 | 1}, dt: 1 / float64(spec.TickRate),
 		bySlot: map[uint32]*simPlayer{}, spots: map[[2]uint32]heard{}, spotOut: map[[2]uint32]float64{}}
+	if spec.CS {
+		if s.spec.RoundSec == 0 {
+			s.spec.RoundSec = 90
+		}
+		s.cs, s.m, s.sight, s.roundEnd = true, csYardMap, map[[2]uint32]bool{}, float64(s.spec.RoundSec)
+	}
 	for i, ps := range spec.Players {
-		p := &simPlayer{spec: ps, engaged: -1, cooldown: map[uint32]float64{}, visible: map[uint32]bool{}, heard: map[uint32]heard{}}
+		p := &simPlayer{spec: ps, engaged: -1, cooldown: map[uint32]float64{}, visible: map[uint32]bool{}, heard: map[uint32]heard{}, hp: 100}
 		p.at = s.spawnNode(ps, i)
 		p.pos = v3(nodes[p.at], EyeHeight)
 		p.yaw = s.r.between(-180, 180)
@@ -285,7 +311,7 @@ func (s *sim) canSee(a, b *simPlayer) bool {
 func (s *sim) enemies(p *simPlayer) []*simPlayer {
 	var out []*simPlayer
 	for _, q := range s.ps {
-		if q.spec.Team != p.spec.Team {
+		if q.spec.Team != p.spec.Team && !q.dead {
 			out = append(out, q)
 		}
 	}
@@ -293,8 +319,15 @@ func (s *sim) enemies(p *simPlayer) []*simPlayer {
 }
 
 func (s *sim) step() {
+	if s.cs {
+		s.round()
+		s.csSight()
+	}
 	// Visibility, the game's trace events and automatic team spots.
 	for _, p := range s.ps {
+		if p.dead {
+			continue
+		}
 		for _, e := range s.enemies(p) {
 			vis := s.canSee(p, e)
 			if vis != p.visible[e.spec.Slot] {
@@ -304,7 +337,9 @@ func (s *sim) step() {
 			if vis {
 				key := [2]uint32{p.spec.Team, e.spec.Slot}
 				s.spots[key] = heard{e.pos, s.now}
-				if s.now-s.spotOut[key] >= 0.5 {
+				// Counter-Strike marks nobody for the team: what a teammate sees reaches
+				// the others by voice, which no telemetry carries.
+				if !s.cs && s.now-s.spotOut[key] >= 0.5 {
 					s.spotOut[key] = s.now
 					s.frame.Team = append(s.frame.Team, &pb.TeamInfo{Tick: s.tick, Team: p.spec.Team, Kind: pb.TeamInfoKind_TEAM_INFO_KIND_SPOTTED,
 						SourceSlot: int32(p.spec.Slot), TargetSlot: int32(e.spec.Slot), XCm: cmv(e.pos.X), YCm: cmv(e.pos.Y), ZCm: cmv(e.pos.Z), DurationMs: 2000})
@@ -313,12 +348,17 @@ func (s *sim) step() {
 		}
 	}
 	for _, p := range s.ps {
-		s.think(p)
+		if !p.dead {
+			s.think(p)
+		}
 	}
 	if len(s.items) > 0 {
 		s.loot()
 	}
 	for _, p := range s.ps {
+		if p.dead {
+			continue
+		}
 		s.frame.Players = append(s.frame.Players, PlayerFrame{Slot: p.spec.Slot, Pos: p.pos, Vel: p.vel, Yaw: p.yaw, Pitch: p.pitch, Commands: 1})
 	}
 }
@@ -359,7 +399,7 @@ func (s *sim) hiddenNearest(p *simPlayer, rng float64) *simPlayer {
 
 func (s *sim) teamSees(p, e *simPlayer) bool {
 	for _, m := range s.ps {
-		if m != p && m.spec.Team == p.spec.Team && m.visible[e.spec.Slot] {
+		if m != p && !m.dead && m.spec.Team == p.spec.Team && m.visible[e.spec.Slot] {
 			return true
 		}
 	}
@@ -423,9 +463,8 @@ func (s *sim) think(p *simPlayer) {
 		}
 	case role == RoleSound:
 		var best *heard
-		for _, h := range p.heard {
-			if s.now-h.at < 2.5 {
-				h := h
+		for _, e := range s.ps {
+			if h, ok := p.heard[e.spec.Slot]; ok && s.now-h.at < 2.5 {
 				if best == nil || h.at > best.at {
 					best = &h
 				}
@@ -549,7 +588,20 @@ func (s *sim) shoot(p *simPlayer, target int32, hit bool, dist float64) {
 		sh.Headshot = s.r.unit() < p.hsRate
 	}
 	s.frame.Shots = append(s.frame.Shots, sh)
-	s.sound(p, pb.SoundKind_SOUND_KIND_GUNSHOT, p.pos, 60)
+	if !s.cs {
+		s.sound(p, pb.SoundKind_SOUND_KIND_GUNSHOT, p.pos, 60)
+		return
+	}
+	sh.Weapon = "ak47"
+	s.sound(p, pb.SoundKind_SOUND_KIND_GUNSHOT, p.pos, csGunshotRadius)
+	if e := s.bySlot[uint32(max(target, 0))]; hit && e != nil && !e.dead {
+		s.sound(e, pb.SoundKind_SOUND_KIND_VOICE, e.pos, csNormalRadius)
+		e.hp -= 28 + s.r.intn(12)
+		if sh.Headshot || e.hp <= 0 {
+			sh.Kill = true
+			s.kill(e)
+		}
+	}
 }
 
 func (s *sim) fire(p *simPlayer, tracking *simPlayer) {
@@ -584,7 +636,7 @@ func (s *sim) sound(src *simPlayer, kind pb.SoundKind, at knowledge.Vec3, radius
 	s.frame.Sounds = append(s.frame.Sounds, &pb.SoundEvent{Tick: s.tick, SourceSlot: int32(src.spec.Slot), Kind: kind,
 		XCm: cmv(at.X), YCm: cmv(at.Y), ZCm: cmv(at.Z), RadiusCm: uint32(radius * 100)})
 	for _, q := range s.ps {
-		if q.spec.Team != src.spec.Team && q.pos.Dist(at) <= radius {
+		if q.spec.Team != src.spec.Team && !q.dead && q.pos.Dist(at) <= radius {
 			q.heard[src.spec.Slot] = heard{at, s.now}
 		}
 	}
@@ -614,6 +666,9 @@ func (s *sim) move(p *simPlayer, moving bool) {
 	speed := 2.2
 	if p.running {
 		speed = 5
+		if s.cs {
+			speed = csRunSpeed
+		}
 	}
 	tgt := v3(nodes[p.path[0]], EyeHeight)
 	d := tgt.Sub(p.pos)
@@ -637,7 +692,11 @@ func (s *sim) move(p *simPlayer, moving bool) {
 	if p.running {
 		if p.step -= s.dt; p.step <= 0 {
 			p.step = 0.33
-			s.sound(p, pb.SoundKind_SOUND_KIND_FOOTSTEP, knowledge.Vec3{X: p.pos.X, Y: p.pos.Y, Z: 0.05}, 18)
+			radius := 18.0
+			if s.cs {
+				radius = csNormalRadius
+			}
+			s.sound(p, pb.SoundKind_SOUND_KIND_FOOTSTEP, knowledge.Vec3{X: p.pos.X, Y: p.pos.Y, Z: 0.05}, radius)
 		}
 	}
 }
@@ -791,6 +850,8 @@ func ModeName(m pb.GameMode) string {
 		return "extraction"
 	case pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER:
 		return "shooter"
+	case pb.GameMode_GAME_MODE_ROUND_SHOOTER:
+		return "round_shooter"
 	}
 	return "unspecified"
 }

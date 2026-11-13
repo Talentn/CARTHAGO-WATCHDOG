@@ -29,6 +29,18 @@
 //	                    simulator knows), subtle (does so rarely and noisily).
 //	-calibrate N        simulates N matches per mode and prints, per segment, the honest
 //	                    false-flag rate and the recall on informed and subtle players.
+//
+// Counter-Strike 1.6 (the yard as a GoldSrc map, matches played by that game's rules and
+// written as the server plugin's stream):
+//
+//	-cs-stream FILE     writes one match's plugin stream; -cs-map FILE also writes the map
+//	                    file (BSP version 30) the bridge reads. -roles, -match,
+//	                    -match-seconds, -seed and -cs-people apply. Slot 1 is the human on
+//	                    the server's machine; without -cs-people the others are bots.
+//	-cs-calibrate N     plays N matches, converts each with the real bridge (-bridge PATH
+//	                    to carthago-cs16-bridge) and prints how often honest players are
+//	                    flagged for review and reach the opt-in live alert, and how often
+//	                    informed ones do. One row for bot teammates and one for people.
 package main
 
 import (
@@ -282,6 +294,38 @@ func run(ctx context.Context, url, tenant string, identity ed25519.PublicKey, p 
 	}
 }
 
+func writeCS(stream, bsp, roles, matchID string, seconds int, seed uint64, bots bool) error {
+	if bsp != "" {
+		f, err := os.Create(bsp)
+		if err != nil {
+			return err
+		}
+		if err := errors.Join(synth.WriteCSYardBSP(f), f.Close()); err != nil {
+			return err
+		}
+	}
+	if stream == "" {
+		return nil
+	}
+	var list []synth.Role
+	for _, w := range strings.Split(roles, ",") {
+		r, ok := synth.ParseRole(strings.TrimSpace(w))
+		if !ok {
+			return fmt.Errorf("unknown role %q", w)
+		}
+		list = append(list, r)
+	}
+	if matchID == "" {
+		matchID = fmt.Sprintf("cs-yard-%d", seed)
+	}
+	spec := synth.Spec{MatchID: matchID, Mode: pb.GameMode_GAME_MODE_ROUND_SHOOTER, Seconds: seconds, Seed: seed, Players: synth.CSPlayers(list, bots)}
+	f, err := os.Create(stream)
+	if err != nil {
+		return err
+	}
+	return errors.Join(synth.WriteCS16Stream(f, spec), f.Close())
+}
+
 func main() {
 	url := flag.String("gateway", "ws://127.0.0.1:8750/v1/client", "gateway client endpoint")
 	keysPath := flag.String("keys", "gateway-data/public-keys.json", "gateway public-keys.json (pins the identity key)")
@@ -299,7 +343,33 @@ func main() {
 	matchSeconds := flag.Int("match-seconds", 1800, "simulated match length for -scenario-out and -calibrate")
 	seed := flag.Uint64("seed", 11, "simulation seed")
 	calibrate := flag.Int("calibrate", 0, "simulate this many matches per mode, print the per-segment calibration and exit")
+	csStream := flag.String("cs-stream", "", "write a Counter-Strike 1.6 match as the server plugin's stream and exit")
+	csMap := flag.String("cs-map", "", "with -cs-stream or alone: write the Counter-Strike yard as a map file (BSP version 30)")
+	csPeople := flag.Bool("cs-people", false, "Counter-Strike: all ten players are people (dead ones call out positions) instead of one person and nine bots")
+	csCalibrate := flag.Int("cs-calibrate", 0, "play this many Counter-Strike matches through the bridge, print the calibration and exit")
+	bridge := flag.String("bridge", "carthago-cs16-bridge", "path to carthago-cs16-bridge for -cs-calibrate")
 	flag.Parse()
+
+	if *csCalibrate > 0 {
+		var runs []*synth.CSCalibration
+		for _, bots := range []bool{true, false} {
+			c, err := synth.CSCalibrate(*bridge, *csCalibrate, *matchSeconds, *seed, knowledge.DefaultConfig(), knowledge.DefaultAlert(), bots)
+			if err != nil {
+				log.Fatal(err)
+			}
+			runs = append(runs, c)
+		}
+		if err := synth.WriteCSCalibration(os.Stdout, runs); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *csStream != "" || *csMap != "" {
+		if err := writeCS(*csStream, *csMap, *roles, *matchID, *matchSeconds, *seed, !*csPeople); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	if *calibrate > 0 {
 		rows := synth.Calibrate([]pb.GameMode{pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER, pb.GameMode_GAME_MODE_EXTRACTION}, *calibrate, *matchSeconds, *seed, knowledge.DefaultConfig())
