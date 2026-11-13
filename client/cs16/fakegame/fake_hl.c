@@ -18,6 +18,20 @@
  *                                game error
  *   FAKE_CS16_IGNORE_EXTRA_INI=1 only configs\plugins.ini is read, not plugins-*.ini
  *
+ * For the companion's change detection the stand-in can change itself while it runs. It
+ * only ever touches its own process and the stand-in libraries built from fake_dll.c:
+ *   FAKE_CS16_OPENGL=1           loads opengl32.dll by bare name at start, as the engine
+ *                                does: the copy in its folder if there is one
+ *   FAKE_CS16_ADDONS=1           loads cstrike\addons\metamod\dlls\metamod.dll at start
+ *   FAKE_CS16_LATE_AFTER=n       seconds after start at which the following happen (15)
+ *   FAKE_CS16_LATE_DLL=path      loads that library
+ *   FAKE_CS16_LATE_IMAGE=1       allocates a second executable region with a PE header
+ *   FAKE_CS16_LATE_REWRITE=m:how overwrites the first bytes of the export of stand-in
+ *                                library m (hw.dll, opengl32.dll), which nothing calls:
+ *                                "unbacked" writes a jump to memory no file backs, "dll" a
+ *                                jump into the library of FAKE_CS16_LATE_DLL, "bytes" other
+ *                                bytes, "restore" a jump and then the first bytes again
+ *
  * With FAKE_CS16_WINDOW=1 it has a visible window, as the game has, and ends with code 0
  * when that window is asked to close. With FAKE_CS16_WINDOW=2 the window ignores the
  * request, as a game that hangs does.
@@ -133,6 +147,73 @@ static int plugin(const char *map) {
     return 0;
 }
 
+static unsigned char *pe_blob(void) {
+    unsigned char *blob = VirtualAlloc(NULL, 0x40000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (blob) {
+        memset(blob, 0xC3, 0x40000);
+        memcpy(blob, "MZ", 2);
+        *(DWORD *)(blob + 0x3c) = 0x80;
+        memcpy(blob + 0x80, "PE\0\0", 4);
+    }
+    return blob;
+}
+
+static void write_code(unsigned char *at, const unsigned char *bytes, int n) {
+    DWORD old;
+    if (!VirtualProtect(at, n, PAGE_EXECUTE_READWRITE, &old)) return;
+    memcpy(at, bytes, n);
+    VirtualProtect(at, n, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), at, n);
+}
+
+static void jump(unsigned char *at, const unsigned char *to) {
+    unsigned char code[5] = {0xE9};
+    DWORD rel = (DWORD)(to - (at + 5));
+    memcpy(code + 1, &rel, 4);
+    write_code(at, code, 5);
+}
+
+/* What the stand-in does to itself some time after it has started. */
+static void late(void) {
+    const char *dll = getenv("FAKE_CS16_LATE_DLL"), *rewrite = getenv("FAKE_CS16_LATE_REWRITE");
+    HMODULE loaded = NULL;
+    if (dll && *dll) {
+        loaded = LoadLibraryA(dll);
+        printf("stand-in game: loaded %s at %p\n", dll, (void *)loaded);
+    }
+    if (env_int("FAKE_CS16_LATE_IMAGE")) printf("stand-in game: second image region at %p\n", (void *)pe_blob());
+    if (rewrite && *rewrite) {
+        char name[64];
+        const char *how = strchr(rewrite, ':');
+        snprintf(name, sizeof name, "%.*s", how ? (int)(how - rewrite) : 0, rewrite);
+        how = how ? how + 1 : "";
+        HMODULE m = GetModuleHandleA(name);
+        unsigned char *fn = m ? (unsigned char *)GetProcAddress(m, "carthago_fake_export") : NULL;
+        if (!fn) {
+            printf("stand-in game: %s is not a stand-in library, nothing rewritten\n", name);
+        } else if (!strcmp(how, "unbacked")) {
+            unsigned char *relay = VirtualAlloc(NULL, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+            if (relay) {
+                memset(relay, 0xC3, 0x1000);
+                jump(fn, relay);
+            }
+        } else if (!strcmp(how, "dll")) {
+            unsigned char *to = loaded ? (unsigned char *)GetProcAddress(loaded, "carthago_fake_export") : NULL;
+            if (to) jump(fn, to);
+        } else if (!strcmp(how, "bytes")) {
+            write_code(fn, (const unsigned char *)"\x31\xC0\x40\x90\x90", 5);
+        } else if (!strcmp(how, "restore")) {
+            unsigned char first[5];
+            memcpy(first, fn, 5);
+            jump(fn, (unsigned char *)GetModuleHandleA("kernel32.dll") + 0x1000);
+            Sleep(8000);
+            write_code(fn, first, 5);
+        }
+        printf("stand-in game: rewrote %s (%s) at %p\n", name, how, (void *)fn);
+    }
+    fflush(stdout);
+}
+
 static int window_mode;
 static int closed;
 
@@ -165,14 +246,16 @@ int main(int argc, char **argv) {
 
     HMODULE hw = LoadLibraryA("hw.dll");
     HMODULE mp = LoadLibraryA("cstrike\\dlls\\mp.dll");
-
-    unsigned char *blob = VirtualAlloc(NULL, 0x40000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (blob) {
-        memset(blob, 0xC3, 0x40000);
-        memcpy(blob, "MZ", 2);
-        *(DWORD *)(blob + 0x3c) = 0x80;
-        memcpy(blob + 0x80, "PE\0\0", 4);
+    if (env_int("FAKE_CS16_OPENGL")) {
+        char path[MAX_PATH] = "";
+        HMODULE gl = LoadLibraryA("opengl32.dll");
+        if (gl) GetModuleFileNameA(gl, path, sizeof path);
+        printf("stand-in game: opengl32.dll is %s\n", gl ? path : "not loaded");
     }
+    if (env_int("FAKE_CS16_ADDONS")) LoadLibraryA("cstrike\\addons\\metamod\\dlls\\metamod.dll");
+
+    unsigned char *blob = pe_blob();
+    int late_at = env_int("FAKE_CS16_LATE_AFTER") ? env_int("FAKE_CS16_LATE_AFTER") * 10 : 150;
     printf("stand-in game pid %lu: hw=%p mp=%p blob=%p, running %d s\n", GetCurrentProcessId(), (void *)hw, (void *)mp, (void *)blob, secs);
     fflush(stdout);
     if (map) {
@@ -187,6 +270,7 @@ int main(int argc, char **argv) {
         MSG msg;
         while (window_mode && PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
         if (GetFileAttributesA("fake_hl.quit") != INVALID_FILE_ATTRIBUTES) break;
+        if (i == late_at) late();
         Sleep(100);
     }
     if (closed) printf("stand-in game: closed by its window\n");
