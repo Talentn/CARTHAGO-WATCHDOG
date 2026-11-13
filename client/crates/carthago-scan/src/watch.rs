@@ -256,6 +256,31 @@ pub fn jump32(code: &[u8], addr: u32, read_u32: impl Fn(u32) -> Option<u32>) -> 
     }
 }
 
+/// Bytes of a code change that are kept to recognise its undoing.
+pub const PATCH: usize = 16;
+const MAX_RUNS: usize = 8;
+
+/// Stretches in which `now` differs from `was`, as index ranges. Differences less than
+/// [`PATCH`] bytes apart are one stretch (bytes of a written instruction that happen to
+/// equal the old ones do not split it); at most eight are returned.
+pub fn diff_runs(now: &[u8], was: &[u8]) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for (i, (a, b)) in now.iter().zip(was).enumerate() {
+        if a == b {
+            continue;
+        }
+        let joins = runs.last().is_some_and(|&(_, end)| i < end + PATCH);
+        if joins {
+            runs.last_mut().unwrap().1 = i + 1;
+        } else if runs.len() == MAX_RUNS {
+            break;
+        } else {
+            runs.push((i, i + 1));
+        }
+    }
+    runs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,6 +358,19 @@ mod tests {
     fn system_copies() {
         assert_eq!(system_copy(r"C:\Windows\", true, "opengl32.dll"), r"C:\Windows\SysWOW64\opengl32.dll");
         assert_eq!(system_copy(r"C:\Windows", false, "opengl32.dll"), r"C:\Windows\System32\opengl32.dll");
+    }
+
+    #[test]
+    fn changed_stretches() {
+        let was = vec![0x90u8; 200];
+        let mut now = was.clone();
+        assert!(diff_runs(&now, &was).is_empty());
+        now[10..15].copy_from_slice(&[0xE9, 1, 2, 0x90, 4]);
+        now[100] = 0xCC;
+        assert_eq!(diff_runs(&now, &was), vec![(10, 15), (100, 101)], "an equal byte inside a patch does not split it");
+        assert_eq!(diff_runs(&was, &now), vec![(10, 15), (100, 101)], "undoing a change shows the same stretches");
+        let all: Vec<u8> = (0..200).map(|i| if i % 20 == 0 { 0 } else { 0x90 }).collect();
+        assert_eq!(diff_runs(&all, &was).len(), 8, "bounded");
     }
 
     #[test]

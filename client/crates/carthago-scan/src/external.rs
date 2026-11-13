@@ -43,7 +43,7 @@ use crate::hook::{self, Patch};
 use crate::paths::{base_name, Dirs};
 use crate::seen::{fnv1a, Seen};
 use crate::signature;
-use crate::watch::{self, observed, Baseline, FileState, Settle, StartProfile};
+use crate::watch::{self, observed, Baseline, FileState, Settle, StartProfile, PATCH};
 use crate::win::{self, Owned};
 
 const SYNCHRONIZE: u32 = 0x0010_0000;
@@ -766,6 +766,7 @@ const MAX_CODE_PER_MODULE: usize = 24 << 20;
 const MAX_CODE_MODULES: usize = 12;
 /// Passes a change waits for the signature of the module its jump leads to.
 const MAX_DEFER: u8 = 3;
+const MAX_PATCHES: usize = 128;
 
 /// Code of the watched libraries (for a GoldSrc game: the renderer library, the engine and
 /// the client library) compared with a copy taken once the game had finished starting. A
@@ -784,12 +785,14 @@ pub struct ExtCode {
     off: usize,
     buf: Vec<u8>,
     deferred: Vec<(usize, u8)>,
+    /// Reported changes: address, the bytes that were there before, and how many.
+    patches: Vec<(usize, [u8; PATCH], usize)>,
     seen: Seen,
 }
 
 impl ExtCode {
     pub fn new(watch: Arc<Watch>) -> Self {
-        Self { watch, cur: None, pid: 0, mods: Vec::new(), mi: 0, ri: 0, off: 0, buf: vec![0; CODE_CHUNK], deferred: Vec::new(), seen: Seen::new(256) }
+        Self { watch, cur: None, pid: 0, mods: Vec::new(), mi: 0, ri: 0, off: 0, buf: vec![0; CODE_CHUNK], deferred: Vec::new(), patches: Vec::new(), seen: Seen::new(256) }
     }
 
     fn regions(t: &Target, m: &Module) -> Vec<CodeRegion> {
@@ -891,17 +894,39 @@ impl ExtCode {
         } else if self.off >= have {
             self.mods[self.mi].regions[self.ri].snap.extend_from_slice(&buf[..n]);
         } else {
-            let first = {
+            let runs = {
                 let snap = &self.mods[self.mi].regions[self.ri].snap[self.off..self.off + n];
-                buf[..n].iter().zip(snap).position(|(a, b)| a != b)
+                watch::diff_runs(&buf[..n], snap)
             };
-            if let Some(i) = first {
-                let mut code = [0u8; 16];
-                let k = (n - i).min(16);
-                code[..k].copy_from_slice(&buf[i..i + k]);
-                let k = if k < 16 && t.read(at + i, &mut code) { 16 } else { k };
-                if self.changed(ctx, t, &name, at + i, &code[..k]) {
-                    self.mods[self.mi].regions[self.ri].snap[self.off..self.off + n].copy_from_slice(&buf[..n]);
+            for (i, j) in runs {
+                let mut was = [0u8; PATCH];
+                let k = (j - i).min(PATCH);
+                was[..k].copy_from_slice(&self.mods[self.mi].regions[self.ri].snap[self.off + i..self.off + i + k]);
+                let restored = self.patches.iter().position(|p| p.0 == at + i && p.2 == k && p.1[..k] == buf[i..i + k]);
+                let accept = match restored {
+                    // The bytes that were there before an earlier change are back: a hook
+                    // that was taken out again (overlays do this) is not a second change.
+                    Some(p) => {
+                        self.patches.swap_remove(p);
+                        true
+                    }
+                    None => {
+                        let mut code = [0u8; 16];
+                        let have = (n - i).min(16);
+                        code[..have].copy_from_slice(&buf[i..i + have]);
+                        let have = if have < 16 && t.read(at + i, &mut code) { 16 } else { have };
+                        let reported = self.changed(ctx, t, &name, at + i, &code[..have]);
+                        if reported {
+                            if self.patches.len() >= MAX_PATCHES {
+                                self.patches.remove(0);
+                            }
+                            self.patches.push((at + i, was, k));
+                        }
+                        reported
+                    }
+                };
+                if accept {
+                    self.mods[self.mi].regions[self.ri].snap[self.off + i..self.off + j].copy_from_slice(&buf[i..j]);
                 }
             }
         }
@@ -916,7 +941,7 @@ impl Job for ExtCode {
     }
     fn budget(&self) -> JobBudget {
         JobBudget {
-            period_gameplay: Some(Duration::from_secs(10)),
+            period_gameplay: Some(Duration::from_secs(5)),
             period_idle: Some(Duration::from_secs(5)),
             max_step: Duration::from_micros(600),
             max_cpu_per_run: Duration::from_millis(40),
@@ -932,6 +957,7 @@ impl Job for ExtCode {
             self.pid = t.pid();
             self.mods.clear();
             self.deferred.clear();
+            self.patches.clear();
         }
         for m in self.watch.code_modules() {
             if self.mods.len() < MAX_CODE_MODULES && !self.mods.iter().any(|w| w.base == m.base) {

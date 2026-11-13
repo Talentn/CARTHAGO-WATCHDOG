@@ -129,16 +129,22 @@ mod worker {
         shadows_system: bool,
     }
 
-    /// FNV-1a over the file plus its length. It identifies content for a comparison between
+    const DIGEST_MAX: u64 = 32 << 20;
+
+    /// FNV-1a over the file (its first 32 MB) plus its length. It identifies content for a comparison between
     /// runs on the same machine; it is not a defence against a crafted collision.
     fn digest(path: &str) -> Option<String> {
         use std::io::Read;
         let mut f = std::fs::File::open(path).ok()?;
         let mut buf = vec![0u8; 64 * 1024];
         let (mut h, mut len) = (0xcbf2_9ce4_8422_2325u64, 0u64);
+        // Program files of other processes can be very large; the first part and the
+        // length are enough to tell two files apart.
+        let total = f.metadata().ok()?.len();
         loop {
-            let n = f.read(&mut buf).ok()?;
+            let n = if len >= DIGEST_MAX { 0 } else { f.read(&mut buf).ok()? };
             if n == 0 {
+                len = total;
                 break;
             }
             for &b in &buf[..n] {
