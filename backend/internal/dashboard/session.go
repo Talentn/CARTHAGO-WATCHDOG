@@ -166,7 +166,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, tenant str
 		ttl = enrolSessionTTL
 	}
 	row := &store.DashSession{IDHash: hashToken(token), TenantID: tenant, UserID: userID, Kind: kind, CreatedAt: now, LastSeenAt: now,
-		ExpiresAt: now.Add(ttl), IP: s.clientIP(r), UserAgent: cleanLine(r.UserAgent(), 200)}
+		ExpiresAt: now.Add(ttl), IP: s.clientAddr(r), UserAgent: cleanLine(r.UserAgent(), 200)}
 	if err := s.au.PutDashSession(ctx, row); err != nil {
 		return "", err
 	}
@@ -321,7 +321,9 @@ func sameOrigin(r *http.Request) bool {
 	return true
 }
 
-func remoteHost(r *http.Request) string {
+// clientIP is the address of the peer that opened the connection. Behind a reverse proxy
+// that is the proxy; clientAddr is the one that looks past it.
+func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -339,11 +341,11 @@ func (s *Server) trustedProxy(a netip.Addr) bool {
 	return false
 }
 
-// clientIP is the address sign-in limits and the audit log use. Behind a configured
+// clientAddr is the address sign-in limits and the audit log use. Behind a configured
 // reverse proxy it is the last X-Forwarded-For entry that is not itself such a proxy;
 // otherwise the header is ignored, since anyone can send it.
-func (s *Server) clientIP(r *http.Request) string {
-	host := remoteHost(r)
+func (s *Server) clientAddr(r *http.Request) string {
+	host := clientIP(r)
 	if len(s.proxies) == 0 {
 		return host
 	}
@@ -371,7 +373,7 @@ func (s *Server) localRequest(r *http.Request) bool {
 	if !s.loopback {
 		return false
 	}
-	peer, err := netip.ParseAddr(remoteHost(r))
+	peer, err := netip.ParseAddr(clientIP(r))
 	if err != nil || !peer.Unmap().IsLoopback() {
 		return false
 	}

@@ -24,7 +24,7 @@ func (s *Server) Audit(r *http.Request, action, target, detail string) {
 // auditAs writes an entry for an actor who is not (or not yet) the request's viewer: a
 // sign-in, a failed attempt, an accepted invite.
 func (s *Server) auditAs(r *http.Request, tenant string, actorID int64, actor, action, target, detail string) {
-	e := &store.AuditEntry{TenantID: tenant, At: s.now(), ActorID: actorID, Actor: actor, IP: s.clientIP(r),
+	e := &store.AuditEntry{TenantID: tenant, At: s.now(), ActorID: actorID, Actor: actor, IP: s.clientAddr(r),
 		Action: action, Target: cleanLine(target, 200), Detail: cleanLine(detail, 300)}
 	if err := s.au.AppendAudit(r.Context(), e); err != nil {
 		s.log.Error("dashboard audit log write failed", "action", action, "tenant", tenant, "actor", actor, "err", err)

@@ -651,7 +651,7 @@ func TestClientAddress(t *testing.T) {
 		return r
 	}
 	// Without a configured proxy the header is ignored: anyone can send it.
-	if got := f.srv.clientIP(req("203.0.113.9:1000", "10.9.9.9")); got != "203.0.113.9" {
+	if got := f.srv.clientAddr(req("203.0.113.9:1000", "10.9.9.9")); got != "203.0.113.9" {
 		t.Errorf("no proxies configured: %s", got)
 	}
 	if err := f.srv.ConfigureAuth(AuthConfig{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("::1/128")}}); err != nil {
@@ -674,7 +674,7 @@ func TestClientAddress(t *testing.T) {
 		{"203.0.113.9:1000", []string{"198.51.100.1"}, "203.0.113.9"}, // not from a trusted proxy: header ignored
 		{"[::1]:1000", []string{"2001:db8::5"}, "2001:db8::5"},
 	} {
-		if got := f.srv.clientIP(req(c.remote, c.xff...)); got != c.want {
+		if got := f.srv.clientAddr(req(c.remote, c.xff...)); got != c.want {
 			t.Errorf("client address for %s via %v: %s, want %s", c.remote, c.xff, got, c.want)
 		}
 	}

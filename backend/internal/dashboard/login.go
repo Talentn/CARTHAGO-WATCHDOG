@@ -121,7 +121,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 // that studio has an account (see demoAllowed).
 func (s *Server) keyLogin(w http.ResponseWriter, r *http.Request) {
 	tenant, key := strings.TrimSpace(r.PostFormValue("tenant")), r.PostFormValue("key")
-	addr, acct, now := s.clientIP(r), accountKey(tenant, "\x00studio key"), s.now()
+	addr, acct, now := s.clientAddr(r), accountKey(tenant, "\x00studio key"), s.now()
 	if s.lim.blocked(addr, acct, now) {
 		s.renderLogin(w, r, http.StatusTooManyRequests, loginData{Error: msgTooMany})
 		return
@@ -216,7 +216,7 @@ func (s *Server) accountLogin(w http.ResponseWriter, r *http.Request) {
 		s.renderLogin(w, r, http.StatusForbidden, back)
 		return
 	}
-	addr, acct := s.clientIP(r), accountKey(tenant, name)
+	addr, acct := s.clientAddr(r), accountKey(tenant, name)
 	if s.lim.blocked(addr, acct, s.now()) {
 		back.Error = msgTooMany
 		s.renderLogin(w, r, http.StatusTooManyRequests, back)
@@ -285,7 +285,7 @@ func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, u *store.
 	if err := s.au.UpdateDashUser(r.Context(), u.TenantID, u.ID, store.DashUserChange{LastLoginAt: &now}); err != nil {
 		s.log.Warn("dashboard last login", "err", err)
 	}
-	s.log.Info("dashboard login", "remote", s.clientIP(r), "tenant", u.TenantID, "user", u.Name)
+	s.log.Info("dashboard login", "remote", s.clientAddr(r), "tenant", u.TenantID, "user", u.Name)
 	s.auditAs(r, u.TenantID, u.ID, u.Name, "login.ok", "", how)
 	if next != "" {
 		http.Redirect(w, r, next, http.StatusSeeOther)
@@ -326,7 +326,7 @@ func (s *Server) loginCode(w http.ResponseWriter, r *http.Request, v Viewer) {
 	st := stateOf(r)
 	st.audited = true // this handler writes its own entries
 	u := st.user
-	addr, acct := s.clientIP(r), accountKey(u.TenantID, u.Name)
+	addr, acct := s.clientAddr(r), accountKey(u.TenantID, u.Name)
 	end := func() {
 		_ = s.au.DeleteDashSession(r.Context(), st.sess.IDHash)
 		s.clearSession(w)
@@ -381,7 +381,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 // signs in. Wrong guesses count like failed sign-ins, so a stolen session cannot be used to
 // try passwords without limit.
 func (s *Server) confirmPassword(r *http.Request, u *store.DashUser, pw string) (ok bool, msg string) {
-	addr, acct := s.clientIP(r), accountKey(u.TenantID, u.Name)
+	addr, acct := s.clientAddr(r), accountKey(u.TenantID, u.Name)
 	if s.lim.blocked(addr, acct, s.now()) {
 		return false, msgTooMany
 	}

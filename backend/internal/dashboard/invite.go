@@ -23,7 +23,7 @@ type inviteData struct {
 }
 
 func (s *Server) lookupInvite(w http.ResponseWriter, r *http.Request) (*store.DashInvite, string, bool) {
-	addr := s.clientIP(r)
+	addr := s.clientAddr(r)
 	gone := func(status int) (*store.DashInvite, string, bool) {
 		s.render(w, status, "invite", page{Title: "Link not valid", Data: inviteData{Gone: true}})
 		return nil, "", false

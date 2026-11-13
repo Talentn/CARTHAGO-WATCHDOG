@@ -210,7 +210,7 @@ func (s *Server) reauth(r *http.Request, u *store.DashUser) (bool, string) {
 		return false, msg
 	}
 	if _, ok := s.secondFactor(r.Context(), u, r.PostFormValue("code")); !ok {
-		addr, acct := s.clientIP(r), accountKey(u.TenantID, u.Name)
+		addr, acct := s.clientAddr(r), accountKey(u.TenantID, u.Name)
 		s.loginFailed(r, u.TenantID, u.Name, addr, acct, "wrong two-factor code on an account form")
 		return false, "That two-factor code did not match"
 	}
