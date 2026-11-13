@@ -86,7 +86,7 @@
   <p><span class="mark mark-watch">Demo login</span></p>
   <p class="lead">You are signed in with the shared studio key, not as a person</p>
   <p class="note">This login exists for testing on the PC that runs the gateway. It can read every page and act as a reviewer, it cannot manage users or read the audit log, and it stops working for this studio as soon as the studio has its first admin account. Create that account on the gateway PC:</p>
-  <pre class="wrapall">carthago-gateway dashboard-user add-admin{{with $d.DataDir}} -data "{{.}}"{{end}} -tenant {{.Tenant}} -name YOUR-NAME</pre>
+  <pre class="wrapall">{{if $d.Executable}}"{{$d.Executable}}"{{else}}carthago-gateway{{end}} dashboard-user add-admin{{with $d.DataDir}} -data "{{.}}"{{end}} -tenant {{.Tenant}} -name YOUR-NAME</pre>
   <p class="note foot-note">The command prints a one-time link. Open it on this PC to choose the password.</p>
 </section>
 {{end}}

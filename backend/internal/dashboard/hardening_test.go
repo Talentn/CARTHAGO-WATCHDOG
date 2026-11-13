@@ -617,10 +617,10 @@ func TestDemoLogin(t *testing.T) {
 	// The page that explains the demo login prints the command with the gateway's own
 	// data directory, so it can be copied as it stands.
 	d := newFixture(t)
-	if err := d.srv.ConfigureAuth(AuthConfig{Loopback: true, DataDir: `C:\Users\Test User\gateway-data`}); err != nil {
+	if err := d.srv.ConfigureAuth(AuthConfig{Loopback: true, Executable: `E:\scratch\bin\carthago-gateway.exe`, DataDir: `C:\Users\Test User\gateway-data`}); err != nil {
 		t.Fatal(err)
 	}
-	if body := d.get(d.login(t, "demo", "demo-key"), "/account").Body.String(); !strings.Contains(body, `dashboard-user add-admin -data "C:\Users\Test User\gateway-data" -tenant demo -name YOUR-NAME`) {
+	if body := d.get(d.login(t, "demo", "demo-key"), "/account").Body.String(); !strings.Contains(body, `<pre class="wrapall">"E:\scratch\bin\carthago-gateway.exe" dashboard-user add-admin -data "C:\Users\Test User\gateway-data" -tenant demo -name YOUR-NAME</pre>`) {
 		t.Error("the demo login's page does not print the command with the data directory")
 	}
 	// And without any configured key there is nothing to try.

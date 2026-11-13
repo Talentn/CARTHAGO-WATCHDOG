@@ -127,6 +127,10 @@ func (o *dashAuthOptions) configure(d *dashboard.Server, addr string) error {
 		if abs, err := filepath.Abs(o.dataDir); err == nil {
 			c.DataDir = abs
 		}
+		// Not under "go run", whose program file is a temporary build.
+		if exe, err := os.Executable(); err == nil && !strings.Contains(filepath.ToSlash(exe), "/go-build") {
+			c.Executable = exe
+		}
 	}
 	return d.ConfigureAuth(c)
 }
