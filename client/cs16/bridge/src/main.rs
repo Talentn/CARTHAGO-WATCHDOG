@@ -4,13 +4,21 @@
 //!   carthago-cs16-bridge run --keys public-keys.json [--listen 127.0.0.1:27991]
 //!         [--ingest wss://127.0.0.1:8750/v1/ingest] [--server-key demo-server-key]
 //!         [--tenant demo] [--session-file FILE] [--record FILE] [--stop-file FILE]
-//!         [--log FILE] [--idle-secs 20]
+//!         [--log FILE] [--idle-secs 20] [--maps DIR]...
 //!       Runs until the stop file appears. --session-file is the companion's session; its
 //!       token is verified against the gateway's keys before the local player's slot is
-//!       bound to it. --record keeps the raw stream for a later replay.
+//!       bound to it. --record keeps the raw stream for a later replay. Each --maps is a
+//!       folder the game loads maps from (cstrike\maps); the map being played is read from
+//!       the first that has it and its walls are sent to the gateway, which is what turns
+//!       information-leak scoring on. Without --maps that scoring stays off.
 //!
 //!   carthago-cs16-bridge replay FILE --keys public-keys.json [--ingest ...] [--session-file FILE]
+//!         [--maps DIR]...
 //!       Feeds a recorded or synthetic stream straight to the gateway.
+//!
+//!   carthago-cs16-bridge map-hash FILE.bsp [--id NAME] [--out GEOMETRY.pb]
+//!       Reads a map file and prints the hash the gateway identifies its geometry by, in the
+//!       form of a line for the gateway's -map-pins file. --out also writes the geometry.
 //!
 //!   carthago-cs16-bridge send FILE [--to 127.0.0.1:27991] [--speed 8]
 //!       Plays a stream file over UDP the way the plugin would (for testing `run`).
@@ -27,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use carthago_cs16_bridge::{synth, Binding, Bridge};
+use carthago_cs16_bridge::{bsp, synth, Binding, Bridge};
 use carthago_cs16_companion::{parse_keys, SessionFile};
 use carthago_server::{pb, GameplayStream, IngestEvent, PublicKeys, Verifier};
 
@@ -39,6 +47,9 @@ impl Args {
     }
     fn get_or(&self, name: &str, default: &str) -> String {
         self.get(name).unwrap_or_else(|| default.to_owned())
+    }
+    fn all(&self, name: &str) -> Vec<String> {
+        self.0.windows(2).filter(|w| w[0] == name).map(|w| w[1].clone()).collect()
     }
     fn has(&self, name: &str) -> bool {
         self.0.iter().any(|a| a == name)
@@ -216,6 +227,39 @@ fn status(bridge: &Bridge, sink: &Sink, log: &mut Log) {
     ));
 }
 
+fn new_bridge(a: &Args, log: &mut Log) -> Bridge {
+    let mut bridge = Bridge::new();
+    let dirs: Vec<PathBuf> = a.all("--maps").into_iter().map(PathBuf::from).collect();
+    if dirs.is_empty() {
+        log.line("MAP folders not given (--maps): no map geometry is sent and information-leak scoring stays off");
+    } else {
+        log.line(&format!("MAP folders: {}", dirs.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", ")));
+    }
+    bridge.set_map_dirs(dirs);
+    bridge
+}
+
+fn notes(bridge: &mut Bridge, log: &mut Log) {
+    for n in bridge.take_notes() {
+        log.line(&n);
+    }
+}
+
+fn map_hash(a: &Args, file: &str) -> Result<bool, String> {
+    let bytes = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
+    let world = bsp::World::parse(&bytes).map_err(|e| format!("{file}: {e}"))?;
+    let stem = Path::new(file).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let id = bsp::safe_name(&a.get_or("--id", &stem)).ok_or("the map name must be letters, digits, '_' or '-'; give one with --id")?;
+    let g = world.geometry(&id);
+    println!("# {file}: {} splits, {} planes, file sha256 {}, version {}", world.nodes.len(), world.planes.len(), hex::encode(world.sha256), g.version);
+    println!("{id} {}", bsp::geometry_hash(&g));
+    if let Some(out) = a.get("--out") {
+        use prost::Message;
+        std::fs::write(&out, g.encode_to_vec()).map_err(|e| format!("{out}: {e}"))?;
+    }
+    Ok(true)
+}
+
 fn open_log(a: &Args) -> Log {
     Log { file: a.get("--log").and_then(|p| std::fs::File::create(p).ok()), t0: Instant::now() }
 }
@@ -233,7 +277,7 @@ fn run(a: &Args) -> Result<bool, String> {
     };
     let stop = a.get("--stop-file").map(PathBuf::from);
     let idle = Duration::from_secs(a.get_or("--idle-secs", "20").parse().map_err(|_| "--idle-secs: not a number")?);
-    let mut bridge = Bridge::new();
+    let mut bridge = new_bridge(a, &mut log);
     log.line(&format!("listening for the game server plugin on {listen} (loopback only)"));
 
     let mut buf = vec![0u8; 4096];
@@ -253,6 +297,7 @@ fn run(a: &Args) -> Result<bool, String> {
                 }
                 last_data = Instant::now();
                 let batches = bridge.feed(&text);
+                notes(&mut bridge, &mut log);
                 sink.send(batches, &mut log);
                 report_bound(&bridge, &mut bound, &mut log);
             }
@@ -271,6 +316,7 @@ fn run(a: &Args) -> Result<bool, String> {
                 live = false;
                 log.line(&format!("PLUGIN stream silent for {} s; closing the match", idle.as_secs()));
                 let batches = bridge.finish();
+                notes(&mut bridge, &mut log);
                 sink.send(batches, &mut log);
             }
             if stop.as_ref().is_some_and(|p| p.exists()) {
@@ -283,6 +329,7 @@ fn run(a: &Args) -> Result<bool, String> {
         }
     }
     let batches = bridge.finish();
+    notes(&mut bridge, &mut log);
     sink.send(batches, &mut log);
     status(&bridge, &sink, &mut log);
     if bridge.stats.datagrams == 0 {
@@ -296,15 +343,17 @@ fn replay(a: &Args, file: &str) -> Result<bool, String> {
     let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
     let mut sink = Sink::open(a)?;
     let mut watch = SessionWatch::new(a);
-    let mut bridge = Bridge::new();
+    let mut bridge = new_bridge(a, &mut log);
     watch.poll(&mut bridge, &mut log);
     let mut bound = Vec::new();
     for chunk in datagrams(&text) {
         let batches = bridge.feed(chunk);
+        notes(&mut bridge, &mut log);
         sink.send(batches, &mut log);
         report_bound(&bridge, &mut bound, &mut log);
     }
     let batches = bridge.finish();
+    notes(&mut bridge, &mut log);
     sink.send(batches, &mut log);
     status(&bridge, &sink, &mut log);
     Ok(sink.close(&mut log) && bridge.stats.bad_lines == 0)
@@ -350,6 +399,7 @@ fn main() {
         (Some("run"), _) => run(&a),
         (Some("replay"), Some(f)) => replay(&a, &f),
         (Some("send"), Some(f)) => send(&a, &f),
+        (Some("map-hash"), Some(f)) => map_hash(&a, &f),
         (Some("synth"), _) => (|| {
             let out = a.get("--out").ok_or("--out is required")?;
             let seconds = a.get_or("--seconds", "120").parse().map_err(|_| "--seconds: not a number")?;
@@ -359,7 +409,7 @@ fn main() {
             println!("wrote {out}: {} lines", text.lines().count());
             Ok(true)
         })(),
-        _ => Err("usage: carthago-cs16-bridge run|replay FILE|send FILE|synth --out FILE [...] (see the source header)".into()),
+        _ => Err("usage: carthago-cs16-bridge run|replay FILE|send FILE|synth --out FILE|map-hash FILE.bsp [...] (see the source header)".into()),
     };
     match result {
         Ok(true) => {}

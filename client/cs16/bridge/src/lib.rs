@@ -7,14 +7,19 @@
 //!   while the target is also inside the observer's field of view;
 //! - user commands are counted in server ticks of simulated time (`msec`), because a GoldSrc
 //!   client sends one command per rendered frame and the frame rate is not the tick rate;
-//! - gunshot and footstep sounds are derived from shots and from running on the ground;
+//! - gunshot, footstep and pain sounds are derived from shots, from running on the ground
+//!   and from hits, each with the distance at which the game stops playing it;
 //! - bots are declared as bots, and the local human's slot is bound to the companion's
-//!   verified session.
-//!
-//! No map geometry is sent, so the gateway stores the telemetry v2 part and does not run
-//! information-leak scoring on it.
+//!   verified session;
+//! - the solid world of the map is read from the game's own map file ([`bsp`]) and sent
+//!   with a match's first batch, which is what lets the gateway work out who could not
+//!   see whom (information-leak scoring). Without map folders, or when the file is
+//!   missing or unreadable, no geometry is sent and that scoring stays off.
+
+pub mod bsp;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use carthago_server::pb;
 use carthago_server::MatchRecorder;
@@ -29,8 +34,12 @@ const FLAG_LOCAL: u32 = 4;
 const HALF_FOV_DEG: f32 = 50.0;
 /// Seconds of telemetry per batch.
 const BATCH_SECS: u32 = 2;
-const FOOTSTEP_SPEED: f32 = 150.0;
-const FOOTSTEP_RADIUS: f32 = 1000.0;
+/// The game plays a footstep only above 150 units/s on the ground or a ladder (walking and
+/// crouching are silent). The margin below it covers a speed sampled between two steps.
+const FOOTSTEP_SPEED: f32 = 140.0;
+/// Sounds played at normal attenuation (footsteps, pain, pistols) fade to nothing at 1250
+/// units, whatever their volume.
+const NORMAL_SOUND_RADIUS: f32 = 1250.0;
 const HIT_HEAD: u32 = 1;
 
 /// The session the companion holds for the human playing on this machine.
@@ -71,6 +80,10 @@ pub struct Stats {
     pub hits: u64,
     pub batches: u64,
     pub matches: u64,
+    /// Player positions tested against the map, and how many were inside its walls. More
+    /// than a stray few means the map file is not the map being played.
+    pub eyes: u64,
+    pub eyes_in_solid: u64,
 }
 
 pub struct Bridge {
@@ -86,6 +99,9 @@ pub struct Bridge {
     los: BTreeSet<(u32, u32)>,
     seen: BTreeSet<(u32, u32)>,
     binding: Option<Binding>,
+    map_dirs: Vec<PathBuf>,
+    world: Option<bsp::World>,
+    notes: Vec<String>,
     pub stats: Stats,
 }
 
@@ -95,11 +111,13 @@ impl Default for Bridge {
     }
 }
 
-/// Gunshot audibility in game units, from the attenuation the game plays each weapon with.
+/// Gunshot audibility in game units: the distance at which the attenuation the game plays
+/// the weapon with reaches silence, rounded up. The plugin does not say whether a silencer
+/// is on, so a silenced shot is credited as an unsilenced one.
 fn gunshot_radius(weapon: &str) -> f32 {
     match weapon {
-        "awp" | "scout" | "g3sg1" | "sg550" | "m249" => 3500.0,
-        "tmp" => 1200.0,
+        "awp" | "scout" | "g3sg1" | "sg550" | "m249" => 3600.0,
+        "tmp" | "knife" => NORMAL_SOUND_RADIUS,
         _ => 2500.0,
     }
 }
@@ -140,8 +158,64 @@ impl Bridge {
             los: BTreeSet::new(),
             seen: BTreeSet::new(),
             binding: None,
+            map_dirs: Vec::new(),
+            world: None,
+            notes: Vec::new(),
             stats: Stats::default(),
         }
+    }
+
+    /// The folders the game loads maps from (`cstrike\maps` and the like). With them set,
+    /// each match's map file is read and its solid world is sent to the gateway.
+    pub fn set_map_dirs(&mut self, dirs: Vec<PathBuf>) {
+        self.map_dirs = dirs;
+    }
+
+    /// Lines for the log about what happened to map files since the last call.
+    pub fn take_notes(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.notes)
+    }
+
+    fn load_map(&mut self) {
+        self.world = None;
+        if self.map_dirs.is_empty() {
+            return;
+        }
+        let loaded = bsp::find(&self.map_dirs, &self.map).and_then(|(path, bytes)| bsp::World::parse(&bytes).map(|w| (path, w)).map_err(|e| format!("{}: {e}", self.map)));
+        match loaded {
+            Ok((path, world)) => {
+                let id = bsp::safe_name(&self.map).unwrap_or_default();
+                let g = world.geometry(&id);
+                self.notes.push(format!(
+                    "MAP {id}: read {} ({} splits, {} planes, file sha256 {}); sent as version {} with geometry hash {}",
+                    path.display(),
+                    world.nodes.len(),
+                    world.planes.len(),
+                    hex::encode(world.sha256),
+                    g.version,
+                    bsp::geometry_hash(&g)
+                ));
+                if let Some(rec) = self.rec.as_mut() {
+                    rec.set_map(g);
+                }
+                self.world = Some(world);
+            }
+            Err(e) => self.notes.push(format!("MAP not sent: {e}. Information-leak scoring is off for this match")),
+        }
+    }
+
+    fn map_check(&mut self) {
+        if self.world.is_some() && self.stats.eyes > 0 {
+            let (n, bad) = (self.stats.eyes, self.stats.eyes_in_solid);
+            let pct = 100.0 * bad as f64 / n as f64;
+            self.notes.push(format!(
+                "MAP check for {}: {bad} of {n} player positions were inside walls ({pct:.2} %){}",
+                self.map,
+                if pct > 2.0 { ": the map file does not match the map being played" } else { "" }
+            ));
+        }
+        self.stats.eyes = 0;
+        self.stats.eyes_in_solid = 0;
     }
 
     pub fn match_id(&self) -> &str {
@@ -195,7 +269,8 @@ impl Bridge {
         }
         rec.bot(slot, bot);
         let team = if matches!(p.team, 1 | 2) { p.team } else { 0 };
-        rec.player_profile(slot, team, pb::InputDevice::Unspecified, false);
+        // Counter-Strike 1.6 is played with mouse and keyboard and has no aim assistance.
+        rec.player_profile(slot, team, pb::InputDevice::MouseKeyboard, false);
     }
 
     fn fresh(&self, slot: u32) -> Option<&Sample> {
@@ -227,10 +302,10 @@ impl Bridge {
         let step_gap = (self.rate * 2 / 5).max(1);
         for (&slot, p) in self.slots.iter_mut() {
             let Some(s) = p.last.as_ref().filter(|s| s.tick == tick) else { continue };
-            let speed = (s.vel[0] * s.vel[0] + s.vel[1] * s.vel[1]).sqrt();
+            let speed = (s.vel[0] * s.vel[0] + s.vel[1] * s.vel[1] + s.vel[2] * s.vel[2]).sqrt();
             if s.flags & 1 != 0 && s.flags & 2 == 0 && speed > FOOTSTEP_SPEED && tick >= p.next_step {
                 p.next_step = tick + step_gap;
-                rec.sound(tick, Some(slot), pb::SoundKind::Footstep, s.eye.map(|v| v * UNIT_M), FOOTSTEP_RADIUS * UNIT_M);
+                rec.sound(tick, Some(slot), pb::SoundKind::Footstep, s.eye.map(|v| v * UNIT_M), NORMAL_SOUND_RADIUS * UNIT_M);
             }
         }
     }
@@ -243,6 +318,7 @@ impl Bridge {
             self.last_flush = self.tick;
         }
         if over {
+            self.map_check();
             if self.rec.take().is_some() {
                 self.ended.insert(self.match_id.clone());
             }
@@ -292,6 +368,7 @@ impl Bridge {
         rec.set_tick(self.tick);
         self.rec = Some(rec);
         self.stats.matches += 1;
+        self.load_map();
         let slots: Vec<u32> = self.slots.keys().copied().collect();
         for s in slots {
             self.declare(s);
@@ -361,6 +438,10 @@ impl Bridge {
                     vel: [v[5], v[6], v[7]],
                     flags: v[8] as u32,
                 };
+                if let Some(w) = &self.world {
+                    self.stats.eyes += 1;
+                    self.stats.eyes_in_solid += w.solid(sample.eye) as u64;
+                }
                 let rec = self.rec.as_mut()?;
                 rec.aim(s, self.tick, sample.yaw, sample.pitch_up);
                 rec.motion(s, self.tick, sample.eye.map(|c| c * UNIT_M), sample.vel.map(|c| c * UNIT_M));
@@ -388,6 +469,7 @@ impl Bridge {
                 let hit = (1..=64).contains(&target);
                 let tick = self.tick;
                 let at = self.fresh(s).map(|p| p.eye);
+                let victim = if hit { self.fresh(target as u32).map(|p| p.eye) } else { None };
                 let rec = self.rec.as_mut()?;
                 rec.shot(pb::ShotEvent {
                     slot: s,
@@ -401,6 +483,10 @@ impl Bridge {
                 });
                 if let Some(eye) = at {
                     rec.sound(tick, Some(s), pb::SoundKind::Gunshot, eye.map(|c| c * UNIT_M), gunshot_radius(weapon) * UNIT_M);
+                }
+                // A player who is hit cries out where they stand.
+                if let Some(eye) = victim {
+                    rec.sound(tick, Some(target as u32), pb::SoundKind::Voice, eye.map(|c| c * UNIT_M), NORMAL_SOUND_RADIUS * UNIT_M);
                 }
                 self.stats.shots += 1;
                 self.stats.hits += hit as u64;
@@ -595,6 +681,64 @@ mod tests {
         let (_, out) = run(&text, None);
         let vis: Vec<(u32, u32, u32, bool)> = out.iter().flat_map(|b| &b.visibility).map(|v| (v.observer_slot, v.target_slot, v.tick, v.visible)).collect();
         assert_eq!(vis, vec![(1, 2, 10, true), (2, 1, 12, true), (1, 2, 13, false), (2, 1, 13, false)]);
+    }
+
+    #[test]
+    fn the_map_file_is_sent_once_with_the_first_batch() {
+        let dir = std::env::temp_dir().join(format!("carthago-bridge-map-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cs_fixture.bsp"), include_bytes!("../tests/data/cs_fixture.bsp")).unwrap();
+        std::fs::write(dir.join("de_broken.bsp"), b"not a map").unwrap();
+        let mut b = Bridge::new();
+        b.set_map_dirs(vec![dir.clone()]);
+        // Slot 1 stands in the open; slot 2 is put inside the long wall of the fixture.
+        let mut out = b.feed("D 0 1\nH m1 cs_fixture 32 32 0\nP 1 4 1 A\nP 2 1 2 B\nT 1 0 0 300 600 64 0 0 0 1\nT 2 0 0 0 0 64 0 0 0 1\n");
+        for i in 1..200 {
+            out.extend(b.feed(&format!("D {i} {}\nT 1 0 0 300 600 64 0 0 0 1\n", i + 1)));
+        }
+        let notes = b.take_notes();
+        assert!(notes.len() == 1 && notes[0].starts_with("MAP cs_fixture: read ") && notes[0].contains("geometry hash 72dfe43a9661ac35"), "{notes:?}");
+        assert_eq!((b.stats.eyes, b.stats.eyes_in_solid), (201, 1));
+        out.extend(b.finish());
+        let with_map: Vec<u64> = out.iter().filter(|b| b.map_geometry.is_some()).map(|b| b.batch_seq).collect();
+        assert_eq!(with_map, vec![out[0].batch_seq], "the geometry travels once");
+        let g = out[0].map_geometry.as_ref().unwrap();
+        assert!(g.map_id == "cs_fixture" && g.solid.is_some() && g.source_sha256.len() == 32);
+        assert!(out.iter().all(|b| b.map.as_ref().is_some_and(|m| m.map_id == "cs_fixture" && m.version == g.version)));
+        let notes = b.take_notes();
+        assert!(notes.len() == 1 && notes[0].contains("1 of 201 player positions were inside walls") && !notes[0].contains("does not match"), "{notes:?}");
+
+        // A file that is not a map, and a map that is not there: no geometry, and a reason.
+        for (map, why) in [("de_broken", "too short"), ("de_missing", "in none of the map folders"), ("../x", "not a usable map name")] {
+            let mut b = Bridge::new();
+            b.set_map_dirs(vec![dir.clone()]);
+            let mut out = b.feed(&format!("D 0 1\nH m2 {map} 32 32 0\nP 1 4 1 A\nT 1 0 0 300 600 64 0 0 0 1\n"));
+            out.extend(b.finish());
+            assert!(out.iter().all(|b| b.map_geometry.is_none() && b.map.is_none()));
+            let notes = b.take_notes();
+            assert!(notes.len() == 1 && notes[0].starts_with("MAP not sent: ") && notes[0].contains(why), "{notes:?}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn sounds_carry_the_distance_the_game_plays_them_to() {
+        // Slot 1 runs, slot 2 walks, slot 3 runs crouched; slot 1 hits slot 2 with an AWP.
+        let mut text = String::from("D 0 1\nH m1 de_dust2 32 32 0\nP 1 4 1 A\nP 2 1 2 B\nP 3 1 2 C\n");
+        for i in 0..64 {
+            text += &format!("D {} {}\nT 1 0 0 0 0 64 250 0 0 1\nT 2 0 0 500 0 64 120 0 0 1\nT 3 0 0 900 0 46 200 0 0 3\n", i + 1, i + 2);
+        }
+        text += "S 1 awp 2 0 0 500\nS 1 usp -1 0 0 0\n";
+        let (_, out) = run(&text, None);
+        let sounds: Vec<&pb::SoundEvent> = out.iter().flat_map(|b| &b.sounds).collect();
+        let of = |kind: pb::SoundKind, slot: i32| sounds.iter().filter(|s| s.kind == kind as i32 && s.source_slot == slot).map(|s| s.radius_cm).collect::<Vec<_>>();
+        let steps = of(pb::SoundKind::Footstep, 1);
+        assert!(steps.len() >= 4 && steps.iter().all(|&r| r == 3175), "a runner is heard to 1250 units: {steps:?}");
+        assert!(of(pb::SoundKind::Footstep, 2).is_empty() && of(pb::SoundKind::Footstep, 3).is_empty(), "walking and crouching are silent");
+        assert_eq!(of(pb::SoundKind::Gunshot, 1), vec![9144, 6350]);
+        assert_eq!(of(pb::SoundKind::Voice, 2), vec![3175], "a hit player cries out");
+        let p = players(&out);
+        assert!(p.values().all(|p| p.input_device == pb::InputDevice::MouseKeyboard as i32 && !p.aim_assist));
     }
 
     #[test]
