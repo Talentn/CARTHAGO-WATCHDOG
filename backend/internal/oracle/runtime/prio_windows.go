@@ -17,6 +17,12 @@ func lowPriority(cmd *exec.Cmd) {
 // afterStart puts the child in a job that is closed, and the child with it, when the
 // gateway exits: Windows does not end child processes with their parent.
 func afterStart(cmd *exec.Cmd) {
+	// The priority class again, by name: the creation flag is the one that counts from
+	// the first instruction, this covers a system that did not apply it.
+	if p, err := windows.OpenProcess(windows.PROCESS_SET_INFORMATION, false, uint32(cmd.Process.Pid)); err == nil {
+		_ = windows.SetPriorityClass(p, windows.BELOW_NORMAL_PRIORITY_CLASS)
+		windows.CloseHandle(p)
+	}
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return

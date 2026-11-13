@@ -211,8 +211,12 @@ func TestStartsOnDemandCappedAndLowPriority(t *testing.T) {
 	if rec.Unauth != 0 {
 		t.Error("the runtime did not present its key")
 	}
-	if goruntime.GOOS == "linux" && niceOf(pid) != niceness {
-		t.Errorf("server priority: nice %d, want %d", niceOf(pid), niceness)
+	// Below normal priority: nice 10 on Linux, the below-normal class on Windows. The
+	// server reports what it found itself running at, and the test looks from outside.
+	if goruntime.GOOS == "linux" || goruntime.GOOS == "windows" {
+		if rec.Nice != niceness || niceOf(pid) != niceness {
+			t.Errorf("server priority: it saw %d, the test sees %d, want %d", rec.Nice, niceOf(pid), niceness)
+		}
 	}
 
 	// One case at a time, however many are asked for at once.
