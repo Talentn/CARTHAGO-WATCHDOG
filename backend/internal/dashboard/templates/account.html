@@ -1,0 +1,90 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head"><h1>Account{{with $d.User}}<span class="mono">{{.Name}}</span>{{end}}</h1></div>
+{{with $d.Error}}<p class="alert">{{.}}</p>{{end}}
+{{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
+{{with $d.User}}
+<section class="card">
+  <dl class="kv">
+    <dt>User name</dt><dd class="mono">{{.Name}}</dd>
+    <dt>Studio</dt><dd class="mono">{{.TenantID}}</dd>
+    <dt>Role</dt><dd>{{roleLabel .Role}}</dd>
+    <dt>Password changed</dt><dd>{{when .PasswordChangedAt}} <small class="muted">({{ago .PasswordChangedAt}})</small></dd>
+    <dt>Account created</dt><dd>{{when .CreatedAt}} <small class="muted">by {{.CreatedBy}}</small></dd>
+  </dl>
+</section>
+<div class="grid2">
+<section class="card">
+  <h2>Password</h2>
+  <form method="post" action="/account/password" class="stack form">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
+    <label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+    <label>New password again<input name="repeat" type="password" autocomplete="new-password" minlength="12" required></label>
+    <p class="hint">At least 12 characters. A few unrelated words work well. Changing it signs out your other browsers</p>
+    <button type="submit" class="secondary tall">Change password</button>
+  </form>
+</section>
+<section class="card">
+  <div class="card-head"><h2>Two-factor sign-in</h2>{{if .TOTPSecret}}<span class="mark mark-on">On</span>{{else}}<span class="mark mark-clear">Off</span>{{end}}</div>
+  {{if .TOTPSecret}}
+  <p class="note">Signing in takes your password and a code from your authenticator app. {{count $d.Recovery "recovery code" "recovery codes"}} left{{if $d.Required}}. Your studio requires two-factor sign-in, so it cannot be turned off{{end}}</p>
+  <div class="rows">
+    <div class="row"><div><p>New phone or new app</p><p class="hint">Scan a new code. The old app stops working</p></div><a href="/account/two-factor/setup">Replace authenticator app</a></div>
+    <div class="row">
+      <div><p>New recovery codes</p><p class="hint">The old ones stop working</p></div>
+      <form method="post" action="/account/recovery-codes">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <input name="password" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
+        <input name="code" class="otp short" inputmode="numeric" autocomplete="one-time-code" placeholder="Code" aria-label="Two-factor code" maxlength="24" required>
+        <button type="submit" class="secondary">Make new codes</button>
+      </form>
+    </div>
+    {{if not $d.Required}}
+    <div class="row">
+      <div><p>Turn off</p><p class="hint">Sign in with the password alone</p></div>
+      <form method="post" action="/account/two-factor/disable">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <input name="password" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
+        <input name="code" class="otp short" inputmode="numeric" autocomplete="one-time-code" placeholder="Code" aria-label="Two-factor code" maxlength="24" required>
+        <button type="submit" class="secondary">Turn off</button>
+      </form>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="note">Signing in takes only your password. With two-factor sign-in it also takes a code from an authenticator app on your phone, so a stolen password alone is not enough.</p>
+  <p><a href="/account/two-factor/setup">Set up two-factor sign-in</a></p>
+  {{end}}
+</section>
+</div>
+<section class="card">
+  <div class="card-head"><h2>Signed-in browsers</h2>
+    <form method="post" action="/logout/everywhere"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="link">Sign out everywhere</button></form>
+  </div>
+  <table>
+    <thead><tr><th>Browser</th><th>Address</th><th>Signed in</th><th>Last active</th><th></th></tr></thead>
+    <tbody>
+    {{range $d.Sessions}}
+    <tr>
+      <td>{{.Browser}}{{if .Current}} <span class="tag">this browser</span>{{end}}</td>
+      <td class="mono">{{.IP}}</td>
+      <td class="when" title="{{when .Created}}"><span class="mono">{{.Created.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .Created}}</span></td>
+      <td class="when" title="{{when .LastSeen}}"><span class="mono">{{.LastSeen.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .LastSeen}}</span></td>
+      <td class="act">{{if not .Current}}<form method="post" action="/account/sessions/revoke"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button type="submit" class="link">Sign out</button></form>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <p class="note foot-note">A session ends after {{$.Data.IdleText}} without activity and at the latest {{$.Data.TTLText}} after signing in.</p>
+</section>
+{{else}}
+<section class="card narrow">
+  <p><span class="mark mark-watch">Demo login</span></p>
+  <p class="lead">You are signed in with the shared studio key, not as a person</p>
+  <p class="note">This login exists for testing on the PC that runs the gateway. It can read every page and act as a reviewer, it cannot manage users or read the audit log, and it stops working for this studio as soon as the studio has its first admin account. Create that account on the gateway PC:</p>
+  <pre>carthago-gateway dashboard-user add-admin -tenant {{.Tenant}} -name YOUR-NAME</pre>
+  <p class="note foot-note">The command prints a one-time link. Open it on this PC to choose the password.</p>
+</section>
+{{end}}
+{{end}}

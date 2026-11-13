@@ -18,10 +18,20 @@ type fixture struct {
 	srv *Server
 	h   http.Handler
 	now time.Time
+	// remote and host are what every request of do comes from and asks for. The default
+	// is a browser on the gateway PC itself, which is where the demo key login works.
+	remote, host string
 }
 
 func newFixture(t *testing.T) *fixture {
-	st := store.NewMemory()
+	return newFixtureOn(t, store.NewMemory())
+}
+
+func newFixtureOn(t *testing.T, st interface {
+	Store
+	PutSession(context.Context, *store.Session) error
+	PutTelemetry(context.Context, *store.Telemetry) error
+}) *fixture {
 	ctx := context.Background()
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	for _, s := range []store.Session{
@@ -39,20 +49,31 @@ func newFixture(t *testing.T) *fixture {
 	})
 	st.PutTelemetry(ctx, &store.Telemetry{SessionID: "aaaa1111", UpdatedAt: now, WorkerCPUNs: 18e9, Slices: 9000, MitigationsApplied: 3,
 		Coverage: `[{"job":"api_hooks","runs":120,"overruns":1},{"job":"text_integrity","runs":0,"overruns":0,"quarantined":true}]`})
-	srv, err := New(Config{Keys: map[string]string{"demo": "demo-key", "rival": "rival-key"}, Now: func() time.Time { return now }}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	f := &fixture{now: now, remote: "127.0.0.1:5555", host: "127.0.0.1:8751"}
+	srv, err := New(Config{Keys: map[string]string{"demo": "demo-key", "rival": "rival-key"}, Now: func() time.Time { return f.now }}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{srv: srv, h: srv.Handler(), now: now}
+	if err := srv.ConfigureAuth(AuthConfig{Loopback: true}); err != nil {
+		t.Fatal(err)
+	}
+	srv.argon = testArgon
+	f.srv, f.h = srv, srv.Handler()
+	return f
 }
 
 func (f *fixture) do(method, path string, cookie *http.Cookie, form url.Values, hdr map[string]string) *httptest.ResponseRecorder {
+	return f.doOn(f.h, method, path, cookie, form, hdr)
+}
+
+// doOn sends the request to h, which lets a test call one wrapped handler directly.
+func (f *fixture) doOn(h http.Handler, method, path string, cookie *http.Cookie, form url.Values, hdr map[string]string) *httptest.ResponseRecorder {
 	var body io.Reader
 	if form != nil {
 		body = strings.NewReader(form.Encode())
 	}
 	r := httptest.NewRequest(method, path, body)
-	r.RemoteAddr = "192.0.2.1:5555"
+	r.RemoteAddr, r.Host = f.remote, f.host
 	if form != nil {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -63,7 +84,7 @@ func (f *fixture) do(method, path string, cookie *http.Cookie, form url.Values, 
 		r.AddCookie(cookie)
 	}
 	w := httptest.NewRecorder()
-	f.h.ServeHTTP(w, r)
+	h.ServeHTTP(w, r)
 	return w
 }
 
@@ -75,7 +96,7 @@ func (f *fixture) login(t *testing.T, tenant, key string) *http.Cookie {
 	}
 	for _, c := range w.Result().Cookies() {
 		if c.Name == cookieName {
-			if !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
+			if !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
 				t.Fatalf("cookie flags: %+v", c)
 			}
 			return c
@@ -184,29 +205,6 @@ func TestPagesRenderTenantScoped(t *testing.T) {
 	}
 }
 
-func TestCookieTamperingAndExpiry(t *testing.T) {
-	f := newFixture(t)
-	c := f.login(t, "demo", "demo-key")
-	parts := strings.Split(c.Value, ".")
-	forged := *c
-	forged.Value = f.srv.signCookie("rival", f.now.Add(time.Hour))[:len(parts[0])] + "." + parts[1] + "." + parts[2]
-	if w := f.do("GET", "/", &forged, nil, nil); w.Code != http.StatusSeeOther {
-		t.Fatalf("tenant swapped under the demo signature: %d", w.Code)
-	}
-	expired := *c
-	expired.Value = f.srv.signCookie("demo", f.now.Add(-time.Second))
-	if w := f.do("GET", "/", &expired, nil, nil); w.Code != http.StatusSeeOther {
-		t.Fatalf("expired cookie accepted: %d", w.Code)
-	}
-	if w := f.do("POST", "/logout", c, url.Values{}, map[string]string{"Sec-Fetch-Site": "cross-site"}); w.Code != http.StatusForbidden {
-		t.Fatalf("cross-site logout: %d", w.Code)
-	}
-	w := f.do("POST", "/logout", c, url.Values{}, map[string]string{"Sec-Fetch-Site": "same-origin"})
-	if w.Code != http.StatusSeeOther || w.Result().Cookies()[0].MaxAge >= 0 {
-		t.Fatalf("logout: %d %+v", w.Code, w.Result().Cookies())
-	}
-}
-
 func TestStaticAssets(t *testing.T) {
 	f := newFixture(t)
 	for _, p := range []string{"/static/app.css", "/static/carthago-watchdog.svg"} {
@@ -289,10 +287,13 @@ func TestHostCheckStopsRebinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := srv.ConfigureAuth(AuthConfig{Loopback: true}); err != nil {
+		t.Fatal(err)
+	}
 	h := srv.Handler()
 	post := func(host string) int {
 		r := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{"tenant": {"demo"}, "key": {"demo-key"}}.Encode()))
-		r.Host = host
+		r.Host, r.RemoteAddr = host, "127.0.0.1:5555"
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		r.Header.Set("Origin", "http://"+host)
 		w := httptest.NewRecorder()
@@ -328,7 +329,10 @@ func TestCheckKey(t *testing.T) {
 			t.Errorf("checkKey(%q, %q) = %v", c.tenant, c.key, got)
 		}
 	}
-	empty, _ := New(Config{Keys: map[string]string{"demo": ""}}, f.srv.st, f.srv.log)
+	empty, err := New(Config{Keys: map[string]string{"demo": ""}}, f.srv.st, f.srv.log)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if empty.checkKey("demo", "") {
 		t.Error("an empty configured key accepts an empty login")
 	}

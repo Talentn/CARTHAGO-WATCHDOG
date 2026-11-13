@@ -1,0 +1,61 @@
+{{define "content"}}
+{{$d := .Data}}
+{{$u := $d.U}}
+<div class="head">
+  <h1>User<span class="mono">{{$u.Name}}</span></h1>
+  {{if $u.Disabled}}<span class="mark mark-clear">Disabled</span>{{else}}<span class="mark mark-on">Active</span>{{end}}
+</div>
+{{with $d.Error}}<p class="alert">{{.}}</p>{{end}}
+{{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
+<section class="card">
+  <dl class="kv">
+    <dt>Role</dt><dd>{{roleLabel $u.Role}}</dd>
+    <dt>Two-factor sign-in</dt><dd>{{if $u.TOTPSecret}}<span class="mark mark-on">On</span>{{else}}<span class="mark mark-clear">Off</span>{{end}}</dd>
+    <dt>Signed-in browsers</dt><dd class="mono">{{$d.Sessions}}</dd>
+    <dt>Last sign-in</dt><dd>{{if gt $u.LastLoginAt.Unix 0}}{{when $u.LastLoginAt}} <small class="muted">({{ago $u.LastLoginAt}})</small>{{else}}<span class="muted">never</span>{{end}}</dd>
+    <dt>Password changed</dt><dd>{{when $u.PasswordChangedAt}}</dd>
+    <dt>Created</dt><dd>{{when $u.CreatedAt}} <small class="muted">by {{$u.CreatedBy}}</small></dd>
+  </dl>
+</section>
+{{if $d.Self}}
+<p class="note">This is your own account. Your password, two-factor sign-in and signed-in browsers are under <a href="/account">Account</a>. Your role and access are for another admin to change, so a studio cannot end up without one.</p>
+{{else}}
+<section class="card">
+  <h2>Change this account</h2>
+  <div class="rows">
+    <div class="row">
+      <div><p>Role</p><p class="hint">The user is signed out and gets the new role at the next sign-in</p></div>
+      <form method="post" action="/users/{{$u.ID}}/role">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <select name="role" aria-label="Role">{{range $d.Roles}}<option value="{{.Key}}"{{if eq .Key $u.Role}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <button type="submit" class="secondary">Save role</button>
+      </form>
+    </div>
+    <div class="row">
+      <div><p>Sign out everywhere</p><p class="hint">Ends every browser session of this user</p></div>
+      <form method="post" action="/users/{{$u.ID}}/sign-out"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="secondary">Sign out</button></form>
+    </div>
+    <div class="row">
+      <div><p>Password reset link</p><p class="hint">A one-time link, valid 24 hours, with which the user chooses a new password. The current password keeps working until then</p></div>
+      <form method="post" action="/users/{{$u.ID}}/reset-password"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="secondary">Make reset link</button></form>
+    </div>
+    {{if $u.TOTPSecret}}
+    <div class="row">
+      <div><p>Reset two-factor sign-in</p><p class="hint">For a lost phone. Removes the authenticator app and the recovery codes; check first that it is really them asking</p></div>
+      <form method="post" action="/users/{{$u.ID}}/reset-two-factor"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="secondary">Reset two-factor</button></form>
+    </div>
+    {{end}}
+    <div class="row">
+      {{if $u.Disabled}}
+      <div><p>Enable account</p><p class="hint">The user can sign in again with the same password</p></div>
+      <form method="post" action="/users/{{$u.ID}}/enable"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="secondary">Enable</button></form>
+      {{else}}
+      <div><p>Disable account</p><p class="hint">Signs the user out and refuses every sign-in. Nothing is deleted, and the audit log keeps the name</p></div>
+      <form method="post" action="/users/{{$u.ID}}/disable"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit" class="secondary">Disable</button></form>
+      {{end}}
+    </div>
+  </div>
+</section>
+{{end}}
+<p><a href="/users">All users</a></p>
+{{end}}

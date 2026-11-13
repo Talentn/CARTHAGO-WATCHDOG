@@ -2,10 +2,12 @@
 // UI served by the gateway on its own listener, where a studio sees live sessions, trust
 // levels, flagged players and the evidence behind each flag.
 //
-// Each tenant logs in with its dashboard key and only ever sees its own rows: the tenant id
-// comes from an HMAC-signed cookie and every store query is scoped by it. Pages are rendered
-// server-side with html/template (contextual escaping of everything a client or game server
-// sent us) and served with a strict Content-Security-Policy and no scripts at all.
+// People sign in with an account of their studio (user name, password, optionally a
+// two-factor code) and only ever see that studio's rows: the tenant id comes from a
+// server-side session and every store query is scoped by it. Each account has a role, and
+// what it does is written to an audit log. Pages are rendered server-side with
+// html/template (contextual escaping of everything a client or game server sent us) and
+// served with a strict Content-Security-Policy and no scripts at all.
 package dashboard
 
 import (
@@ -20,6 +22,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"math"
 	"net"
 	"net/http"
@@ -45,7 +48,9 @@ type Store interface {
 }
 
 type Config struct {
-	// Keys maps tenant id to the key that tenant's staff log in with.
+	// Keys maps tenant id to that studio's shared key. It is the demo login for local
+	// testing: it works on a loopback listener only, and only until the studio has its
+	// first user account (see AuthConfig and ConfigureAuth).
 	Keys map[string]string
 	// SecureCookie sets the cookie's Secure flag; enable it when the dashboard is served
 	// over HTTPS (directly or behind a TLS-terminating proxy).
@@ -61,6 +66,7 @@ type Config struct {
 }
 
 type Server struct {
+	authState
 	st           Store
 	keys         map[string]string
 	secret       []byte
@@ -90,6 +96,9 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 		for _, h := range cfg.AllowedHosts {
 			s.hosts[strings.ToLower(strings.Trim(h, "[]"))] = true
 		}
+	}
+	if err := s.initAuth(st); err != nil {
+		return nil, err
 	}
 	if err := s.parse(); err != nil {
 		return nil, err
@@ -123,6 +132,7 @@ func (s *Server) parse() error {
 		"add2":      func(a, b float64) float64 { return a + b },
 		"pctOf":     func(f float64) float64 { return f * 100 },
 	}
+	maps.Copy(funcs, authFuncs())
 	s.pages = map[string]*template.Template{}
 	names, err := fs.Glob(templateFS, "templates/*.html")
 	if err != nil {
@@ -144,6 +154,7 @@ func (s *Server) parse() error {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	s.authRoutes(mux)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", staticFiles()))
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
@@ -154,7 +165,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
-	return securityHeaders(s.hostCheck(mux))
+	return s.securityHeaders(s.hostCheck(mux))
 }
 
 // hostCheck refuses requests addressed to a name the dashboard is not served under.
@@ -216,53 +227,31 @@ func staticFiles() http.Handler {
 
 // securityHeaders applies to every response. Pages are never stored by the browser;
 // staticFiles replaces that for the files it serves.
-func securityHeaders(h http.Handler) http.Handler {
+//
+// The policy allows the dashboard's own stylesheet, images and fonts and nothing else: no
+// script from anywhere, no inline style, no plugin, no frame, forms only back to this
+// origin. The other headers close what a policy does not: content sniffing, framing in
+// old browsers, the address of a page (which can hold a one-time link) leaking in a
+// Referer, other origins holding a handle on or embedding these pages, browser features
+// the dashboard never uses, and search engines indexing a dashboard someone left exposed.
+// Over HTTPS the browser is also told to refuse plain HTTP to this host for a year.
+func (s *Server) securityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
 		hd.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("X-Frame-Options", "DENY")
 		hd.Set("Referrer-Policy", "no-referrer")
+		hd.Set("Cross-Origin-Opener-Policy", "same-origin")
+		hd.Set("Cross-Origin-Resource-Policy", "same-origin")
+		hd.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		hd.Set("X-Robots-Tag", "noindex, nofollow")
 		hd.Set("Cache-Control", "no-store")
+		if s.secureCookie {
+			hd.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		h.ServeHTTP(w, r)
 	})
-}
-
-type handler func(w http.ResponseWriter, r *http.Request, tenant string)
-
-func (s *Server) auth(h handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		tenant, ok := s.tenantOf(r)
-		if !ok {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-		h(w, r, tenant)
-	}
-}
-
-type page struct {
-	Title  string
-	Nav    string
-	Tenant string
-	Data   any
-}
-
-func (s *Server) render(w http.ResponseWriter, status int, name string, p page) {
-	t := s.pages[name]
-	if t == nil {
-		http.Error(w, "template missing", http.StatusInternalServerError)
-		return
-	}
-	var b strings.Builder
-	if err := t.Execute(&b, p); err != nil {
-		s.log.Error("dashboard render", "page", name, "err", err)
-		http.Error(w, "render failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(b.String()))
 }
 
 func (s *Server) fail(w http.ResponseWriter, err error) {
@@ -272,47 +261,6 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	}
 	s.log.Error("dashboard query", "err", err)
 	http.Error(w, "query failed", http.StatusInternalServerError)
-}
-
-func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.tenantOf(r); ok {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	s.render(w, http.StatusOK, "login", page{Title: "Sign in"})
-}
-
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	if !sameOrigin(r) {
-		http.Error(w, "cross-site request", http.StatusForbidden)
-		return
-	}
-	ip := clientIP(r)
-	if s.lim.blocked(ip, s.now()) {
-		s.render(w, http.StatusTooManyRequests, "login", page{Title: "Sign in", Data: "Too many failed attempts. Try again in a few minutes."})
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	tenant, key := strings.TrimSpace(r.PostFormValue("tenant")), r.PostFormValue("key")
-	if !s.checkKey(tenant, key) {
-		s.lim.failed(ip, s.now())
-		s.log.Warn("dashboard login failed", "remote", ip, "tenant", tenant)
-		s.render(w, http.StatusUnauthorized, "login", page{Title: "Sign in", Data: "Unknown studio or key"})
-		return
-	}
-	s.lim.reset(ip)
-	s.setSession(w, tenant)
-	s.log.Info("dashboard login", "remote", ip, "tenant", tenant)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	if !sameOrigin(r) {
-		http.Error(w, "cross-site request", http.StatusForbidden)
-		return
-	}
-	s.clearSession(w)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 type overviewData struct {

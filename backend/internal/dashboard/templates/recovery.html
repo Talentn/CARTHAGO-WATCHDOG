@@ -1,0 +1,11 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head"><h1>Recovery codes</h1></div>
+<section class="card narrow">
+  {{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
+  <p class="lead">Save these {{len $d.Codes}} codes now. They are not shown again</p>
+  <ul class="codes">{{range $d.Codes}}<li>{{.}}</li>{{end}}</ul>
+  <p class="note">Each code signs you in once when you do not have your phone. Keep them somewhere other than the phone, such as a password manager or a printed page. Only a scrambled form of them is stored here, so nobody at your studio or at Carthago can read them back to you.</p>
+  <form method="get" action="/account"><button type="submit" class="primary">I have saved them</button></form>
+</section>
+{{end}}

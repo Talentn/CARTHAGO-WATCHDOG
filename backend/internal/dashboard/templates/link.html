@@ -1,0 +1,15 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head"><h1>{{if $d.Reset}}Password reset link for{{else}}Invite link for{{end}}<span class="mono">{{$d.Name}}</span></h1></div>
+<section class="card">
+  <p class="lead">Copy this link now. It is not shown again</p>
+  <pre class="wrapall">{{$d.Link}}</pre>
+  <dl class="kv spaced">
+    <dt>For</dt><dd><span class="mono">{{$d.Name}}</span>, {{$d.Role.Label}}</dd>
+    <dt>Valid until</dt><dd>{{when $d.Expires}}</dd>
+    <dt>Works</dt><dd>once</dd>
+  </dl>
+  <p class="note foot-note">{{if $d.Reset}}Whoever opens the link chooses a new password for this account{{else}}Whoever opens the link chooses the password and becomes this user{{end}}, so send it over a channel you trust. If it goes astray, revoke it under Users before it is used.</p>
+</section>
+<p><a href="/users">All users</a></p>
+{{end}}

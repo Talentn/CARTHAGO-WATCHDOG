@@ -1,0 +1,8 @@
+{{define "content"}}
+<div class="head"><h1>Not allowed</h1></div>
+<section class="card narrow">
+  <p class="lead">This needs the {{.Data}} role</p>
+  <p class="note foot-note">You are signed in as <span class="mono">{{.Viewer.Name}}</span> with the {{.Viewer.Role.Label}} role. An admin of your studio can change it.</p>
+  <p><a href="/">Back to the overview</a></p>
+</section>
+{{end}}
