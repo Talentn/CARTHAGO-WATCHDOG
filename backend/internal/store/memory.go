@@ -12,6 +12,7 @@ type Memory struct {
 	attestations []Attestation
 	evid         *memEvidence
 	play         *memGameplay
+	oracle       *memOracle
 }
 
 func NewMemory() *Memory {
