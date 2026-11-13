@@ -161,6 +161,15 @@ impl Bridge {
         self.slots.iter().map(|(s, p)| (*s, p.name.clone(), p.flags & FLAG_BOT != 0, p.flags & FLAG_LOCAL != 0)).collect()
     }
 
+    /// The slots that are tied to the companion's session right now: a session is known, a
+    /// match is running, and the plugin reported a human on this machine in that slot.
+    pub fn bound_slots(&self) -> Vec<(u32, String)> {
+        if self.binding.is_none() || self.rec.is_none() {
+            return Vec::new();
+        }
+        self.slots.iter().filter(|(_, p)| p.flags & (FLAG_BOT | FLAG_HLTV) == 0 && p.flags & FLAG_LOCAL != 0).map(|(s, p)| (*s, p.name.clone())).collect()
+    }
+
     /// Sets or clears the companion's session. The local human's slot is declared with it
     /// from the next batch on.
     pub fn bind(&mut self, binding: Option<Binding>) {
@@ -547,6 +556,20 @@ mod tests {
         assert_eq!((aim.first_tick, aim.yaw[0], aim.pitch[0]), (100, 270.0, -15.0), "yaw wraps to 0..360, pitch is positive up");
         let m = batch.motion.iter().find(|m| m.slot == 1).unwrap();
         assert_eq!((m.x_cm[0], m.y_cm[0], m.z_cm[0], m.vx_cm_s[0]), (254, 508, 163, 635), "inches to centimetres");
+    }
+
+    #[test]
+    fn a_slot_is_bound_only_when_a_local_human_is_in_a_match() {
+        let bind = Binding { session_id: "ab".repeat(16), player_hash: "cs16-local-player".into() };
+        let mut b = Bridge::new();
+        b.bind(Some(bind));
+        assert!(b.bound_slots().is_empty(), "a session alone binds nothing");
+        b.feed("D 0 1\nH m1 de_dust2 32 12 0\nP 2 1 2 Bot\nP 3 0 1 Remote\n");
+        assert!(b.bound_slots().is_empty(), "bots and remote humans are not the companion's player");
+        b.feed("D 1 2\nP 1 4 1 Ala\n");
+        assert_eq!(b.bound_slots(), vec![(1, "Ala".to_owned())]);
+        b.bind(None);
+        assert!(b.bound_slots().is_empty());
     }
 
     #[test]

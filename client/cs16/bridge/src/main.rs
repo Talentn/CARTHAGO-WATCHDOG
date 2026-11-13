@@ -168,7 +168,7 @@ impl SessionWatch {
             Ok(c) => {
                 let b = Binding { session_id: c.session_id, player_hash: c.player_hash };
                 if self.bound.as_ref() != Some(&b) {
-                    log.line(&format!("SESSION bound: the local player's slot is session {} (player {}, trust level {})", b.session_id, b.player_hash, c.trust_level));
+                    log.line(&format!("SESSION ready: the companion's token verified (session {}, player {}, trust level {}); waiting for its player in a match", b.session_id, b.player_hash, c.trust_level));
                     self.bound = Some(b.clone());
                     bridge.bind(Some(b));
                 }
@@ -181,6 +181,15 @@ impl SessionWatch {
             Err(e) => log.line(&format!("SESSION not bound: the companion's token did not verify ({})", e.class())),
         }
     }
+}
+
+/// Says so, once per slot, when a player slot is actually tied to the companion's session.
+fn report_bound(bridge: &Bridge, seen: &mut Vec<(u32, String)>, log: &mut Log) {
+    let now = bridge.bound_slots();
+    for (slot, name) in now.iter().filter(|b| !seen.contains(b)) {
+        log.line(&format!("SLOT bound: slot {slot} ({name}) is tied to the companion's session"));
+    }
+    *seen = now;
 }
 
 fn status(bridge: &Bridge, sink: &Sink, log: &mut Log) {
@@ -226,6 +235,7 @@ fn run(a: &Args) -> Result<bool, String> {
     let mut buf = vec![0u8; 4096];
     let (mut last_data, mut last_status, mut last_poll) = (Instant::now(), Instant::now(), Instant::now() - Duration::from_secs(5));
     let mut live = false;
+    let mut bound = Vec::new();
     loop {
         match sock.recv_from(&mut buf) {
             Ok((n, from)) if from.ip().is_loopback() => {
@@ -240,6 +250,7 @@ fn run(a: &Args) -> Result<bool, String> {
                 last_data = Instant::now();
                 let batches = bridge.feed(&text);
                 sink.send(batches, &mut log);
+                report_bound(&bridge, &mut bound, &mut log);
             }
             Ok(_) => {}
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
@@ -250,6 +261,7 @@ fn run(a: &Args) -> Result<bool, String> {
         if last_poll.elapsed() >= Duration::from_secs(1) {
             last_poll = Instant::now();
             watch.poll(&mut bridge, &mut log);
+            report_bound(&bridge, &mut bound, &mut log);
             sink.drain(&mut log);
             if live && last_data.elapsed() >= idle {
                 live = false;
@@ -282,9 +294,11 @@ fn replay(a: &Args, file: &str) -> Result<bool, String> {
     let mut watch = SessionWatch::new(a);
     let mut bridge = Bridge::new();
     watch.poll(&mut bridge, &mut log);
+    let mut bound = Vec::new();
     for chunk in datagrams(&text) {
         let batches = bridge.feed(chunk);
         sink.send(batches, &mut log);
+        report_bound(&bridge, &mut bound, &mut log);
     }
     let batches = bridge.finish();
     sink.send(batches, &mut log);
