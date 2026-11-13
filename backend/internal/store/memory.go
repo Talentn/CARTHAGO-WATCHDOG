@@ -14,6 +14,7 @@ type Memory struct {
 	evid         *memEvidence
 	play         *memGameplay
 	oracle       *memOracle
+	bans         *memBans
 }
 
 func NewMemory() *Memory {
