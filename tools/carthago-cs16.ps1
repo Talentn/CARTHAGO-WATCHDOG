@@ -14,7 +14,9 @@
   5. opens the dashboard in the browser and prints its address and login;
   6. starts the game through the companion, which opens an attested session (TPM where
      available, pinned TLS) and watches the game from outside with read-only access;
-  7. when the game closes, keeps the dashboard up until Enter is pressed.
+  7. if the gateway flags the session, the companion shows a full-screen red alert in a
+     window of its own. The game is left running unless -EndMatchOnDetect is given;
+  8. when the game closes, keeps the dashboard up until Enter is pressed.
 
   What is changed in the game folder, and only there:
     - cstrike\addons\amxmodx\plugins\carthago_cs16.amxx           (added)
@@ -40,6 +42,9 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Map de_dust2
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameArgs:"-game cstrike -nomaster"
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -TestAlert
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60 -EndMatchOnDetect
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Diagnose
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Stage 2
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -DashboardOnly
@@ -74,6 +79,21 @@ param(
     [int]$DiagnoseSecs = 0,
     # Use the prebuilt plugin even when the game ships its own AMX Mod X compiler.
     [switch]$NoLocalCompile,
+    # Show the alert screen now, as a preview: no gateway, no game, nothing is detected.
+    [switch]$TestAlert,
+    # Have the gateway send a test notice this many seconds after the session opens, so the
+    # alert appears over the running game. It is labelled as a test.
+    [int]$TestAlertAfter = 0,
+    # When the session is flagged, also close the game this script started (the alert alone
+    # is the default). The server never kicks.
+    [switch]$EndMatchOnDetect,
+    # Seconds until the alert closes by itself; 0 keeps it until Esc or a click.
+    [int]$AlertSecs = 20,
+    # Log a flagged session only; show no alert screen.
+    [switch]$NoAlert,
+    # Start the game in a borderless window (-window -noborder), where the alert is always
+    # visible. The game remembers this; start it once with -full to go back.
+    [switch]$Windowed,
     # Install the plugin and stop, without starting anything.
     [switch]$InstallOnly,
     [switch]$DashboardOnly,
@@ -682,6 +702,33 @@ if (-not $env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR = J $Scratch "cargo-targ
 $companionExe = J $env:CARGO_TARGET_DIR "release" "carthago-cs16$exeSuffix"
 $bridgeExe = J $env:CARGO_TARGET_DIR "release" "carthago-cs16-bridge$exeSuffix"
 
+if ($AlertSecs -lt 0 -or $AlertSecs -gt 600) { Die "-AlertSecs is 0 to 600" }
+if ($TestAlertAfter -lt 0 -or $TestAlertAfter -gt 3600) { Die "-TestAlertAfter is 0 to 3600 seconds" }
+
+# ---- preview of the alert screen ------------------------------------------------------------
+if ($TestAlert) {
+    if (-not $SkipBuild) {
+        if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { Die "'cargo' is not on PATH (the Rust toolchain used for the earlier demos is needed)" }
+        Step "build the companion (cargo, release; the first build takes a few minutes)"
+        Push-Location (J $root "client")
+        cargo build --release -p carthago-cs16-companion 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath (J $logs "build-client.log")
+        $code = $LASTEXITCODE
+        Pop-Location
+        if ($code) { Die "cargo build (see $(J $logs 'build-client.log'))" }
+    }
+    if (-not (Test-Path -LiteralPath $companionExe)) { Die "missing $companionExe (run without -SkipBuild)" }
+    Step "preview of the alert screen"
+    Note "This is what the companion shows when the gateway flags a session. Nothing is started and nothing is detected."
+    Note "Esc, Enter, Space or a click closes it$(if ($AlertSecs) { "; it closes by itself after $AlertSecs seconds" })."
+    $previewArgs = @("--test-alert", "--player", $Player, "--alert-secs", "$AlertSecs")
+    if ($EndMatchOnDetect) { $previewArgs += "--end-match-on-detect" }
+    & $companionExe @previewArgs | Out-Host
+    $code = $LASTEXITCODE
+    if ($code) { Write-Host "FAIL  the preview exited with code $code" -ForegroundColor Red }
+    else { Write-Host "OK    the alert screen was shown and closed" -ForegroundColor Green }
+    exit $code
+}
+
 if (-not $DashboardOnly) {
     Step "find Counter-Strike 1.6"
     FindGame
@@ -747,8 +794,10 @@ foreach ($port in $gatewayPort, $dashboardPort) {
 $keys = J $data "public-keys.json"
 $gwLog = J $logs "gateway.log"
 # Loopback only, self-signed development certificate kept in the scratch folder, and no
-# -auto-kick: nothing the gateway sees can end the session or close the game.
-$gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert")
+# -auto-kick: nothing the gateway sees can end the session. -client-notices lets it tell
+# the companion that the session was flagged, which is what raises the alert.
+$gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
+if ($TestAlertAfter -gt 0 -and -not $Diagnose -and -not $DashboardOnly) { $gwArgs += @("-test-notice-after", "${TestAlertAfter}s") }
 $script:gateway = Start-Process $gatewayExe -ArgumentList $gwArgs -RedirectStandardError $gwLog `
     -RedirectStandardOutput (J $logs "gateway.out") -NoNewWindow -PassThru
 Set-Content -Path $pidFile -Value $script:gateway.Id
@@ -793,11 +842,33 @@ function RunGame($dir, $extra) {
         "--player", $Player, "--session-file", (J $dir "session.json"), "--log", $script:compLog)
     if ($NoTpm) { $compArgs += "--no-tpm" }
     if ($InputMonitor) { $compArgs += "--input-monitor" }
+    # The staged check closes the game by itself; an alert has no place in it.
+    if ($NoAlert -or $Diagnose) { $compArgs += "--no-alert" } else { $compArgs += @("--alert-secs", "$AlertSecs") }
+    if ($EndMatchOnDetect -and -not $Diagnose) { $compArgs += "--end-match-on-detect" }
     $compArgs += "--"
     $compArgs += $GameArgs
     $compArgs += $extra
     & $companionExe @compArgs | Out-Host
     return $LASTEXITCODE
+}
+# Says whether the session was flagged during the run, and why, from the companion's log.
+function AlertVerdict {
+    $lines = @(Get-Content -LiteralPath $script:compLog -ErrorAction SilentlyContinue)
+    $raised = @($lines | Where-Object { $_ -match 'ALERT notice=' })
+    if (-not $raised.Count) {
+        Write-Host "OK    no alert: the gateway did not flag this session" -ForegroundColor Green
+        if ($TestAlertAfter -gt 0) { Note "the test notice is sent $TestAlertAfter seconds after the session opens; the game closed before that" }
+        return
+    }
+    foreach ($line in $raised) {
+        if ($line -match 'ALERT notice=(\S+) category=(\S+) severity=(\S+) test=(\S+): (.*)$') {
+            if ($Matches[4] -eq 'true') { Write-Host "ALERT (test) $($Matches[5])" -ForegroundColor Yellow }
+            else { Write-Host "ALERT the session was flagged: $($Matches[5]) [category $($Matches[2]), severity $($Matches[3]), notice $($Matches[1])]" -ForegroundColor Red }
+        }
+    }
+    if ($NoAlert) { Note "the alert screen was not shown (-NoAlert)" }
+    $lines | Where-Object { $_ -match 'END MATCH' } | ForEach-Object { Note (($_ -replace '^\[[^\]]*\]\s*\S+\s+', '')) }
+    if (-not $EndMatchOnDetect) { Note "the game was left running (alert only; -EndMatchOnDetect also closes the game)" }
 }
 function CompanionVerdict($code, $exeName) {
     switch ($code) {
@@ -906,7 +977,14 @@ Step "start the game through the companion"
 Note "The companion opens the session first, then starts $exeName. Leave this window open."
 if ($plugin -and -not $Map) { Note "In the game: New Game, pick a map, Start. Add bots from the menu (or console: bot_add)." }
 Note "After about 20 seconds in the game, open Sessions in the dashboard."
+if ($TestAlertAfter -gt 0) { Note "A test alert appears $TestAlertAfter seconds after the session opens. Esc or a click closes it." }
+if ($EndMatchOnDetect) { Note "-EndMatchOnDetect: if the session is flagged, the companion also closes the game it started." }
 $extra = @()
+if ($Windowed) {
+    $extra += @("-window", "-noborder")
+    Note "-Windowed: the game starts in a borderless window and remembers that. To go back to full screen, start it once with -full"
+    Note "    (for example -GameArgs:`"-game cstrike -full`") or change it under Options > Video."
+}
 if ($plugin) { $extra += "-condebug" }
 if ($Map) { $extra += @("+maxplayers", "12", "+map", $Map) }
 $from = $(if ($plugin) { ConsoleLength } else { 0 })
@@ -918,6 +996,7 @@ if ($plugin) { $matchData = StopBridge }
 
 Step "result"
 CompanionVerdict $exit $exeName
+AlertVerdict
 if ($plugin) {
     $info = CollectGame $logs $since $from $stamp
     $status = $matchData | Where-Object { $_ -match 'STATUS' } | Select-Object -Last 1
