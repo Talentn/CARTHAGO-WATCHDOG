@@ -1,6 +1,8 @@
-// Package dashboard is the Carthago Watchdog studio dashboard (plan Phase 1): a read-only web
-// UI served by the gateway on its own listener, where a studio sees live sessions, trust
-// levels, flagged players and the evidence behind each flag.
+// Package dashboard is the Carthago Watchdog studio dashboard (plan Phase 1): a web UI served
+// by the gateway on its own listener, where a studio sees live sessions, trust levels,
+// flagged players, the evidence behind each flag and what Carthago Oracle makes of it. It is
+// read-only apart from one thing: a reviewer can label a session, which is a note for the
+// studio and changes nothing about the player.
 //
 // People sign in with an account of their studio (user name, password, optionally a
 // two-factor code) and only ever see that studio's rows: the tenant id comes from a
@@ -44,6 +46,7 @@ var staticFS embed.FS
 // Store is what the dashboard reads; store.SQLite and store.Memory implement it.
 type Store interface {
 	store.EvidenceStore
+	store.OracleStore
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 }
 
@@ -63,6 +66,8 @@ type Config struct {
 	// OnlineWindow: a session counts as online if it heartbeated within this window.
 	OnlineWindow time.Duration
 	Now          func() time.Time
+	// Oracle names the Carthago Oracle this gateway runs; nil when it is off.
+	Oracle *OracleInfo
 }
 
 type Server struct {
@@ -77,6 +82,7 @@ type Server struct {
 	pages        map[string]*template.Template
 	lim          limiter
 	hosts        map[string]bool
+	oracle       *OracleInfo
 }
 
 func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
@@ -90,7 +96,7 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 	if _, err := rand.Read(secret); err != nil {
 		return nil, err
 	}
-	s := &Server{st: st, keys: cfg.Keys, secret: secret, secureCookie: cfg.SecureCookie, online: cfg.OnlineWindow, now: cfg.Now, log: log}
+	s := &Server{st: st, keys: cfg.Keys, secret: secret, secureCookie: cfg.SecureCookie, online: cfg.OnlineWindow, now: cfg.Now, log: log, oracle: cfg.Oracle}
 	if len(cfg.AllowedHosts) > 0 {
 		s.hosts = map[string]bool{}
 		for _, h := range cfg.AllowedHosts {
@@ -108,29 +114,34 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 
 func (s *Server) parse() error {
 	funcs := template.FuncMap{
-		"trust":     trustName,
-		"trustDesc": trustDesc,
-		"sev":       sevName,
-		"ago":       func(t time.Time) string { return ago(s.now(), t) },
-		"when":      func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") },
-		"short":     short,
-		"pct":       pct,
-		"ms":        func(ns uint64) string { return fmt.Sprintf("%.2f ms", float64(ns)/1e6) },
-		"tier":      tier,
-		"risk":      func(r float64) string { return strconv.FormatFloat(r, 'f', 1, 64) },
-		"score":     func(f float64) string { return strconv.FormatFloat(f*100, 'f', 0, 64) + "%" },
-		"flags":     attestFlags,
-		"mitig":     mitigations,
-		"pretty":    prettyJSON,
-		"path":      url.PathEscape,
-		"query":     url.QueryEscape,
-		"add":       func(a, b int) int { return a + b },
-		"bar":       trustBar,
-		"leak":      parseLeak,
-		"decoy":     parseDecoy,
-		"fixed":     fixed,
-		"add2":      func(a, b float64) float64 { return a + b },
-		"pctOf":     func(f float64) float64 { return f * 100 },
+		"trust":      trustName,
+		"trustDesc":  trustDesc,
+		"sev":        sevName,
+		"ago":        func(t time.Time) string { return ago(s.now(), t) },
+		"when":       func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") },
+		"short":      short,
+		"pct":        pct,
+		"ms":         func(ns uint64) string { return fmt.Sprintf("%.2f ms", float64(ns)/1e6) },
+		"tier":       tier,
+		"risk":       func(r float64) string { return strconv.FormatFloat(r, 'f', 1, 64) },
+		"score":      func(f float64) string { return strconv.FormatFloat(f*100, 'f', 0, 64) + "%" },
+		"flags":      attestFlags,
+		"mitig":      mitigations,
+		"pretty":     prettyJSON,
+		"path":       url.PathEscape,
+		"query":      url.QueryEscape,
+		"add":        func(a, b int) int { return a + b },
+		"bar":        trustBar,
+		"leak":       parseLeak,
+		"decoy":      parseDecoy,
+		"fixed":      fixed,
+		"add2":       func(a, b float64) float64 { return a + b },
+		"pctOf":      func(f float64) float64 { return f * 100 },
+		"cheatName":  named(cheatNames),
+		"actionName": named(actionNames),
+		"labelName":  named(labelNames),
+		"reason":     named(unavailableReasons),
+		"auditName":  named(map[string]string{store.LabelSet: "Set", store.LabelAcceptSuggestion: "Accepted suggestion", store.LabelRemove: "Removed"}),
 	}
 	maps.Copy(funcs, authFuncs())
 	s.pages = map[string]*template.Template{}
@@ -140,10 +151,10 @@ func (s *Server) parse() error {
 	}
 	for _, n := range names {
 		base := strings.TrimSuffix(strings.TrimPrefix(n, "templates/"), ".html")
-		if base == "layout" || base == "partials" || base == "decoy" {
+		if base == "layout" || base == "partials" || base == "decoy" || base == "oracle" {
 			continue
 		}
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/decoy.html", n)
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/decoy.html", "templates/oracle.html", n)
 		if err != nil {
 			return err
 		}
@@ -162,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.auth(s.overview))
 	mux.HandleFunc("GET /sessions", s.auth(s.sessions))
 	mux.HandleFunc("GET /sessions/{id}", s.auth(s.session))
+	mux.HandleFunc("POST /sessions/{id}/label", s.auth(s.setLabel))
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
@@ -314,6 +326,14 @@ type sessionData struct {
 	Gameplay  []store.GameplaySummary
 	Leaks     []*leakView
 	Decoys    []*decoyView
+	Oracle    *oracleView
+	Label     labelCard
+}
+
+type labelCard struct {
+	View      *labelView
+	CSRF      string
+	SessionID string
 }
 
 type coverage struct {
@@ -355,6 +375,16 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 		s.fail(w, err)
 		return
 	}
+	if d.Oracle, err = s.oracleFor(ctx, tenant, sess, d.Evidence); err != nil {
+		s.fail(w, err)
+		return
+	}
+	lv, err := s.labelFor(r, tenant, sess, d.Evidence)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	d.Label = labelCard{View: lv, CSRF: s.csrfToken(r), SessionID: id}
 	s.render(w, http.StatusOK, "session", page{Title: "Session " + short(id), Nav: "sessions", Tenant: tenant, Data: d})
 }
 
@@ -377,6 +407,7 @@ type playerData struct {
 	Row      store.PlayerRow
 	Sessions []store.SessionRow
 	Evidence []store.Evidence
+	Oracle   *playerOracle
 }
 
 func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
@@ -417,7 +448,12 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 		}
 	}
 	row.Bot = len(sess) == 0 && bots > 0 && bots == row.EvidenceCount
-	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs}})
+	po, err := s.playerOracleFor(ctx, tenant, hash)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po}})
 }
 
 func (s *Server) evidence(w http.ResponseWriter, r *http.Request, tenant string) {

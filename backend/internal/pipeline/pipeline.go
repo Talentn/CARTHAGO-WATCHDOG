@@ -61,7 +61,10 @@ type Config struct {
 	Leak knowledge.Config
 	// GameplayRetention is how long raw v2 batches are kept for re-scoring and review.
 	GameplayRetention time.Duration
-	Now               func() time.Time
+	// Observer, when set, is told about finished matches and session heartbeats (see
+	// Observer). It is how the Carthago Oracle sees the pipeline's numbers.
+	Observer Observer
+	Now      func() time.Time
 }
 
 func (c *Config) defaults() {
@@ -139,6 +142,7 @@ type matchState struct {
 	sessions map[uint32]store.Session
 	lastSeen time.Time
 	v2       *v2State
+	observed bool // the observer has been told this match finished
 }
 
 // maxSeenPerSession caps the distinct pieces of client evidence recorded per session, whatever
@@ -354,6 +358,9 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 	if err := p.st.PutTelemetry(ctx, telemetry(sess.SessionID, hb, cs, at)); err != nil {
 		p.log.Warn("persist telemetry", "session", sess.SessionID, "err", err)
 	}
+	if p.cfg.Observer != nil {
+		p.cfg.Observer.SessionActivity(sess, len(evs) > 0, at)
+	}
 }
 
 func (p *Pipeline) maybeKick(sessionID string, evs []store.Evidence) {
@@ -465,6 +472,7 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 		p.notifyGameplay(ms)
 	}
 	if b.MatchOver {
+		p.matchFinished(key, ms, at)
 		p.closeMatch(key)
 	}
 	return true, warning, nil
@@ -489,6 +497,7 @@ func (p *Pipeline) prune() {
 	}
 	for k, m := range p.matches {
 		if now.Sub(m.lastSeen) > p.cfg.MatchIdle {
+			p.matchFinished(k, m, now)
 			p.closeMatch(k)
 		}
 	}

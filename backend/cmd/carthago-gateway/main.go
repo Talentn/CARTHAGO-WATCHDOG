@@ -30,6 +30,7 @@ import (
 type evidenceStore interface {
 	store.Store
 	store.EvidenceStore
+	store.OracleStore
 }
 
 type tenantFlag map[string]string
@@ -75,6 +76,7 @@ func main() {
 	clientNotices := flag.Bool("client-notices", false, "tell a client when its session is flagged by evidence that stands on its own (a signed notice with a category and a severity; it never kicks)")
 	clientNoticesStrict := flag.Bool("client-notices-strict", false, "with -client-notices: also send the notices that are held back by default because an honest, modified game build can produce the same evidence (things present since the first recorded start of a game, changed or new files of the game folder, read-only handles, engine code rewritten while server add-ons are loaded)")
 	testNotice := flag.Duration("test-notice-after", 0, "development: send every session a notice of category test this long after its client connected (0 = never)")
+	oracleCfg := oracleFlagSet(flag.CommandLine)
 	flag.Parse()
 	if len(tenants) == 0 {
 		tenants["demo"] = demoServerKey
@@ -146,9 +148,18 @@ func main() {
 		log.Warn(w, "dir", *ekRootsDir)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	orc, err := startOracle(ctx, oracleCfg, *dataDir, st, log)
+	if err != nil {
+		log.Error("oracle", "err", err)
+		os.Exit(1)
+	}
+	defer orc.close()
+
 	var gw *gateway.Gateway
 	kick := kickFunc(func(id, reason string) { gw.Sessions().Kick(id, reason) })
-	detections := pipeline.New(pipeline.Config{AutoKick: *autoKick, Notices: *clientNotices, NoticesOptIn: *clientNoticesStrict}, st, st, kick, log)
+	detections := pipeline.New(pipeline.Config{AutoKick: *autoKick, Notices: *clientNotices, NoticesOptIn: *clientNoticesStrict, Observer: orc.observer}, st, st, kick, log)
 	defer detections.Close()
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
@@ -156,8 +167,6 @@ func main() {
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
@@ -177,7 +186,7 @@ func main() {
 		_ = srv.Shutdown(sctx)
 	}()
 	if *dashListen != "" {
-		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, dashboardHosts(*dashListen, *dashHosts), st, log); err != nil {
+		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, dashboardHosts(*dashListen, *dashHosts), orc.info, st, log); err != nil {
 			log.Error("dashboard", "err", err)
 			os.Exit(1)
 		}
@@ -323,11 +332,11 @@ func (f kickFunc) Kick(id, reason string) { f(id, reason) }
 
 // serveDashboard runs the Carthago Watchdog dashboard on its own listener, so it can stay on
 // loopback (or behind a VPN or proxy) while the client gateway faces the internet.
-func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, st evidenceStore, log *slog.Logger) error {
+func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, orc *dashboard.OracleInfo, st evidenceStore, log *slog.Logger) error {
 	if len(keys) == 0 {
 		log.Info("dashboard has no shared demo key: people sign in with accounts; the first admin of a studio is created with: carthago-gateway dashboard-user add-admin")
 	}
-	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts}, st, log)
+	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts, Oracle: orc}, st, log)
 	if err != nil {
 		return err
 	}
