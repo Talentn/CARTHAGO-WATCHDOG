@@ -128,8 +128,16 @@ pub struct StartProfile {
     learning: bool,
     start: BTreeSet<String>,
     files: BTreeMap<String, String>,
+    /// Kinds of things of which a whole look at a started game has been recorded.
+    whole: BTreeSet<String>,
+    /// Kinds this run still records: the game was closed before they had been looked at.
+    open: BTreeSet<String>,
     dirty: bool,
 }
+
+/// Kinds that are found by a job of their own, some seconds after the picture is taken. A
+/// run that ends before that has not shown them, and the next run goes on recording them.
+const LATE_KINDS: [&str; 2] = ["mapped", "holder"];
 
 impl StartProfile {
     /// For a companion that keeps no record.
@@ -153,9 +161,13 @@ impl StartProfile {
                         p.files.insert(path.trim().to_owned(), digest.to_owned());
                     }
                 }
+                Some(("whole", kind)) => {
+                    p.whole.insert(kind.trim().to_owned());
+                }
                 _ => {}
             }
         }
+        p.open = LATE_KINDS.iter().filter(|k| !p.whole.contains(**k)).map(|k| (*k).to_owned()).collect();
         p
     }
 
@@ -170,11 +182,26 @@ impl StartProfile {
         if self.absent {
             return true;
         }
-        if self.learning {
+        if self.learning || key.split(':').next().is_some_and(|kind| self.open.contains(kind)) {
             self.dirty |= self.start.insert(key);
             return true;
         }
         self.start.contains(&key)
+    }
+
+    /// A whole look at the started game was made for things whose keys begin with `kind`.
+    pub fn whole(&mut self, kind: &str) {
+        if !self.absent {
+            self.dirty |= self.whole.insert(kind.to_owned());
+        }
+    }
+
+    /// Kinds no run has looked at in full yet: the next run goes on recording them.
+    pub fn unrecorded(&self) -> Vec<&'static str> {
+        if self.absent {
+            return Vec::new();
+        }
+        LATE_KINDS.iter().filter(|k| !self.whole.contains(**k)).copied().collect()
     }
 
     /// A game file was seen loaded. A path that is new is recorded; during the first
@@ -212,6 +239,9 @@ impl StartProfile {
         }
         for (path, digest) in &self.files {
             out.push_str(&format!("file {digest} {path}\n"));
+        }
+        for k in &self.whole {
+            out.push_str(&format!("whole {k}\n"));
         }
         Some(out)
     }
@@ -338,6 +368,30 @@ mod tests {
         assert_eq!(third.file(r"cstrike\dlls\mp.dll", "33"), FileState::Same);
         assert_eq!(third.file(r"cstrike\cl_dlls\client.dll", "22"), FileState::Changed, "the first content stays the reference");
         assert_eq!((third.start_entries(), third.file_entries()), (1, 2));
+    }
+
+    #[test]
+    fn a_first_start_that_was_cut_short_is_continued() {
+        let mut first = StartProfile::load(None);
+        assert!(first.known_at_start("module:other:tool.dll:1"));
+        let text = first.save().unwrap();
+
+        // The game was closed before its memory and the other programs had been looked at.
+        let mut second = StartProfile::load(Some(&text));
+        assert!(!second.learning());
+        assert!(!second.known_at_start("module:other:hook.dll:2"), "modules were recorded");
+        assert!(second.known_at_start("mapped:aa"), "mapped images were not, so this run records them");
+        assert!(second.known_at_start("holder:launcher.exe:3"));
+        second.whole("mapped");
+        assert!(second.known_at_start("mapped:bb"), "the whole run counts");
+        let text = second.save().unwrap();
+
+        assert_eq!(second.unrecorded(), ["holder"]);
+
+        let mut third = StartProfile::load(Some(&text));
+        assert!(third.known_at_start("mapped:aa") && third.known_at_start("mapped:bb"));
+        assert!(!third.known_at_start("mapped:cc"), "recorded now, so another one is new");
+        assert!(third.known_at_start("holder:other.exe:4"), "other programs still were not looked at");
     }
 
     #[test]

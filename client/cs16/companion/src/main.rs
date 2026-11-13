@@ -279,10 +279,11 @@ mod win {
                     ));
                 } else {
                     log.info(&format!(
-                        "START PROFILE {}: {} items recorded at the first start, {} game files",
+                        "START PROFILE {}: {} items recorded at the first start, {} game files{}",
                         path.display(),
                         p.start_entries(),
-                        p.file_entries()
+                        p.file_entries(),
+                        if p.unrecorded().is_empty() { "" } else { "; the earlier run was cut short, so this one still records part of what a start shows" }
                     ));
                 }
                 p
@@ -557,6 +558,21 @@ mod win {
         }
         cell.clear();
         save_profile(&log);
+        let lacking: Vec<&str> = watch
+            .unrecorded()
+            .into_iter()
+            .map(|k| match k {
+                "mapped" => "code mapped by hand",
+                "holder" => "other programs that hold the game open",
+                other => other,
+            })
+            .collect();
+        if baseline_logged && o.start_profile.is_some() && !lacking.is_empty() {
+            log.info(&format!(
+                "START PROFILE incomplete: the game closed before the companion had looked for {}; the next run still records that as part of a clean start",
+                lacking.join(" and ")
+            ));
+        }
         if !baseline_logged {
             log.info("the game ended before it had finished starting: no picture was taken and nothing was recorded");
         }

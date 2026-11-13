@@ -81,8 +81,9 @@ pub struct ExternalHandles {
     /// Holders whose program file is being looked at, with whether they turned up after
     /// the picture of the started game was taken.
     pending: Vec<(u64, bool)>,
-    /// A whole pass over the processes was made for this game before its picture was taken.
+    /// A whole pass over the processes was made for this game after its picture was taken.
     saw_start: Option<u32>,
+    after_picture: bool,
     after_start: bool,
 }
 
@@ -104,6 +105,7 @@ impl ExternalHandles {
             waiting: Vec::new(),
             pending: Vec::new(),
             saw_start: None,
+            after_picture: false,
             after_start: false,
         }
     }
@@ -219,9 +221,10 @@ impl Job for ExternalHandles {
         self.cur = Owned(std::ptr::null_mut());
         if let Some(watch) = &self.watch {
             self.game_pid = watch.target().map_or(0, |t| t.pid());
-            // A holder counts as new only when an earlier pass, made before the picture of
-            // the started game was taken, did not show it.
-            self.after_start = self.game_pid != 0 && watch.settled(self.game_pid) && self.saw_start == Some(self.game_pid);
+            // The first whole pass after the picture of the started game was taken, and the
+            // passes before it, show the start. Only later passes can show a new holder.
+            self.after_picture = self.game_pid != 0 && watch.settled(self.game_pid);
+            self.after_start = self.after_picture && self.saw_start == Some(self.game_pid);
         }
         if self.process_type.is_none() {
             self.process_type = self.learn_process_type();
@@ -230,14 +233,19 @@ impl Job for ExternalHandles {
     fn step(&mut self, ctx: &Ctx<'_>) -> Step {
         self.drain(ctx);
         if self.process_type.is_none() || self.game_pid == 0 {
+            // Where other processes cannot be listed at all, there is nothing to record.
+            if let Some(w) = self.watch.as_ref().filter(|_| self.process_type.is_none() && self.after_picture) {
+                w.whole("holder");
+            }
             return Step::Done;
         }
         let mut next = std::ptr::null_mut();
         let st = unsafe { NtGetNextProcess(self.cur.0, PROCESS_QUERY_INFORMATION | PROCESS_DUP_HANDLE, 0, 0, &mut next) };
         if st < 0 {
             self.cur = Owned(std::ptr::null_mut());
-            if self.watch.as_ref().is_some_and(|w| !self.after_start && !w.settled(self.game_pid)) {
+            if let Some(w) = self.watch.as_ref().filter(|_| self.after_picture && self.saw_start != Some(self.game_pid)) {
                 self.saw_start = Some(self.game_pid);
+                w.whole("holder");
             }
             return Step::Done;
         }

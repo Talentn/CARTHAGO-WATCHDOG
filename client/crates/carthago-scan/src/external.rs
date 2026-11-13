@@ -398,6 +398,19 @@ impl Watch {
         self.inner.lock().unwrap().profile.file(path, digest)
     }
 
+    /// A job made its first whole pass after the picture was taken: what that pass and the
+    /// ones before it showed is the start, for things whose keys begin with `kind`.
+    pub(crate) fn whole(&self, kind: &str) {
+        self.inner.lock().unwrap().profile.whole(kind);
+    }
+
+    /// What the record of the first start still lacks: "mapped" (code mapped by hand) and
+    /// "holder" (other programs holding the game open) are looked at some seconds after the
+    /// picture is taken.
+    pub fn unrecorded(&self) -> Vec<&'static str> {
+        self.inner.lock().unwrap().profile.unrecorded()
+    }
+
     pub fn status(&self) -> WatchStatus {
         let w = self.inner.lock().unwrap();
         WatchStatus { settled_after: w.baseline.as_ref().and_then(Baseline::settled_after), modules: w.modules.len(), first_start: w.profile.learning() }
@@ -606,8 +619,10 @@ pub struct ExtMemory {
     reported: Option<(u32, u64)>,
     headers: Vec<(usize, u64)>,
     images: Vec<(usize, u64)>,
-    /// A whole pass over this process was made before the picture was taken.
+    /// A whole pass over this process was made after the picture was taken. What that pass
+    /// and the earlier ones showed is the start; only later passes can show something new.
     saw_start: Option<u32>,
+    after_picture: bool,
     after_start: bool,
     seen: Seen,
 }
@@ -628,6 +643,7 @@ impl ExtMemory {
             headers: Vec::new(),
             images: Vec::new(),
             saw_start: None,
+            after_picture: false,
             after_start: false,
             seen: Seen::new(256),
         }
@@ -674,8 +690,9 @@ impl ExtMemory {
             let flags = observed_flags(&self.watch, self.after_start, &format!("mapped:{id}"));
             ctx.report_detail(FindingCode::ExternalMappedImage as u32, base as u64, size.min(u32::MAX as u64) | flags << 32, &id);
         }
-        if !self.after_start && !self.watch.settled(t.pid()) {
+        if self.after_picture && self.saw_start != Some(t.pid()) {
             self.saw_start = Some(t.pid());
+            self.watch.whole("mapped");
         }
         Step::Done
     }
@@ -700,9 +717,8 @@ impl Job for ExtMemory {
         if self.cur.as_ref().map(|t| t.pid()) != self.reported.map(|(pid, _)| pid) {
             self.headers.clear();
         }
-        // Something counts as new only when an earlier pass, made before the picture was
-        // taken, did not show it.
-        self.after_start = self.cur.as_ref().is_some_and(|t| self.watch.settled(t.pid()) && self.saw_start == Some(t.pid()));
+        self.after_picture = self.cur.as_ref().is_some_and(|t| self.watch.settled(t.pid()));
+        self.after_start = self.after_picture && self.saw_start == self.cur.as_ref().map(|t| t.pid());
         self.images.clear();
         (self.addr, self.count, self.bytes, self.flags) = (0, 0, 0, 0);
     }
