@@ -431,6 +431,19 @@ cd backend && go run ./cmd/carthago-gateway -oracle-dir ../oracle-bundle
 tools/carthago-oracle-check.sh            # end-to-end check with synthetic traffic
 ```
 
+With the Counter-Strike 1.6 kit the Oracle comes with one command. `-Oracle` trains a bundle
+and downloads the analyst's model on first use (about 8 minutes and 1.2 GB, once, to
+`%LOCALAPPDATA%\Carthago`); after that the script starts the gateway with the Oracle whenever
+the bundle exists, and `-NoOracle` leaves it out:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -Oracle
+```
+
+The alert screen of the kit and the Oracle are separate: the alert is raised by the gateway's
+rules, and a score, an opinion or a label never raises it. `tools/carthago-cs16-oracle-check.sh`
+checks this path on Linux under Wine.
+
 Design, evaluation on synthetic sessions, the threat model and the limits are in
 [`docs/oracle.md`](docs/oracle.md).
 

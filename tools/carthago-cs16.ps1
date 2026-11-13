@@ -26,6 +26,13 @@
      given; the result names what was held back;
   8. when the game closes, keeps the dashboard up until Enter is pressed.
 
+  The Carthago Oracle (a score for each session and, for flagged ones, a written opinion,
+  both on the dashboard only) is switched on whenever a trained bundle exists in
+  -OracleDir, else CARTHAGO_ORACLE_DIR, else %LOCALAPPDATA%\Carthago\oracle-bundle.
+  -Oracle makes that happen with one command: on first use it trains a bundle there (about
+  8 minutes) and downloads the analyst's language model (about 1.2 GB); later runs start
+  at once. The Oracle never raises the alert. See tools\carthago-cs16-oracle.ps1.
+
   What is changed in the game folder, and only there:
     - cstrike\addons\amxmodx\plugins\carthago_cs16.amxx           (added)
     - cstrike\addons\amxmodx\configs\plugins-carthago.ini         (added)
@@ -58,6 +65,7 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Diagnose
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Stage 2
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -DashboardOnly
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -Oracle
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall
 #>
 param(
@@ -118,6 +126,20 @@ param(
     # Install the plugin and stop, without starting anything.
     [switch]$InstallOnly,
     [switch]$DashboardOnly,
+    # Carthago Oracle: train a bundle and download the analyst's language model if they are
+    # not there yet, then run with the Oracle. Without the switch the Oracle is on only
+    # when a trained bundle already exists.
+    [switch]$Oracle,
+    # With -Oracle: do not download the language model (sessions are scored, no opinions).
+    [switch]$OracleNoModel,
+    # Run without the Oracle even when a trained bundle exists.
+    [switch]$NoOracle,
+    # The bundle folder. Default: CARTHAGO_ORACLE_DIR, else %LOCALAPPDATA%\Carthago\oracle-bundle.
+    [string]$OracleDir,
+    # For training: the seed (default: a random one that is not kept) and the number of
+    # simulated matches (default: the training tool's own).
+    [string]$OracleSeed,
+    [int]$OracleMatches = 0,
     [switch]$NoBrowser,
     [switch]$Uninstall,
     [switch]$Purge
@@ -682,6 +704,8 @@ function PrintGameReport($info, $full) {
     }
 }
 
+. (J $PSScriptRoot "carthago-cs16-oracle.ps1")
+
 # ---- uninstall ------------------------------------------------------------------------------
 if ($Uninstall) {
     Step "stop the gateway and dashboard started by this script"
@@ -712,6 +736,7 @@ if ($Uninstall) {
     } else {
         Note "Build output, logs and the dashboard database are kept in $Scratch (add -Purge to delete them)."
     }
+    OracleKeptNote
     exit 0
 }
 
@@ -800,6 +825,7 @@ if (-not $DashboardOnly -and -not $Diagnose -and $Stage -gt 0) {
     if (-not $plugin) { $Stage = 0 }
 }
 if ($InstallOnly) { exit 0 }
+OraclePrepare
 
 if (-not (Test-Path -LiteralPath $gatewayExe)) { Die "missing $gatewayExe (run without -SkipBuild)" }
 if (-not $DashboardOnly) {
@@ -821,6 +847,7 @@ $gwLog = J $logs "gateway.log"
 $gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
 if ($AlertOnIntegrity) { $gwArgs += "-client-notices-strict" }
 if ($TestAlertAfter -gt 0 -and -not $Diagnose -and -not $DashboardOnly) { $gwArgs += @("-test-notice-after", "${TestAlertAfter}s") }
+$gwArgs += @(OracleGatewayArgs)
 $script:gateway = Start-Process $gatewayExe -ArgumentList $gwArgs -RedirectStandardError $gwLog `
     -RedirectStandardOutput (J $logs "gateway.out") -NoNewWindow -PassThru
 Set-Content -Path $pidFile -Value $script:gateway.Id
@@ -837,6 +864,7 @@ $published = Get-Content $keys -Raw | ConvertFrom-Json
 if (-not $published.tls_spki_sha256) { Die "the gateway published no TLS key pin; see $gwLog" }
 Note "gateway identity key: $($published.server_identity.public_key)"
 Note "gateway TLS key pin : $(@($published.tls_spki_sha256) -join ',')"
+OracleStatus $gwLog
 
 function StartBridge($dir) {
     $script:bridgeStop = J $dir "bridge.stop"
@@ -1109,6 +1137,7 @@ if ($plugin) {
         Write-Host "    powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameDir `"$GameDir`" -Diagnose" -ForegroundColor Yellow
     }
 }
+OracleResultNote
 Note "logs: $logs"
 
 Write-Host ""

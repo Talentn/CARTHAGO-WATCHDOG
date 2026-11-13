@@ -55,6 +55,40 @@ network; the tests and the check script use it.
 `tools/carthago-oracle-check.sh` runs the whole thing end to end on Linux with synthetic
 traffic (about three minutes; add `--local` to use the fetched model instead of the stub).
 
+### With the Counter-Strike 1.6 kit
+
+`tools\carthago-cs16.ps1` does the three steps above by itself:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -Oracle
+```
+
+- **`-Oracle`**: if the bundle folder holds no bundle, trains one there with a random seed
+  that is written nowhere (about 8 minutes on a 4-core PC; the evaluation goes to
+  `<bundle folder>-training-report.txt`, not to the logs). If the analyst's model is not
+  installed, runs `tools\carthago-oracle-fetch.ps1` (about 1.2 GB). Both happen once; later
+  runs start at once. A failed download does not stop the run: sessions are still scored.
+- **Without the switch** the script starts the gateway with the Oracle whenever the bundle
+  folder holds a bundle, and without it otherwise, and prints which and why.
+- **Bundle folder**: `-OracleDir`, else `CARTHAGO_ORACLE_DIR`, else
+  `%LOCALAPPDATA%\Carthago\oracle-bundle`. The model goes to
+  `%LOCALAPPDATA%\Carthago\oracle-runtime`, or `CARTHAGO_ORACLE_RUNTIME_DIR`. Neither is in
+  the repository or in the script's scratch folder, so `-Uninstall -Purge` leaves them.
+- **`-OracleNoModel`** trains without downloading the model; **`-NoOracle`** runs without the
+  Oracle even when a bundle exists; `-OracleSeed` and `-OracleMatches` are passed to the
+  training.
+- The other `CARTHAGO_ORACLE_*` variables reach the gateway unchanged, for example
+  `set CARTHAGO_ORACLE_ANALYST=stub` for the rule-based stand-in analyst.
+
+The score appears on the session's page while the game runs. The analyst reviews a flagged
+session after the game has closed, which takes a few minutes with the local model; the script
+keeps the dashboard up until Enter is pressed, so leave its window open and reload the page.
+A session that neither the score nor the rules flagged gets no opinion.
+
+The kit's alert screen does not depend on any of this (see the top of this document).
+`tools/carthago-cs16-oracle-check.sh` checks the script's Oracle path on Linux with the
+stand-in game under Wine.
+
 ## How a session is handled
 
 1. The pipeline analyses heartbeats and gameplay as before and stores its evidence.
