@@ -139,12 +139,17 @@ pub fn process_image_name(pid: u32) -> String {
 }
 
 pub(crate) fn process_image_name_of(h: HANDLE) -> String {
+    crate::paths::base_name(&process_image_path_of(h)).to_owned()
+}
+
+/// Full Win32 path of a process image, or empty when the handle may not ask.
+pub(crate) fn process_image_path_of(h: HANDLE) -> String {
     let mut buf = vec![0u16; 1024];
     let mut n = buf.len() as u32;
     if unsafe { QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut n) } == 0 {
         return String::new();
     }
-    crate::paths::base_name(&String::from_utf16_lossy(&buf[..n as usize])).to_owned()
+    String::from_utf16_lossy(&buf[..n as usize])
 }
 
 /// Read-only file handle for positioned reads (`pe::Reader`).

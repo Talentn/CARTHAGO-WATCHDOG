@@ -25,10 +25,10 @@ use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessDebu
 use windows_sys::Win32::Foundation::{CloseHandle, DuplicateHandle, HANDLE, HMODULE, WAIT_TIMEOUT};
 use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows_sys::Win32::System::Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION, MEM_COMMIT, MEM_IMAGE, MEM_PRIVATE};
-use windows_sys::Win32::System::ProcessStatus::{K32EnumProcessModulesEx, K32GetModuleFileNameExW, LIST_MODULES_ALL};
+use windows_sys::Win32::System::ProcessStatus::{K32EnumProcessModulesEx, K32EnumProcesses, K32GetModuleFileNameExW, LIST_MODULES_ALL};
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetExitCodeProcess, GetProcessId, IsWow64Process, OpenProcess, WaitForSingleObject, PROCESS_QUERY_INFORMATION,
-    PROCESS_VM_READ,
+    GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId, IsWow64Process, OpenProcess, WaitForSingleObject,
+    PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
 };
 
 use crate::paths::Dirs;
@@ -145,6 +145,18 @@ impl Target {
         (n != 0).then(|| String::from_utf16_lossy(&buf[..n.min(buf.len())]))
     }
 
+    /// Full path of the process image, or empty when the process is gone.
+    pub fn image_path(&self) -> String {
+        win::process_image_path_of(self.handle.0)
+    }
+
+    /// The first of `names` (lower-case base names) that is in the process's loader list.
+    pub fn loaded_module(&self, names: &[&str]) -> Option<String> {
+        let mut bases = Vec::new();
+        self.modules(&mut bases);
+        bases.iter().filter_map(|&b| self.module_path(b)).map(|p| crate::paths::base_name(&p).to_lowercase()).find(|n| names.contains(&n.as_str()))
+    }
+
     /// End of the address range worth walking: 4 GB for a 32-bit game, so the 64-bit side of
     /// WOW64 is not mistaken for the game's own memory.
     fn top(&self) -> usize {
@@ -154,6 +166,43 @@ impl Target {
             0x7FFF_FFFF_0000
         }
     }
+}
+
+fn folder_of(path: &str) -> String {
+    let p = path.strip_prefix(r"\\?\").unwrap_or(path).replace('/', "\\").to_lowercase();
+    p.rsplit_once('\\').map_or(String::new(), |(dir, _)| dir.trim_end_matches('\\').to_owned())
+}
+
+/// Looks for the game a launcher started: a process, other than `skip` and this one, whose
+/// image is in the same folder as `exe`, whose name `accept` allows, and which has loaded
+/// one of `markers` (lower-case module base names; for GoldSrc the engine DLL). Each
+/// candidate is opened with the same read-only access as any other target. Costs one pass
+/// over the process list, so callers poll it sparingly and only while the game is unknown.
+pub fn find_started_game(exe: &str, markers: &[&str], skip: &[u32], accept: &dyn Fn(&str) -> bool) -> Option<(Target, String)> {
+    let dir = folder_of(exe);
+    if dir.is_empty() {
+        return None;
+    }
+    let mut pids = vec![0u32; 2048];
+    let mut bytes = 0u32;
+    if unsafe { K32EnumProcesses(pids.as_mut_ptr(), (pids.len() * 4) as u32, &mut bytes) } == 0 {
+        return None;
+    }
+    let me = unsafe { GetCurrentProcessId() };
+    for &pid in &pids[..(bytes as usize / 4).min(pids.len())] {
+        if pid == 0 || pid == me || skip.contains(&pid) {
+            continue;
+        }
+        let Ok(t) = Target::open(pid) else { continue };
+        let image = t.image_path();
+        if folder_of(&image) != dir || !accept(crate::paths::base_name(&image)) || !t.alive() {
+            continue;
+        }
+        if let Some(marker) = t.loaded_module(markers) {
+            return Some((t, marker));
+        }
+    }
+    None
 }
 
 /// Late-bound target shared by the external jobs.
@@ -237,13 +286,15 @@ impl Job for ExtModules {
         for _ in 0..4 {
             let Some(&base) = self.mods.get(self.idx) else { return Step::Done };
             self.idx += 1;
+            // Keyed by process too: the target can change when a launcher hands over to the game.
+            let key = base as u64 ^ (t.pid() as u64) << 40;
             if !matches!(t.query(base), Some(m) if m.Type == MEM_IMAGE) {
-                if self.seen.first(base as u64 ^ 0x4e49) {
+                if self.seen.first(key ^ 0x4e49) {
                     ctx.report(FindingCode::ModuleNotImage as u32, base as u64, 0);
                 }
                 continue;
             }
-            if !self.seen.first(base as u64) {
+            if !self.seen.first(key) {
                 continue;
             }
             let Some(path) = t.module_path(base) else { continue };
@@ -274,7 +325,7 @@ pub struct ExtMemory {
     count: u64,
     bytes: u64,
     flags: u64,
-    reported: Option<u64>,
+    reported: Option<(u32, u64)>,
     headers: Vec<(usize, u64)>,
 }
 
@@ -309,8 +360,9 @@ impl ExtMemory {
     }
 
     fn finish(&mut self, ctx: &Ctx<'_>) -> Step {
-        if self.cur.take().is_some() && self.reported != Some(self.count) {
-            self.reported = Some(self.count);
+        let Some(t) = self.cur.take() else { return Step::Done };
+        if self.reported != Some((t.pid(), self.count)) {
+            self.reported = Some((t.pid(), self.count));
             ctx.report(FindingCode::ExternalExecRegions as u32, self.count, self.bytes & ((1 << 48) - 1) | self.flags << 48);
         }
         Step::Done
@@ -333,6 +385,9 @@ impl Job for ExtMemory {
     }
     fn begin(&mut self) {
         self.cur = self.cell.live();
+        if self.cur.as_ref().map(|t| t.pid()) != self.reported.map(|(pid, _)| pid) {
+            self.headers.clear();
+        }
         (self.addr, self.count, self.bytes, self.flags) = (0, 0, 0, 0);
     }
     fn step(&mut self, ctx: &Ctx<'_>) -> Step {
@@ -372,12 +427,12 @@ impl Job for ExtMemory {
 /// observations and are not available here.
 pub struct ExtDebugger {
     cell: Arc<TargetCell>,
-    last: u64,
+    last: (u32, u64),
 }
 
 impl ExtDebugger {
     pub fn new(cell: Arc<TargetCell>) -> Self {
-        Self { cell, last: 0 }
+        Self { cell, last: (0, 0) }
     }
 
     fn sample(t: &Target) -> u64 {
@@ -426,8 +481,8 @@ impl Job for ExtDebugger {
     fn step(&mut self, ctx: &Ctx<'_>) -> Step {
         let Some(t) = self.cell.live() else { return Step::Done };
         let m = Self::sample(&t);
-        if m != self.last {
-            self.last = m;
+        if (t.pid(), m) != self.last {
+            self.last = (t.pid(), m);
             if m != 0 {
                 ctx.report(FindingCode::Debugger as u32, m, 0);
             }
