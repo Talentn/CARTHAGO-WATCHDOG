@@ -199,7 +199,7 @@ func TestSolidTreeFromACompiledMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Hash != "72dfe43a9661ac35be2fa4820549dc229a1846bd7c44fa2ec00801ad7aa0b988" || m.Source != "904481bc3653f3db853ea9595da63ac71d1a7ab44806c241b231c710433bf2a6" {
+	if m.Hash != "09b4e45e4aeb5616f51d52b07a5dd52a5aeb585bfdba8d946af40b1403832cc9" || m.Source != "904481bc3653f3db853ea9595da63ac71d1a7ab44806c241b231c710433bf2a6" {
 		t.Fatalf("hash %s, source %s", m.Hash, m.Source)
 	}
 	brushes := testBrushes()

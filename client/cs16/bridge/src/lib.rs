@@ -11,6 +11,9 @@
 //!   and from hits, each with the distance at which the game stops playing it;
 //! - bots are declared as bots, and the local human's slot is bound to the companion's
 //!   verified session;
+//! - while a human player of a team is dead, that team is credited with knowing where
+//!   every living enemy is: a dead player watches the round and talks, and no telemetry
+//!   carries what they say. Bots do not, so a team of bots is not credited;
 //! - the solid world of the map is read from the game's own map file ([`bsp`]) and sent
 //!   with a match's first batch, which is what lets the gateway work out who could not
 //!   see whom (information-leak scoring). Without map folders, or when the file is
@@ -84,6 +87,8 @@ pub struct Stats {
     /// than a stray few means the map file is not the map being played.
     pub eyes: u64,
     pub eyes_in_solid: u64,
+    /// Enemy positions credited to a team because one of its human players was dead.
+    pub callouts: u64,
 }
 
 pub struct Bridge {
@@ -299,6 +304,10 @@ impl Bridge {
             rec.visibility(o, t, tick, true);
         }
         self.seen = want;
+        if tick.is_multiple_of(self.rate.max(1)) {
+            self.dead_callouts();
+        }
+        let Some(rec) = self.rec.as_mut() else { return };
         let step_gap = (self.rate * 2 / 5).max(1);
         for (&slot, p) in self.slots.iter_mut() {
             let Some(s) = p.last.as_ref().filter(|s| s.tick == tick) else { continue };
@@ -306,6 +315,38 @@ impl Bridge {
             if s.flags & 1 != 0 && s.flags & 2 == 0 && speed > FOOTSTEP_SPEED && tick >= p.next_step {
                 p.next_step = tick + step_gap;
                 rec.sound(tick, Some(slot), pb::SoundKind::Footstep, s.eye.map(|v| v * UNIT_M), NORMAL_SOUND_RADIUS * UNIT_M);
+            }
+        }
+    }
+
+    /// Once a second: for each team with a dead human, every living enemy as team
+    /// information. The gateway then scores nobody of that team for acting on it.
+    fn dead_callouts(&mut self) {
+        let tick = self.tick;
+        let alive = |p: &Slot| p.last.as_ref().is_some_and(|s| s.tick + self.rate >= tick);
+        let mut info = Vec::new();
+        for team in [1u32, 2] {
+            let Some((&watcher, _)) = self.slots.iter().find(|(_, p)| p.team == team && p.flags & (FLAG_BOT | FLAG_HLTV) == 0 && !alive(p)) else { continue };
+            for (&slot, p) in self.slots.iter().filter(|(_, p)| matches!(p.team, 1 | 2) && p.team != team && alive(p)) {
+                let eye = p.last.as_ref().expect("alive").eye;
+                info.push(pb::TeamInfo {
+                    tick,
+                    team,
+                    kind: pb::TeamInfoKind::Spotted as i32,
+                    source_slot: watcher as i32,
+                    target_slot: slot as i32,
+                    item_id: 0,
+                    x_cm: (eye[0] * UNIT_M * 100.0).round() as i32,
+                    y_cm: (eye[1] * UNIT_M * 100.0).round() as i32,
+                    z_cm: (eye[2] * UNIT_M * 100.0).round() as i32,
+                    duration_ms: 1000,
+                });
+            }
+        }
+        self.stats.callouts += info.len() as u64;
+        if let Some(rec) = self.rec.as_mut() {
+            for i in info {
+                rec.team_info(i);
             }
         }
     }
@@ -363,7 +404,7 @@ impl Bridge {
         self.rate = rate;
         self.last_flush = self.tick;
         let mut rec = MatchRecorder::new(id, rate);
-        rec.set_mode(pb::GameMode::CompetitiveShooter);
+        rec.set_mode(pb::GameMode::RoundShooter);
         rec.set_motion_stride(1);
         rec.set_tick(self.tick);
         self.rec = Some(rec);
@@ -697,7 +738,7 @@ mod tests {
             out.extend(b.feed(&format!("D {i} {}\nT 1 0 0 300 600 64 0 0 0 1\n", i + 1)));
         }
         let notes = b.take_notes();
-        assert!(notes.len() == 1 && notes[0].starts_with("MAP cs_fixture: read ") && notes[0].contains("geometry hash 72dfe43a9661ac35"), "{notes:?}");
+        assert!(notes.len() == 1 && notes[0].starts_with("MAP cs_fixture: read ") && notes[0].contains("geometry hash 09b4e45e4aeb5616"), "{notes:?}");
         assert_eq!((b.stats.eyes, b.stats.eyes_in_solid), (201, 1));
         out.extend(b.finish());
         let with_map: Vec<u64> = out.iter().filter(|b| b.map_geometry.is_some()).map(|b| b.batch_seq).collect();
@@ -719,6 +760,45 @@ mod tests {
             assert!(notes.len() == 1 && notes[0].starts_with("MAP not sent: ") && notes[0].contains(why), "{notes:?}");
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_dead_person_tells_their_team_where_the_enemies_are() {
+        // Team 1: the local person (1) and another person (2). Team 2: two bots (3, 4).
+        let mut text = String::from("D 0 1\nH m1 de_dust2 32 32 0\nP 1 4 1 A\nP 2 0 1 B\nP 3 1 2 C\nP 4 1 2 D\n");
+        let mut tick = 1;
+        let mut play = |text: &mut String, secs: u32, alive: &[u32]| {
+            for _ in 0..secs * 32 {
+                tick += 1;
+                *text += &format!("D {} {tick}\n", tick - 1);
+                for slot in alive {
+                    *text += &format!("T {slot} 0 0 {} 0 64 0 0 0 1\n", slot * 300);
+                }
+            }
+        };
+        play(&mut text, 3, &[1, 2, 3, 4]);
+        let everyone_alive = text.len();
+        play(&mut text, 4, &[1, 3, 4]);
+        let person_dead = text.len();
+        play(&mut text, 4, &[1, 2, 4]);
+
+        let (bridge, out) = run(&text[..everyone_alive], None);
+        assert!(out.iter().all(|b| b.team_info.is_empty()) && bridge.stats.callouts == 0, "nobody is dead, nobody is told anything");
+
+        let (bridge, out) = run(&text[..person_dead], None);
+        let info: Vec<&pb::TeamInfo> = out.iter().flat_map(|b| &b.team_info).collect();
+        assert!(info.len() >= 6 && info.len() <= 8 && bridge.stats.callouts == info.len() as u64, "about one callout a second for each enemy: {}", info.len());
+        assert!(info.iter().all(|i| i.team == 1 && i.source_slot == 2 && i.kind == pb::TeamInfoKind::Spotted as i32 && i.duration_ms == 1000));
+        for target in [3, 4] {
+            let at: Vec<i32> = info.iter().filter(|i| i.target_slot == target).map(|i| i.x_cm).collect();
+            assert!(at.len() >= 3 && at.iter().all(|&x| x == (target as f32 * 300.0 * UNIT_M * 100.0).round() as i32), "enemy {target}: {at:?}");
+        }
+
+        // A dead bot watches nothing: team 2 is told nothing while only its bot is dead.
+        let (_, all) = run(&text, None);
+        let later: Vec<&pb::TeamInfo> = all.iter().flat_map(|b| &b.team_info).skip(info.len()).collect();
+        assert!(later.iter().all(|i| i.team == 1), "a team of bots gets no callouts");
+        assert!(later.len() <= 2, "the person is alive again: {}", later.len());
     }
 
     #[test]

@@ -196,7 +196,7 @@ impl World {
         pb::MapGeometry {
             map_id: map_id.chars().take(64).collect(),
             version,
-            mode: pb::GameMode::CompetitiveShooter as i32,
+            mode: pb::GameMode::RoundShooter as i32,
             solid: Some(pb::SolidTree {
                 planes: self.planes.iter().flat_map(|p| [p[0], p[1], p[2], p[3] * UNIT_CM]).collect(),
                 nodes: self.nodes.iter().flatten().copied().collect(),
@@ -369,7 +369,7 @@ mod tests {
         assert!(g.version != 0 && g.map_id == "cs_fixture" && g.occluders.is_empty());
         // The gateway computes this hash from the same message; the two must agree for a
         // pin written from `map-hash` to match.
-        assert_eq!(geometry_hash(&g), "72dfe43a9661ac35be2fa4820549dc229a1846bd7c44fa2ec00801ad7aa0b988");
+        assert_eq!(geometry_hash(&g), "09b4e45e4aeb5616f51d52b07a5dd52a5aeb585bfdba8d946af40b1403832cc9");
     }
 
     fn patched(at: usize, bytes: &[u8]) -> Vec<u8> {

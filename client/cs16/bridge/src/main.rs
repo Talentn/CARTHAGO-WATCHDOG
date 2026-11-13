@@ -16,9 +16,18 @@
 //!         [--maps DIR]...
 //!       Feeds a recorded or synthetic stream straight to the gateway.
 //!
+//!   carthago-cs16-bridge convert FILE --out BATCHES [--maps DIR]...
+//!       Turns a stream file into the batches the gateway would receive, without a gateway:
+//!       each as a little-endian u32 length and the encoded GameplayBatch. For calibration.
+//!
 //!   carthago-cs16-bridge map-hash FILE.bsp [--id NAME] [--out GEOMETRY.pb]
 //!       Reads a map file and prints the hash the gateway identifies its geometry by, in the
 //!       form of a line for the gateway's -map-pins file. --out also writes the geometry.
+//!
+//!   carthago-cs16-bridge map-pins --maps DIR [--maps DIR]...
+//!       The same line for every map file in the folders, the way `run` would pick them
+//!       (the first folder that has a map wins). Files that are not usable maps are listed
+//!       as comments.
 //!
 //!   carthago-cs16-bridge send FILE [--to 127.0.0.1:27991] [--speed 8]
 //!       Plays a stream file over UDP the way the plugin would (for testing `run`).
@@ -260,6 +269,53 @@ fn map_hash(a: &Args, file: &str) -> Result<bool, String> {
     Ok(true)
 }
 
+fn map_pins(a: &Args) -> Result<bool, String> {
+    let dirs: Vec<PathBuf> = a.all("--maps").into_iter().map(PathBuf::from).collect();
+    if dirs.is_empty() {
+        return Err("--maps is required".into());
+    }
+    let mut names = std::collections::BTreeSet::new();
+    for dir in &dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        for e in entries.flatten() {
+            let file = e.file_name().to_string_lossy().to_ascii_lowercase();
+            if let Some(name) = file.strip_suffix(".bsp").and_then(bsp::safe_name) {
+                names.insert(name);
+            }
+        }
+    }
+    for name in &names {
+        match bsp::find(&dirs, name).and_then(|(_, bytes)| bsp::World::parse(&bytes)) {
+            Ok(world) => println!("{name} {}", bsp::geometry_hash(&world.geometry(name))),
+            Err(e) => println!("# {name}: not usable: {e}"),
+        }
+    }
+    Ok(true)
+}
+
+fn convert(a: &Args, file: &str) -> Result<bool, String> {
+    use prost::Message;
+    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let out = a.get("--out").ok_or("--out is required")?;
+    let mut bridge = Bridge::new();
+    bridge.set_map_dirs(a.all("--maps").into_iter().map(PathBuf::from).collect());
+    let mut batches = bridge.feed(&text);
+    batches.extend(bridge.finish());
+    let mut bytes = Vec::new();
+    for b in &batches {
+        let enc = b.encode_to_vec();
+        bytes.extend_from_slice(&(enc.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&enc);
+    }
+    std::fs::write(&out, bytes).map_err(|e| format!("{out}: {e}"))?;
+    for n in bridge.take_notes() {
+        println!("{n}");
+    }
+    let st = bridge.stats;
+    println!("{} batches, {} samples, {} shots, {} callouts, {} bad lines", batches.len(), st.samples, st.shots, st.callouts, st.bad_lines);
+    Ok(st.bad_lines == 0)
+}
+
 fn open_log(a: &Args) -> Log {
     Log { file: a.get("--log").and_then(|p| std::fs::File::create(p).ok()), t0: Instant::now() }
 }
@@ -400,6 +456,8 @@ fn main() {
         (Some("replay"), Some(f)) => replay(&a, &f),
         (Some("send"), Some(f)) => send(&a, &f),
         (Some("map-hash"), Some(f)) => map_hash(&a, &f),
+        (Some("convert"), Some(f)) => convert(&a, &f),
+        (Some("map-pins"), _) => map_pins(&a),
         (Some("synth"), _) => (|| {
             let out = a.get("--out").ok_or("--out is required")?;
             let seconds = a.get_or("--seconds", "120").parse().map_err(|_| "--seconds: not a number")?;
@@ -409,7 +467,7 @@ fn main() {
             println!("wrote {out}: {} lines", text.lines().count());
             Ok(true)
         })(),
-        _ => Err("usage: carthago-cs16-bridge run|replay FILE|send FILE|synth --out FILE|map-hash FILE.bsp [...] (see the source header)".into()),
+        _ => Err("usage: carthago-cs16-bridge run|replay FILE|send FILE|synth --out FILE|convert FILE --out FILE|map-hash FILE.bsp|map-pins --maps DIR [...] (see the source header)".into()),
     };
     match result {
         Ok(true) => {}
