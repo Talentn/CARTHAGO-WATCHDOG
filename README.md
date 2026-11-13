@@ -145,6 +145,11 @@ client when its session is flagged, see [Enforcement notice](#enforcement-notice
 default), `-client-notices-strict` (also send the notices that are held back because an
 honest, modified game build produces the same evidence),
 `-test-notice-after 30s` (send every new session a notice labelled as a test),
+`-map-pins file` (trusted map geometries as `map_id sha256` lines; other geometry for a listed
+map is refused and that match is not scored for information leaks; `-map-pins-required` also
+refuses unlisted maps), `-leak-alert` (opt-in: a strong information-leak score in two separate
+windows of one match becomes `information_leak_live` evidence during the match and, with
+`-client-notices`, a notice),
 `-dashboard-listen ""` (disables the dashboard), `-dashboard-secure-cookie` (behind HTTPS),
 and `-hb-interval` / `-hb-timeout`. For `wss://`, pass `-tls-cert` / `-tls-key` or
 `-tls-dev-cert` (a self-signed certificate kept in `-data`), plus `-tls-backup-pin` for the next
@@ -233,7 +238,8 @@ powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # r
   raised by a debugger attached to the game; by the changes listed above, under the
   category "game integrity" or, for the renderer and for a reading overlay, "visibility";
   and, with the plugin, by the local player's own aim tripping `angle_snap` together with
-  `headshot_rate` or `time_to_damage`. What the build has shown since its first recorded
+  `headshot_rate` or `time_to_damage`, or, with `-AlertOnWallhackScore` only, by a strong
+  and repeated information-leak score. What the build has shown since its first recorded
   start, changed or new files of the game folder, read-only handles, engine code rewritten
   while server add-ons are loaded, and jumps into files of the game folder do not raise
   it: the result names each as "no alert by default", and `-AlertOnIntegrity` raises the
@@ -260,8 +266,31 @@ powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # r
   AMX Mod X, console and crash-dump information into the run's log folder, and leaves the
   highest working stage installed. Where the game ships `amxxpc.exe`, the script builds the
   plugin with it, so the build matches the AMX Mod X that loads it.
-- **Not done**: map occluders are not derived from the BSP, so information-leak scoring is
-  off for these matches; thresholds are the synthetic defaults, not tuned for CS 1.6.
+- **Information-leak scoring**: the bridge reads the map being played from the game's maps
+  folders (`--maps`; GoldSrc BSP version 30) and sends the world's solid space with the
+  first batch: the planes and the solid/empty tree of the point hull, nothing else. The
+  gateway traces sight through that tree, from the eyes to the other player's head, chest
+  and knees, in the middle and at both sides of the body, so a part showing round a corner
+  counts as seen.
+  Doors, breakable walls, water and glass are see-through, which errs towards "the player
+  could see it". Sounds go by the distances the game plays them to (footsteps of a runner
+  and a hit player to 1,250 units, rifles to 2,500, AWP-class to 3,600; walking and
+  crouching are silent), and the engine's own line-of-sight traces from the plugin count as
+  well. A team with a dead human player is credited with every living enemy's position,
+  because the dead watch and talk; so a person among bots is scored fully, and a team of
+  people mostly while all of it is alive. The match runs as `GAME_MODE_ROUND_SHOOTER`,
+  where routes are shown but not scored: rounds start from known spawns, so walking towards hidden enemies
+  is what honest players do. The gateway does not take the geometry on trust: the script
+  records each map's geometry hash the first time it sees the file (`-map-pins`, kept in
+  the scratch folder, `-ResetMapPins` records anew), the gateway refuses other geometry
+  for a recorded map, and it withholds all scores when more than 2 % of the players'
+  positions lie inside the map's walls, which is what a wrong map file looks like. The
+  score is evidence for review at the end of a match (`information_leak`) and tells the
+  player nothing. `-AlertOnWallhackScore` (gateway `-leak-alert`) is an opt-in for a test on
+  one's own server: two four-minute windows of one match, each strong on its own, raise
+  `information_leak_live` and the alert. Thresholds come from synthetic Counter-Strike
+  matches run through the real bridge (`carthago-sim -cs-calibrate N -bridge
+  path/to/carthago-cs16-bridge`), not from real ones.
 
 Nothing is injected into the game and no game binary is replaced or patched. The script
 changes only config files and adds the plugin, backs up what it changes under
@@ -344,6 +373,9 @@ Only evidence that stands on its own raises one, at most once per session and ca
 
 Evidence that an honest, modified game build produces too is held back and logged as
 `notice withheld`; `-client-notices-strict` sends it.
+
+`information_leak_live` raises one (visibility category) only on a gateway started with
+`-leak-alert`, which is meant for a test on one's own server: it is a behaviour score.
 
 Rules that flag a player for review never raise one, alone or together: `information_leak`,
 `decoy_reaction`, command rate and input timing, unsigned files as such, overlays as such,
