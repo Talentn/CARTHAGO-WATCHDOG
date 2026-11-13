@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Linux check of the Counter-Strike 1.6 kit, without the game, Windows or a TPM:
 #
-#   1. a 32-bit stand-in for hl.exe (client/cs16/fakegame) is started by the real companion
+#   1. a 32-bit stand-in for the game (client/cs16/fakegame), in a folder laid out like the
+#      WaRzOnE build (cstrike.exe and no hl.exe, next to programs that are not the game), is
+#      started by the real companion
 #      (carthago-cs16.exe, cross-compiled, under Wine) after a real handshake over pinned
 #      TLS with a software device key;
 #   2. the telemetry bridge receives a synthetic plugin stream over loopback UDP (one local
@@ -9,8 +11,9 @@
 #      the human's slot bound to the companion's session;
 #   3. the script checks that the companion's findings arrive as info, that the machine-like
 #      bot trips the aim rules and is labelled a bot, and that nobody is flagged;
-#   4. if pwsh is installed, tools/carthago-cs16.ps1 installs the plugin into a copy of the
-#      stand-in game folder and -Uninstall restores it byte for byte.
+#   4. if pwsh is installed, tools/carthago-cs16.ps1 finds that folder by searching, takes
+#      cstrike.exe as the game program, installs the plugin, and -Uninstall restores the
+#      folder byte for byte.
 #
 # Needs: cargo with the x86_64-pc-windows-gnu target, mingw-w64 (i686 and x86_64), wine, go.
 # Usage: tools/carthago-cs16-check.sh       (ports 28750, 28751 and UDP 27992)
@@ -18,7 +21,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 run="$(mktemp -d -t carthago-cs16.XXXXXX)"
-game="$run/game"
+game="$run/drive/Counter-Strike WaRzOnE Edition"
 gw_port=28750
 dash_port=28751
 udp_port=27992
@@ -31,9 +34,11 @@ fail() { printf 'FAIL: %s\n' "$*"; echo "logs in $run"; exit 1; }
 
 step "build: stand-in game (i686), gateway, companion (windows-gnu), bridge"
 mkdir -p "$game/cstrike/dlls" "$run/bin"
-i686-w64-mingw32-gcc -O1 -o "$game/hl.exe" "$root/client/cs16/fakegame/fake_hl.c"
-i686-w64-mingw32-gcc -shared -o "$game/fake_hw.dll" "$root/client/cs16/fakegame/fake_dll.c"
-i686-w64-mingw32-gcc -shared -o "$game/cstrike/dlls/fake_mp.dll" "$root/client/cs16/fakegame/fake_dll.c"
+i686-w64-mingw32-gcc -O1 -o "$game/cstrike.exe" "$root/client/cs16/fakegame/fake_hl.c"
+i686-w64-mingw32-gcc -shared -o "$game/hw.dll" "$root/client/cs16/fakegame/fake_dll.c"
+i686-w64-mingw32-gcc -shared -o "$game/cstrike/dlls/mp.dll" "$root/client/cs16/fakegame/fake_dll.c"
+# Programs that sit in the real folder and must never be taken for the game.
+for other in crashpad_handler.exe hltv.exe unins000.exe; do echo "not the game" >"$game/$other"; done
 printf 'game "Counter-Strike"\r\ngamedll "dlls\\mp.dll"\r\ngamedll_linux "dlls/cs_i386.so"\r\n' >"$game/cstrike/liblist.gam"
 (cd "$root/backend" && go build -o "$run/bin/carthago-gateway" ./cmd/carthago-gateway)
 (cd "$root/client" && cargo build -q -p carthago-cs16-companion --target x86_64-pc-windows-gnu && cargo build -q -p carthago-cs16-bridge)
@@ -55,7 +60,7 @@ step "bridge: listen for the plugin stream"
 bridge_pid=$!
 pids+=($bridge_pid)
 
-step "companion under Wine: handshake, start the stand-in hl.exe, watch it for 30 s"
+step "companion under Wine: handshake, start the stand-in cstrike.exe, watch it for 30 s"
 (cd "$game" && wine "$companion" --keys "Z:$run/data/public-keys.json" --gateway "wss://127.0.0.1:$gw_port/v1/client" \
   --game-dir "Z:$game" --session-file "Z:$run/session.json" --no-tpm -- -game cstrike -secs 30 >"$run/companion.log" 2>&1) &
 companion_pid=$!
@@ -75,7 +80,8 @@ log="$run/gateway.log"
 grep -q 'GAME pid=.* 32-bit watched with read-only access' "$run/companion.log" || fail "the game was not watched as a 32-bit process"
 grep -q 'SESSION bound' "$run/bridge.log" || fail "the local player's slot was not bound to the companion's session"
 grep -q 'lost=0 .* bad_lines=0' "$run/bridge.log" || fail "the bridge lost or rejected plugin data"
-for m in hl.exe fake_hw.dll fake_mp.dll; do
+grep -q 'starting .*cstrike\.exe"\? -game cstrike' "$run/companion.log" || fail "the companion did not start cstrike.exe"
+for m in cstrike.exe hw.dll mp.dll; do
   grep -q "rule=module_signature severity=info summary=\"module $m (game folder): not signed\"" "$log" || fail "module $m not reported as unsigned, info"
 done
 echo "ok   modules of the game reported with their signature state, as info"
@@ -105,19 +111,21 @@ done
 echo "ok   dashboard: bot labelled and not flagged; the session shows the match and the modules"
 
 if command -v pwsh >/dev/null; then
-  step "carthago-cs16.ps1: install into a copy of the game folder, then -Uninstall"
-  cp -a "$game" "$run/game.orig"
+  step "carthago-cs16.ps1: find the game by searching, install the plugin, then -Uninstall"
   mkdir -p "$game/cstrike/addons/metamod/dlls" "$game/cstrike/addons/amxmodx/dlls" "$game/cstrike/addons/amxmodx/modules"
   for f in addons/metamod/dlls/metamod.dll addons/amxmodx/dlls/amxmodx_mm.dll addons/amxmodx/modules/fakemeta_amxx.dll \
            addons/amxmodx/modules/hamsandwich_amxx.dll addons/amxmodx/modules/sockets_amxx.dll; do
     echo stand-in >"$game/cstrike/$f"
   done
   cp -a "$game" "$run/game.before"
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -Scratch "$run/carthago-scratch" -InstallOnly >"$run/install.log" 2>&1 || { cat "$run/install.log"; fail "install"; }
+  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -SearchRoot "$run/drive" -Scratch "$run/carthago-scratch" -InstallOnly >"$run/install.log" 2>&1 || { cat "$run/install.log"; fail "install"; }
+  grep -qF "game folder : $game" "$run/install.log" || { cat "$run/install.log"; fail "the search did not find the game folder"; }
+  grep -q 'game program: cstrike\.exe ' "$run/install.log" || { cat "$run/install.log"; fail "the script did not choose cstrike.exe"; }
+  echo "ok   the search finds the folder and takes cstrike.exe as the game program"
   grep -q '^gamedll "addons\\metamod\\dlls\\metamod.dll"' "$game/cstrike/liblist.gam" || fail "liblist.gam does not load Metamod"
   grep -q '^win32 addons\\amxmodx\\dlls\\amxmodx_mm.dll' "$game/cstrike/addons/metamod/plugins.ini" || fail "Metamod does not load AMX Mod X"
   cmp -s "$root/client/cs16/plugin/carthago_cs16.amxx" "$game/cstrike/addons/amxmodx/plugins/carthago_cs16.amxx" || fail "plugin not installed"
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -Scratch "$run/carthago-scratch" -Uninstall >"$run/uninstall.log" 2>&1 || { cat "$run/uninstall.log"; fail "uninstall"; }
+  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -Scratch "$run/carthago-scratch" -Uninstall >"$run/uninstall.log" 2>&1 || { cat "$run/uninstall.log"; fail "uninstall"; }
   diff -r "$run/game.before" "$game" || fail "the game folder differs after -Uninstall"
   echo "ok   install is reversible: the game folder is identical after -Uninstall"
 else
