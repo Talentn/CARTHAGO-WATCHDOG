@@ -443,6 +443,19 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 		kicked <- "kicked"
 	}
 	defer g.sessions.Detach(id)
+	notices := make(chan *pb.EnforcementNotice, maxNoticesPerSession)
+	g.sessions.AttachNotices(id, func(n *pb.EnforcementNotice) {
+		select {
+		case notices <- n:
+		default:
+		}
+	})
+	if d := g.cfg.TestNoticeAfter; d > 0 {
+		t := time.AfterFunc(d, func() {
+			g.Notice(id, pb.EnforcementCategory_ENFORCEMENT_CATEGORY_TEST, pb.EnforcementSeverity_ENFORCEMENT_SEVERITY_NOTICE)
+		})
+		defer t.Stop()
+	}
 
 	frames := make(chan []byte)
 	readErr := make(chan error, 1)
@@ -470,6 +483,10 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 			_ = sc.send(ctx, &pb.ServerMsg{Body: &pb.ServerMsg_Kicked{Kicked: &pb.Kicked{Reason: reason}}})
 			ws.Close(websocket.StatusPolicyViolation, "kicked: "+reason)
 			return
+		case n := <-notices:
+			if err := sc.send(ctx, &pb.ServerMsg{Body: &pb.ServerMsg_EnforcementNotice{EnforcementNotice: n}}); err != nil {
+				return
+			}
 		case err := <-readErr:
 			g.log.Info("client disconnected; heartbeat deadline still running", "session", id, "err", err)
 			return

@@ -29,7 +29,16 @@ type liveSession struct {
 	timer   *time.Timer
 	// onKick notifies the client connection, if one is still attached.
 	onKick func(reason string)
+	// notices are the enforcement notices issued for this session, oldest first; sent counts
+	// those already handed to the client connection.
+	notices  []*pb.EnforcementNotice
+	noticed  map[uint32]bool
+	sent     int
+	onNotice func(*pb.EnforcementNotice)
 }
+
+// maxNoticesPerSession bounds what one session can be sent: one notice per category.
+const maxNoticesPerSession = 8
 
 func NewManager(st store.Store, log *slog.Logger, now func() time.Time) *Manager {
 	return &Manager{store: st, log: log, now: now, sessions: map[string]*liveSession{}, watchers: map[string]map[*gsConn]struct{}{}}
@@ -83,13 +92,67 @@ func (m *Manager) Attach(id string, onKick func(reason string)) bool {
 	return true
 }
 
-// Detach drops the client callback when its connection ends; the deadline keeps running.
+// Detach drops the client callbacks when its connection ends; the deadline keeps running.
 func (m *Manager) Detach(id string) {
 	m.mu.Lock()
 	if ls, ok := m.sessions[id]; ok {
-		ls.onKick = nil
+		ls.onKick, ls.onNotice = nil, nil
 	}
 	m.mu.Unlock()
+}
+
+// AttachNotices sets the client connection's notice callback and hands it the notices
+// issued while no connection was attached.
+func (m *Manager) AttachNotices(id string, onNotice func(*pb.EnforcementNotice)) {
+	m.mu.Lock()
+	ls, ok := m.sessions[id]
+	if !ok || ls.rec.State != store.SessionActive {
+		m.mu.Unlock()
+		return
+	}
+	ls.onNotice = onNotice
+	pending := ls.notices[ls.sent:]
+	ls.sent = len(ls.notices)
+	m.mu.Unlock()
+	for _, n := range pending {
+		onNotice(n)
+	}
+}
+
+// Notify records a notice for an active session and passes it to the client connection.
+// A session gets one notice per category: issued is false for a repeat, for a session that
+// is not active and when build fails. delivered is false when no client connection is
+// attached; the notice then waits for AttachNotices.
+func (m *Manager) Notify(id string, category uint32, build func(rec store.Session) (*pb.EnforcementNotice, error)) (issued, delivered bool, err error) {
+	m.mu.Lock()
+	ls, ok := m.sessions[id]
+	if !ok || ls.rec.State != store.SessionActive || len(ls.notices) >= maxNoticesPerSession {
+		m.mu.Unlock()
+		return false, false, nil
+	}
+	if ls.noticed == nil {
+		ls.noticed = map[uint32]bool{}
+	}
+	if ls.noticed[category] {
+		m.mu.Unlock()
+		return false, false, nil
+	}
+	n, err := build(ls.rec)
+	if err != nil {
+		m.mu.Unlock()
+		return false, false, err
+	}
+	ls.noticed[category] = true
+	ls.notices = append(ls.notices, n)
+	notify := ls.onNotice
+	if notify != nil {
+		ls.sent = len(ls.notices)
+	}
+	m.mu.Unlock()
+	if notify != nil {
+		notify(n)
+	}
+	return true, notify != nil, nil
 }
 
 func (m *Manager) Kick(id, reason string) {

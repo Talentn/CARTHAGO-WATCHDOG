@@ -5,13 +5,17 @@ package gateway
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	pb "carthago/backend/gen/carthago/v1"
 	"carthago/backend/internal/attest/ekroots"
+	"carthago/backend/internal/protocol"
 	"carthago/backend/internal/store"
 )
 
@@ -36,6 +40,10 @@ type Config struct {
 
 	// Detections receives every accepted heartbeat and serves /v1/ingest; nil disables both.
 	Detections Detections
+
+	// TestNoticeAfter sends every session an enforcement notice of category TEST this long
+	// after its client connected, to try a game's alert screen. Zero disables it.
+	TestNoticeAfter time.Duration
 
 	Now func() time.Time
 }
@@ -91,6 +99,37 @@ func New(cfg Config, keys *Keys, st store.Store, log *slog.Logger) *Gateway {
 }
 
 func (g *Gateway) Sessions() *Manager { return g.sessions }
+
+// Notice tells the client of an active session that the session was flagged: a signed
+// EnforcementNotice carrying a category and a severity, nothing about the rule behind it.
+// It informs only; the session stays up. A session gets at most one notice per category.
+func (g *Gateway) Notice(sessionID string, category pb.EnforcementCategory, severity pb.EnforcementSeverity) bool {
+	sid, err := hex.DecodeString(sessionID)
+	if err != nil || len(sid) != protocol.SessionIDLen {
+		return false
+	}
+	id := make([]byte, protocol.NoticeIDLen)
+	if _, err := rand.Read(id); err != nil {
+		return false
+	}
+	issued, delivered, err := g.sessions.Notify(sessionID, uint32(category), func(rec store.Session) (*pb.EnforcementNotice, error) {
+		return protocol.SignNotice(g.keys.Identity, g.keys.IdentityKID, &pb.EnforcementNoticeBody{
+			NoticeId: id, SessionId: sid, TenantId: rec.TenantID, PlayerIdHash: rec.PlayerHash,
+			IssuedAtMs: uint64(g.cfg.Now().UnixMilli()), Category: uint32(category), Severity: uint32(severity),
+		})
+	})
+	if err != nil {
+		g.log.Warn("enforcement notice", "session", sessionID, "err", err)
+		return false
+	}
+	if issued {
+		g.log.Info("enforcement notice", "session", sessionID, "notice", hex.EncodeToString(id), "category", noticeName(category.String(), "ENFORCEMENT_CATEGORY_"),
+			"severity", noticeName(severity.String(), "ENFORCEMENT_SEVERITY_"), "delivered", delivered)
+	}
+	return issued
+}
+
+func noticeName(s, prefix string) string { return strings.ToLower(strings.TrimPrefix(s, prefix)) }
 
 func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()

@@ -43,6 +43,9 @@ type Config struct {
 	// kicks regardless of this setting.
 	AutoKick         bool
 	AutoKickSeverity analyzer.Severity
+	// Notices tells a session's client when the session is flagged by evidence that stands
+	// on its own (notice.go lists it). Off by default. A notice informs; it never kicks.
+	Notices bool
 	// ClientIdle and MatchIdle bound how long analyzer state is kept without traffic.
 	ClientIdle time.Duration
 	MatchIdle  time.Duration
@@ -88,6 +91,7 @@ type Pipeline struct {
 	st       store.EvidenceStore
 	sessions SessionLookup
 	kick     Kicker
+	notify   Notifier
 	log      *slog.Logger
 
 	q    chan func()
@@ -134,6 +138,9 @@ func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker
 	go p.run()
 	return p
 }
+
+// SetNotifier sets who delivers client notices. Call it before the first heartbeat.
+func (p *Pipeline) SetNotifier(n Notifier) { p.notify = n }
 
 // Close drains queued work and stops the worker.
 func (p *Pipeline) Close() {
@@ -227,7 +234,12 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 	cs.lastSeen = at
 
 	var evs []store.Evidence
-	add := func(key string, e analyzer.Evidence, raw string) {
+	type notice struct {
+		cat pb.EnforcementCategory
+		sev pb.EnforcementSeverity
+	}
+	var notices []notice
+	add := func(key string, e analyzer.Evidence, raw string, f *pb.Finding) {
 		if cs.seen[key] {
 			return
 		}
@@ -235,6 +247,9 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			return
 		}
 		cs.seen[key] = true
+		if cat, sev, ok := clientNotice(e, f); ok {
+			notices = append(notices, notice{cat, sev})
+		}
 		evs = append(evs, store.Evidence{
 			TenantID: sess.TenantID, PlayerHash: sess.PlayerHash, SessionID: sess.SessionID, Source: store.SourceClient,
 			Rule: e.Rule, Severity: int(e.Severity), Score: e.Score, Integrity: e.Integrity, Summary: e.Summary, Raw: raw, ObservedAt: at,
@@ -252,10 +267,10 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			continue
 		}
 		raw, _ := json.Marshal(map[string]any{"job": f.Job, "code": pb.FindingCode(f.Code).String(), "a": fmt.Sprintf("%#x", f.A), "b": fmt.Sprintf("%#x", f.B), "detail": f.Detail})
-		add(fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail), e, string(raw))
+		add(fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail), e, string(raw), f)
 	}
 	for _, e := range p.cfg.Rules.Heartbeat(&cs.an, hb, at) {
-		add("h|"+e.Rule, e, "")
+		add("h|"+e.Rule, e, "", nil)
 	}
 
 	if len(evs) > 0 {
@@ -266,6 +281,11 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			p.log.Info("detection", "session", sess.SessionID, "player", sess.PlayerHash, "rule", e.Rule, "severity", analyzer.Severity(e.Severity).String(), "summary", e.Summary)
 		}
 		p.maybeKick(sess.SessionID, evs)
+	}
+	if p.cfg.Notices && p.notify != nil {
+		for _, n := range notices {
+			p.notify.Notice(sess.SessionID, n.cat, n.sev)
+		}
 	}
 	if err := p.st.PutTelemetry(ctx, telemetry(sess.SessionID, hb, cs, at)); err != nil {
 		p.log.Warn("persist telemetry", "session", sess.SessionID, "err", err)
@@ -373,6 +393,7 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 		for _, e := range evs {
 			p.log.Info("detection", "match", b.MatchId, "player", e.PlayerHash, "rule", e.Rule, "severity", analyzer.Severity(e.Severity).String(), "summary", e.Summary)
 		}
+		p.notifyGameplay(ms)
 	}
 	if b.MatchOver {
 		delete(p.matches, key)
