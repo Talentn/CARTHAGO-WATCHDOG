@@ -22,6 +22,31 @@ pub fn engine_exe(dir: &Path) -> PathBuf {
     ["hl.exe", "cstrike.exe"].iter().map(|n| dir.join(n)).find(|p| p.is_file()).unwrap_or_else(|| dir.join("hl.exe"))
 }
 
+/// Modules that mark a process as the running game: the engine DLL (hardware or software
+/// renderer) and the engine's file system module, which every GoldSrc client loads first
+/// and which stays in the loader's list in old builds that map the engine DLL themselves.
+pub const ENGINE_MODULES: [&str; 3] = ["hw.dll", "sw.dll", "filesystem_stdio.dll"];
+
+/// Programs found in a game folder that are never the game: the crash reporter, the TV
+/// proxy, dedicated servers and installers. Some of them load engine modules too.
+pub fn never_the_game(exe_name: &str) -> bool {
+    let n = exe_name.to_lowercase();
+    let stem = n.strip_suffix(".exe").unwrap_or(&n);
+    matches!(stem, "crashpad_handler" | "hltv" | "hlds" | "hlds_run")
+        || ["unins", "uninst", "setup", "install", "carthago"].iter().any(|p| stem.starts_with(p))
+}
+
+/// How the companion ends. The values are its process exit codes.
+pub mod exit {
+    pub const OK: i32 = 0;
+    pub const USAGE: i32 = 1;
+    pub const NO_SESSION: i32 = 2;
+    pub const NOT_STARTED: i32 = 3;
+    pub const SESSION_LOST: i32 = 4;
+    /// The started program ended within seconds and no game process was found.
+    pub const GAME_NEVER_RAN: i32 = 5;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Game {
     Launch { exe: PathBuf, args: Vec<String> },
@@ -237,6 +262,16 @@ mod tests {
         std::fs::write(dir.join("hl.exe"), b"x").unwrap();
         assert_eq!(engine_exe(&dir), dir.join("hl.exe"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn helper_programs_are_never_the_game() {
+        for n in ["crashpad_handler.exe", "HLTV.exe", "hlds.exe", "unins000.exe", "Uninstall.exe", "setup.exe", "carthago-cs16.exe"] {
+            assert!(never_the_game(n), "{n}");
+        }
+        for n in ["hl.exe", "cstrike.exe", "CStrike.exe", "launcher.exe", "play.exe"] {
+            assert!(!never_the_game(n), "{n}");
+        }
     }
 
     #[test]
