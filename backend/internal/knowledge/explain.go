@@ -65,6 +65,7 @@ type Replay struct {
 	TargetIsItem bool      `json:"target_is_item,omitempty"`
 	Rays         [][2]Vec2 `json:"rays"`
 	Occluders    [][]Vec2  `json:"occluders"`
+	EyeZ         float64   `json:"eye_z,omitempty"` // height of the viewer's eyes at the moment, metres
 	Min          Vec2      `json:"min"`
 	Max          Vec2      `json:"max"`
 }
@@ -79,6 +80,7 @@ type Explanation struct {
 	Score      float64         `json:"score_z"`
 	AimAssist  bool            `json:"aim_assist,omitempty"`
 	Map        string          `json:"map"`
+	MapNote    string          `json:"map_note,omitempty"` // where the geometry came from and whether it is pinned
 	Features   []FeatureResult `json:"features"`
 	Moments    []MomentText    `json:"moments"`
 	Replay     *Replay         `json:"replay,omitempty"`
@@ -112,13 +114,13 @@ func (r *Result) Explain(m *Map, name func(slot uint32) string) Explanation {
 		TargetFPR: r.Threshold.TargetFPR, Score: round2(r.Score), AimAssist: r.AimAssist,
 		Map:      fmt.Sprintf("%s v%d", m.ID, m.Version),
 		Features: append([]FeatureResult(nil), r.Features...),
-		Knowledge: fmt.Sprintf("Per tick, the player's team is credited with everything any teammate could see through the %d occluders of %s v%d "+
+		Knowledge: fmt.Sprintf("Per tick, the player's team is credited with everything any teammate could see past %s "+
 			"(%.0f° cone, %.0f m), every sound within the game's audible radius, every spot, radar reveal and ping, and each enemy's last-known "+
 			"position (an enemy within %.0f m of it, or reported in the last %.1f s, counts as known; %.0f s for movement). Scores compare the "+
 			"player's aim, shots and movement against the true hidden positions and against the same enemies %s seconds away in time, which is "+
 			"how often common angles and routes line up by habit. The combined score is the eligible scored features' z values added and "+
 			"divided by the square root of their count.",
-			len(m.occ), m.ID, m.Version, r.cfg.FOVDeg, r.cfg.ViewRange, r.cfg.KnownRadius, r.cfg.FreshSec, r.cfg.RouteFreshSec, shiftsText(r.cfg.ShiftsSec)),
+			m.Describe(), r.cfg.FOVDeg, r.cfg.ViewRange, r.cfg.KnownRadius, r.cfg.FreshSec, r.cfg.RouteFreshSec, shiftsText(r.cfg.ShiftsSec)),
 		Policy: "Flag-only evidence for human review. It never triggers an automatic kick and counts as one evidence family (information use); a ban needs a second, independent family.",
 	}
 	for i := range ex.Features {
@@ -250,12 +252,16 @@ func frame(m *Map, r Replay) (Vec2, Vec2, [][]Vec2) {
 	const pad = 12.0
 	lo, hi = Vec2{lo.X - pad, lo.Y - pad}, Vec2{hi.X + pad, hi.Y + pad}
 	// Small maps are drawn whole, which reads better than a crop.
-	if m.Max.X-m.Min.X < 120 && m.Max.Y-m.Min.Y < 120 {
+	if !m.HasSolid() && m.Max.X-m.Min.X < 120 && m.Max.Y-m.Min.Y < 120 {
 		lo, hi = Vec2{math.Min(lo.X, m.Min.X), math.Min(lo.Y, m.Min.Y)}, Vec2{math.Max(hi.X, m.Max.X), math.Max(hi.Y, m.Max.Y)}
 	}
 	var occ [][]Vec2
+	if m.HasSolid() {
+		// The world at the height of the player's eyes. The slice is in many convex pieces.
+		occ = m.SolidSlice(r.EyeZ, lo, hi, 1500)
+	}
 	for i, poly := range m.Occluders() {
-		if len(occ) >= 256 || !m.TallOccluder(i, 1.2) {
+		if (len(occ) >= 256 && !m.HasSolid()) || !m.TallOccluder(i, 1.2) {
 			continue
 		}
 		for _, p := range poly {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"testing"
 
@@ -12,6 +13,8 @@ import (
 
 	pb "carthago/backend/gen/carthago/v1"
 	"carthago/backend/internal/analyzer"
+	"carthago/backend/internal/knowledge"
+	"carthago/backend/internal/knowledge/bsptree"
 	"carthago/backend/internal/knowledge/synth"
 	"carthago/backend/internal/store"
 )
@@ -227,5 +230,185 @@ func TestV1BatchesSkipV2(t *testing.T) {
 	flush(p)
 	if sums, _ := st.ListGameplaySummaries(context.Background(), "t1", store.GameplayFilter{}); len(sums) != 0 {
 		t.Fatalf("v1 batch produced v2 summaries: %+v", sums)
+	}
+}
+
+func noticeList(n *notices) []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	var out []string
+	for id, list := range n.got {
+		for _, x := range list {
+			out = append(out, id+" "+noticeCategoryName(x.category)+" "+strings.ToLower(strings.TrimPrefix(x.severity.String(), "ENFORCEMENT_SEVERITY_")))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func leakRules(t *testing.T, st *store.Memory, tenant, match string) map[string][]store.Evidence {
+	t.Helper()
+	evs, _ := st.ListEvidence(context.Background(), tenant, store.EvidenceFilter{Limit: 1000})
+	out := map[string][]store.Evidence{}
+	for _, e := range evs {
+		if e.MatchID == match && strings.HasPrefix(e.Rule, RuleInformationLeak) {
+			out[e.Rule] = append(out[e.Rule], e)
+		}
+	}
+	return out
+}
+
+func TestMapPins(t *testing.T) {
+	hash, _, err := knowledge.GeometryHash(synth.YardGeometry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := strings.Repeat("ab", 32)
+
+	// The pinned geometry: scored, and the evidence says the map was pinned.
+	p, st, _ := newTest(t, Config{MapPins: map[string]string{synth.YardID: strings.ToUpper(hash)}, MapPinsRequired: true})
+	if w := feed(t, p, "t1", synth.Batches(leakMatch("pin-ok", 1800))); len(w) != 0 {
+		t.Fatalf("warnings: %v", w)
+	}
+	leaks := leakRules(t, st, "t1", "pin-ok")[RuleInformationLeak]
+	if len(leaks) != 1 || !strings.Contains(leaks[0].Raw, "pinned by the operator") || !strings.Contains(leaks[0].Raw, hash) {
+		t.Fatalf("pinned map: %+v", leaks)
+	}
+
+	// Another geometry under a pinned name: refused, nothing scored, nothing stored.
+	p, st, _ = newTest(t, Config{MapPins: map[string]string{synth.YardID: other}})
+	w := feed(t, p, "t1", synth.Batches(leakMatch("pin-wrong", 1800)))
+	if len(w) != 1 || !strings.Contains(w[0], "is not the pinned one") {
+		t.Fatalf("wrong geometry: %v", w)
+	}
+	if len(leakRules(t, st, "t1", "pin-wrong")) != 0 {
+		t.Fatal("a match on a refused map was scored")
+	}
+	if _, err := st.GetMap(context.Background(), "t1", synth.YardID, 1); err == nil {
+		t.Fatal("a refused geometry was stored")
+	}
+	sums, _ := st.ListGameplaySummaries(context.Background(), "t1", store.GameplayFilter{MatchID: "pin-wrong"})
+	if len(sums) != 10 || sums[0].LeakScored || sums[0].MotionSamples == 0 {
+		t.Fatalf("the match itself must still be taken in: %+v", sums)
+	}
+
+	// A geometry stored before the pin existed does not get round it.
+	st2 := store.NewMemory()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	p1 := New(Config{}, st2, st2, nil, log)
+	feed(t, p1, "t1", synth.Batches(leakMatch("pin-before", 20)))
+	p1.Close()
+	p2 := New(Config{MapPins: map[string]string{synth.YardID: other}}, st2, st2, nil, log)
+	t.Cleanup(p2.Close)
+	bs := synth.Batches(leakMatch("pin-after", 1800))
+	bs[0].MapGeometry = nil
+	w = feed(t, p2, "t1", bs)
+	if len(w) != 1 || !strings.Contains(w[0], "is not the pinned one") || len(leakRules(t, st2, "t1", "pin-after")) != 0 {
+		t.Fatalf("stored geometry against a later pin: %v", w)
+	}
+
+	// Pins required and the map not listed: refused. Not required: used, marked as not pinned.
+	p, st, _ = newTest(t, Config{MapPins: map[string]string{"de_other": other}, MapPinsRequired: true})
+	w = feed(t, p, "t1", synth.Batches(leakMatch("pin-missing", 1800)))
+	if len(w) != 1 || !strings.Contains(w[0], "has no pinned geometry") || len(leakRules(t, st, "t1", "pin-missing")) != 0 {
+		t.Fatalf("unlisted map with pins required: %v", w)
+	}
+	p, st, _ = newTest(t, Config{MapPins: map[string]string{"de_other": other}})
+	if w := feed(t, p, "t1", synth.Batches(leakMatch("pin-none", 1800))); len(w) != 0 {
+		t.Fatalf("warnings: %v", w)
+	}
+	leaks = leakRules(t, st, "t1", "pin-none")[RuleInformationLeak]
+	if len(leaks) != 1 || !strings.Contains(leaks[0].Raw, "not pinned: taken as the game server sent it") {
+		t.Fatalf("unpinned map: %+v", leaks)
+	}
+}
+
+// A geometry whose walls contain the players is not the map being played: no score.
+func TestMapThatDoesNotMatchTheMatch(t *testing.T) {
+	// One solid slab over the whole yard, from below the floor to above the eyes.
+	tree, err := bsptree.Build([]bsptree.Brush{bsptree.Box(-10, -10, -1, 70, 50, 3)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, st, _ := newTest(t, Config{})
+	bs := synth.Batches(leakMatch("wrong-map", 1800))
+	bs[0].MapGeometry = &pb.MapGeometry{MapId: "de_wrong", Version: 7, Solid: tree.Proto(100)}
+	for _, b := range bs {
+		b.Map = &pb.MapRef{MapId: "de_wrong", Version: 7}
+	}
+	w := feed(t, p, "t1", bs)
+	if len(w) != 1 || !strings.Contains(w[0], "does not match the match") || !strings.Contains(w[0], "inside its walls") {
+		t.Fatalf("warnings: %v", w)
+	}
+	if got := leakRules(t, st, "t1", "wrong-map"); len(got) != 0 {
+		t.Fatalf("scored on a map that does not match: %+v", got)
+	}
+	sums, _ := st.ListGameplaySummaries(context.Background(), "t1", store.GameplayFilter{MatchID: "wrong-map"})
+	if len(sums) != 10 || sums[0].LeakScored {
+		t.Fatalf("summaries: %+v", sums)
+	}
+}
+
+func TestLiveLeakRuleIsOptIn(t *testing.T) {
+	spec := leakMatch("live-1", 1800)
+	bs := synth.Batches(spec)
+	run := func(cfg Config) (map[string][]store.Evidence, *notices, *kicks) {
+		p, st, k := newTest(t, cfg)
+		n := &notices{}
+		p.SetNotifier(n)
+		for _, ps := range spec.Players {
+			session(st, ps.SessionID, "t1", ps.PlayerHash)
+		}
+		if w := feed(t, p, "t1", bs); len(w) != 0 {
+			t.Fatalf("warnings: %v", w)
+		}
+		return leakRules(t, st, "t1", "live-1"), n, k
+	}
+
+	// Off (the default): the review flag at the end of the match and nothing else, even
+	// with notices on.
+	got, n, _ := run(Config{Notices: true, NoticesOptIn: true})
+	if len(got[RuleInformationLeak]) != 1 || len(got[RuleInformationLeakLive]) != 0 || len(noticeList(n)) != 0 {
+		t.Fatalf("default: %d review flags, %d live, notices %v", len(got[RuleInformationLeak]), len(got[RuleInformationLeakLive]), noticeList(n))
+	}
+
+	// On: the informed slot, once, during the match; its session is told; nobody is kicked.
+	alert := knowledge.DefaultAlert()
+	got, n, k := run(Config{Notices: true, LeakAlert: &alert, AutoKick: true, AutoKickSeverity: analyzer.SeverityInfo})
+	live := got[RuleInformationLeakLive]
+	if len(live) != 1 || live[0].SessionID != "sess-synth-2-informed" || live[0].Integrity || !strings.Contains(live[0].Summary, "Opt-in live wallhack rule") ||
+		!strings.Contains(live[0].Summary, "not proof") {
+		t.Fatalf("live evidence: %+v", live)
+	}
+	if len(got[RuleInformationLeak]) != 1 {
+		t.Fatalf("the review flag must not change: %+v", got[RuleInformationLeak])
+	}
+	want := []string{"sess-synth-2-informed visibility high"}
+	if l := noticeList(n); len(l) != 1 || l[0] != want[0] {
+		t.Fatalf("notices: %v", l)
+	}
+	for _, ps := range spec.Players {
+		if r := k.reason(ps.SessionID); r != "" {
+			t.Fatalf("%s kicked: %s", ps.SessionID, r)
+		}
+	}
+
+	// On without notices: evidence only.
+	got, n, _ = run(Config{LeakAlert: &alert})
+	if len(got[RuleInformationLeakLive]) != 1 || len(noticeList(n)) != 0 {
+		t.Fatalf("no notices configured: %d live, notices %v", len(got[RuleInformationLeakLive]), noticeList(n))
+	}
+
+	// A slot without a verified session is never told.
+	p, st, _ := newTest(t, Config{Notices: true, LeakAlert: &alert})
+	n = &notices{}
+	p.SetNotifier(n)
+	unbound := leakMatch("live-2", 1800)
+	for i := range unbound.Players {
+		unbound.Players[i].SessionID = ""
+	}
+	feed(t, p, "t1", synth.Batches(unbound))
+	if got := leakRules(t, st, "t1", "live-2"); len(got[RuleInformationLeakLive]) != 1 || got[RuleInformationLeakLive][0].SessionID != "" || len(noticeList(n)) != 0 {
+		t.Fatalf("unbound slot: %+v, notices %v", got[RuleInformationLeakLive], noticeList(n))
 	}
 }

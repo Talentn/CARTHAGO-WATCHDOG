@@ -22,6 +22,7 @@ import (
 	"carthago/backend/internal/attest/ekroots"
 	"carthago/backend/internal/dashboard"
 	"carthago/backend/internal/gateway"
+	"carthago/backend/internal/knowledge"
 	"carthago/backend/internal/pipeline"
 	"carthago/backend/internal/store"
 )
@@ -75,6 +76,9 @@ func main() {
 	dashHosts := flag.String("dashboard-host", "", "comma-separated host names the dashboard answers to, besides localhost when it listens on loopback (e.g. the name a reverse proxy forwards)")
 	clientNotices := flag.Bool("client-notices", false, "tell a client when its session is flagged by evidence that stands on its own (a signed notice with a category and a severity; it never kicks)")
 	clientNoticesStrict := flag.Bool("client-notices-strict", false, "with -client-notices: also send the notices that are held back by default because an honest, modified game build can produce the same evidence (things present since the first recorded start of a game, changed or new files of the game folder, read-only handles, engine code rewritten while server add-ons are loaded)")
+	mapPins := flag.String("map-pins", "", "file of trusted map geometries, one `map_id sha256` per line (the line carthago-cs16-bridge map-hash prints); a geometry uploaded for a listed map with another hash is refused and that match is not scored for information leaks")
+	mapPinsRequired := flag.Bool("map-pins-required", false, "with -map-pins: also refuse geometry for maps the file does not list")
+	leakAlert := flag.Bool("leak-alert", false, "opt-in live wallhack rule: a player whose information-leak score is strong in two separate windows of one match gets information_leak_live evidence during the match and, with -client-notices, a notice of the visibility category when the slot is bound to a verified session. Off, information_leak is evidence for review at the end of a match and never tells the player")
 	testNotice := flag.Duration("test-notice-after", 0, "development: send every session a notice of category test this long after its client connected (0 = never)")
 	oracleCfg := oracleFlagSet(flag.CommandLine)
 	flag.Parse()
@@ -159,7 +163,20 @@ func main() {
 
 	var gw *gateway.Gateway
 	kick := kickFunc(func(id, reason string) { gw.Sessions().Kick(id, reason) })
-	detections := pipeline.New(pipeline.Config{AutoKick: *autoKick, Notices: *clientNotices, NoticesOptIn: *clientNoticesStrict, Observer: orc.observer}, st, st, kick, log)
+	pcfg := pipeline.Config{AutoKick: *autoKick, Notices: *clientNotices, NoticesOptIn: *clientNoticesStrict, MapPinsRequired: *mapPinsRequired, Observer: orc.observer}
+	if *mapPins != "" {
+		if pcfg.MapPins, err = loadMapPins(*mapPins); err != nil {
+			log.Error("map-pins", "err", err)
+			os.Exit(1)
+		}
+		log.Info("map pins loaded", "file", *mapPins, "maps", len(pcfg.MapPins), "required", *mapPinsRequired)
+	}
+	if *leakAlert {
+		a := knowledge.DefaultAlert()
+		pcfg.LeakAlert = &a
+		log.Info("live information-leak rule on (opt-in)", "window_s", a.WindowSec, "window_z", a.Z, "min_excess", a.MinExcess, "windows", a.Windows, "tells_the_player", *clientNotices)
+	}
+	detections := pipeline.New(pcfg, st, st, kick, log)
 	defer detections.Close()
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
@@ -261,6 +278,35 @@ func loadTLS(certFile, keyFile string, dev bool, dataDir string) (*tls.Config, e
 		return gateway.TLSConfig(c), nil
 	}
 	return nil, nil
+}
+
+// loadMapPins reads `map_id sha256` lines; '#' starts a comment.
+func loadMapPins(path string) (map[string]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	pins := map[string]string{}
+	for i, line := range strings.Split(string(raw), "\n") {
+		if j := strings.IndexByte(line, '#'); j >= 0 {
+			line = line[:j]
+		}
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if len(f) != 2 {
+			return nil, fmt.Errorf("%s line %d: want `map_id sha256`", path, i+1)
+		}
+		if b, err := hex.DecodeString(f[1]); err != nil || len(b) != 32 {
+			return nil, fmt.Errorf("%s line %d: %q is not a SHA-256 in hex", path, i+1, f[1])
+		}
+		if old, dup := pins[f[0]]; dup && !strings.EqualFold(old, f[1]) {
+			return nil, fmt.Errorf("%s line %d: %s is pinned twice with different hashes", path, i+1, f[0])
+		}
+		pins[f[0]] = strings.ToLower(f[1])
+	}
+	return pins, nil
 }
 
 func splitPins(s string) ([]string, error) {

@@ -104,6 +104,7 @@ type acc struct {
 	cur              int64
 	curSum           float64
 	curN             int
+	curTrue, curNull float64 // the open block's share of sumTrue and sumNull
 	sumB, sumB2      float64
 	blocks, n        int
 	sumTrue, sumNull float64
@@ -119,6 +120,8 @@ func (a *acc) add(block int64, d, t, null float64) {
 	a.n++
 	a.sumTrue += t
 	a.sumNull += null
+	a.curTrue += t
+	a.curNull += null
 }
 
 func (a *acc) flush() {
@@ -129,6 +132,7 @@ func (a *acc) flush() {
 	a.sumB2 += a.curSum * a.curSum
 	a.blocks++
 	a.curSum, a.curN = 0, 0
+	a.curTrue, a.curNull = 0, 0
 }
 
 // z is the self-normalised block sum: about N(0,1) when the behaviour carries no
@@ -169,6 +173,7 @@ type pstate struct {
 	motion     []sample
 	aim        []aimSample
 	feat       [nFeat]acc
+	mark       [nFeat]acc         // feat as it stood when the last window was taken
 	runs       map[[2]uint32]*run // (kind, target)
 	moments    []Moment
 	shotTicks  map[uint32]uint32 // target -> tick of the last hidden-shot moment
@@ -488,7 +493,7 @@ func (s *Scorer) couldSee(eye, dir, target Vec3) bool {
 	if v.Len() > s.cfg.ViewRange || angleTo(dir, v) > s.cfg.FOVDeg/2 {
 		return false
 	}
-	return s.m.LineOfSight(eye, target) || s.m.LineOfSight(eye, aimPoint(target))
+	return s.m.LineOfSight(eye, target) || s.m.LineOfSight(eye, aimPoint(target)) || s.m.bodySight(eye, target)
 }
 
 func (s *Scorer) applyEvents(t uint32) {
@@ -1075,6 +1080,9 @@ func (s *Scorer) capture(p *pstate, m Moment) *Replay {
 			continue
 		}
 		r.Viewer = append(r.Viewer, Vec2{vs.pos.X, vs.pos.Y})
+		if t <= int64(m.Tick) || r.EyeZ == 0 {
+			r.EyeZ = vs.pos.Z
+		}
 		if tgt != nil {
 			if ts, ok := tgt(t, step); ok {
 				r.Target = append(r.Target, Vec2{ts.pos.X, ts.pos.Y})
@@ -1103,11 +1111,23 @@ func (s *Scorer) capture(p *pstate, m Moment) *Replay {
 }
 
 func (s *Scorer) result(p *pstate) Result {
+	res := s.resultOf(p, &p.feat)
+	res.Moments = p.moments
+	for i := range res.Moments {
+		res.Moments[i].At = s.clock(res.Moments[i].Tick)
+	}
+	if p.dec != nil {
+		res.Decoy = s.decoyResult(p, res.Segment)
+	}
+	return res
+}
+
+func (s *Scorer) resultOf(p *pstate, feat *[nFeat]acc) Result {
 	seg := Segment{Mode: s.mode, Device: p.device}
 	th := s.cfg.threshold(seg)
 	res := Result{Slot: p.slot, Segment: seg, Calibrated: s.cfg.Calibrated(seg), Threshold: th, AimAssist: p.aimAssist, cfg: s.cfg}
-	for i := range p.feat {
-		a := &p.feat[i]
+	for i := range feat {
+		a := &feat[i]
 		f := FeatureResult{Name: featNames[i], Label: featLabels[i], Z: a.z(), Samples: a.n, Blocks: a.blocks}
 		if a.n > 0 {
 			f.RateTrue, f.RateNull = a.sumTrue/float64(a.n), a.sumNull/float64(a.n)
@@ -1126,11 +1146,14 @@ func (s *Scorer) result(p *pstate) Result {
 	// (Stouffer), which stays N(0,1) under the null instead of taking the
 	// maximum of several tests. hidden_loot is reported but not scored: loot
 	// that is still there is loot nobody walked to, and empty-spot controls do
-	// not yet remove that bias.
+	// not yet remove that bias. hidden_route is not scored in a round-based mode:
+	// every round starts with both teams walking at each other from places everyone
+	// knows, which lines movement up with unseen enemies for honest players too.
+	roundBased := s.mode == pb.GameMode_GAME_MODE_ROUND_SHOOTER
 	sum, k, excess := 0.0, 0, false
 	for i := range res.Features {
 		f := &res.Features[i]
-		f.Scored = f.Eligible && i != featLoot
+		f.Scored = f.Eligible && i != featLoot && !(i == featRoute && roundBased)
 		if f.Scored {
 			sum += f.Z
 			k++
@@ -1141,14 +1164,37 @@ func (s *Scorer) result(p *pstate) Result {
 		res.Score = sum / math.Sqrt(float64(k))
 	}
 	res.Flagged = res.Score >= th.Z && excess
-	res.Moments = p.moments
-	for i := range res.Moments {
-		res.Moments[i].At = s.clock(res.Moments[i].Tick)
-	}
-	if p.dec != nil {
-		res.Decoy = s.decoyResult(p, seg)
-	}
 	return res
+}
+
+// Analysed is the match time, in seconds, that has been scored so far. It trails the
+// newest sample by the longest control offset.
+func (s *Scorer) Analysed() float64 {
+	if !s.haveFirst || s.next <= s.firstTick {
+		return 0
+	}
+	return float64(s.next-s.firstTick) / s.rate
+}
+
+// Window scores each player on what was analysed since the previous call (or the start of
+// the match) and starts the next window. Only finished blocks count, so windows share no
+// sample. The match result from Finish is not affected.
+func (s *Scorer) Window() []Result {
+	var out []Result
+	for _, slot := range s.order {
+		p := s.players[slot]
+		var d [nFeat]acc
+		for i := range p.feat {
+			a, m := &p.feat[i], &p.mark[i]
+			// The open block's samples are left for the next window.
+			closed := acc{sumB: a.sumB, sumB2: a.sumB2, blocks: a.blocks, n: a.n - a.curN, sumTrue: a.sumTrue - a.curTrue, sumNull: a.sumNull - a.curNull}
+			d[i] = acc{sumB: closed.sumB - m.sumB, sumB2: closed.sumB2 - m.sumB2, blocks: closed.blocks - m.blocks, n: closed.n - m.n,
+				sumTrue: closed.sumTrue - m.sumTrue, sumNull: closed.sumNull - m.sumNull}
+			*m = closed
+		}
+		out = append(out, s.resultOf(p, &d))
+	}
+	return out
 }
 
 func (s *Scorer) clock(t uint32) string {

@@ -9,3 +9,6 @@ publish.workspace = true
 [dependencies]
 carthago-server = { path = "../../crates/carthago-server" }
 carthago-cs16-companion = { path = "../companion" }
+hex = "0.4.3"
+prost = "0.14.4"
+sha2 = "0.11.1"

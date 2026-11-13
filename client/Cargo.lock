@@ -206,6 +206,9 @@ version = "0.0.1"
 dependencies = [
  "carthago-cs16-companion",
  "carthago-server",
+ "hex",
+ "prost",
+ "sha2",
 ]
 
 [[package]]

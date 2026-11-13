@@ -47,7 +47,7 @@
     <dt>Combined score</dt><dd><span class="mono">z = {{fixed 2 .Score}}</span> <small class="muted">flags at z ≥ {{fixed 1 .Threshold}} with an excess of at least {{fixed 2 .MinExcess}} over the controls</small></dd>
     <dt>Segment</dt><dd><span class="tags"><span class="tag mono">{{.Segment}}</span>{{if .AimAssist}}<span class="tag">aim assist</span>{{end}}{{if not .Calibrated}}<span class="tag bad">uncalibrated segment: fallback threshold</span>{{end}}</span></dd>
     <dt>Target false-flag rate</dt><dd>{{fixed 1 (pctOf .TargetFPR)}}% of honest player-matches <small class="muted">(threshold set per segment)</small></dd>
-    <dt>Map</dt><dd class="mono">{{.Map}}</dd>
+    <dt>Map</dt><dd class="mono">{{.Map}}{{if .MapNote}}<br><small class="muted">{{.MapNote}}</small>{{end}}</dd>
   </dl>
   <p class="policy">{{.Policy}}</p>
   <h3>What the player lined up with</h3>

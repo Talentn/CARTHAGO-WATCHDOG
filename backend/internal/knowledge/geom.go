@@ -75,6 +75,8 @@ type Map struct {
 	Max     Vec2
 	occ     []occluder
 	zones   []zone
+	tree    *tree  // the solid world, for maps that are a binary space partition
+	Source  string // hex SHA-256 of the map file the game server read, as it claimed
 }
 
 func cm(v int32) float64 { return float64(v) / 100 }
@@ -108,11 +110,25 @@ func Compile(g *pb.MapGeometry) (*Map, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > MaxGeometryBytes {
-		return nil, fmt.Errorf("map geometry is %d bytes (limit %d)", len(raw), MaxGeometryBytes)
+	limit := MaxGeometryBytes
+	if g.Solid != nil {
+		limit = MaxTreeBytes
 	}
-	m := &Map{ID: g.MapId, Version: g.Version, Mode: g.Mode, Hash: hash,
+	if len(raw) > limit {
+		return nil, fmt.Errorf("map geometry is %d bytes (limit %d)", len(raw), limit)
+	}
+	if len(g.SourceSha256) != 0 && len(g.SourceSha256) != sha256.Size {
+		return nil, errors.New("source_sha256 must be 32 bytes or absent")
+	}
+	m := &Map{ID: g.MapId, Version: g.Version, Mode: g.Mode, Hash: hash, Source: hex.EncodeToString(g.SourceSha256),
 		Min: Vec2{math.Inf(1), math.Inf(1)}, Max: Vec2{math.Inf(-1), math.Inf(-1)}}
+	if g.Solid != nil {
+		t, err := compileTree(g.Solid)
+		if err != nil {
+			return nil, err
+		}
+		m.tree = t
+	}
 	grow := func(p Vec2) {
 		m.Min.X, m.Min.Y = math.Min(m.Min.X, p.X), math.Min(m.Min.Y, p.Y)
 		m.Max.X, m.Max.Y = math.Max(m.Max.X, p.X), math.Max(m.Max.Y, p.Y)
@@ -213,8 +229,11 @@ func convex(p []Vec2) bool {
 	return sign != 0
 }
 
-// LineOfSight reports whether the segment a-b passes through no occluder.
+// LineOfSight reports whether the segment a-b passes through no occluder and no solid space.
 func (m *Map) LineOfSight(a, b Vec3) bool {
+	if m.tree != nil && m.tree.blocked(a, b) {
+		return false
+	}
 	minX, maxX := math.Min(a.X, b.X), math.Max(a.X, b.X)
 	minY, maxY := math.Min(a.Y, b.Y), math.Max(a.Y, b.Y)
 	for i := range m.occ {

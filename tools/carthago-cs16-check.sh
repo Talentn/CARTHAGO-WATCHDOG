@@ -28,7 +28,14 @@
 #      renderer library in its folder): a clean start must stay silent, each change must
 #      raise the alert under the right category, and what the build has always shown
 #      must be held back unless -AlertOnIntegrity is given. Nothing is injected into any
-#      process and no real game or system file is touched.
+#      process and no real game or system file is touched;
+#   8. information-leak (wallhack) scoring: synthetic Counter-Strike matches on a map file
+#      in the game's maps folder (carthago-sim -cs-stream, -cs-map) go through the bridge,
+#      which reads the map's walls, to the gateway. An honest local player must stay
+#      clean, one who acts on hidden enemies must be flagged for review without an alert,
+#      and -AlertOnWallhackScore must turn that into an alert during the match. A map file
+#      that changed since it was first seen, or that is not the map being played, must
+#      switch the scoring off and say so.
 #
 # Needs: cargo with the x86_64-pc-windows-gnu target, mingw-w64 (i686 and x86_64), wine, go.
 # Usage: tools/carthago-cs16-check.sh       (ports 28750, 28751 and UDP 27992; part 6 uses the
@@ -74,7 +81,12 @@ i686-w64-mingw32-gcc -O1 -o "$run/bin/fake_holder.exe" "$root/client/cs16/fakega
 # Programs that sit in the real folder and must never be taken for the game.
 for other in crashpad_handler.exe hltv.exe unins000.exe; do echo "not the game" >"$game/$other"; done
 printf 'game "Counter-Strike"\r\ngamedll "dlls\\mp.dll"\r\ngamedll_linux "dlls/cs_i386.so"\r\n' >"$game/cstrike/liblist.gam"
-(cd "$root/backend" && go build -o "$run/bin/carthago-gateway" ./cmd/carthago-gateway)
+(cd "$root/backend" && go build -o "$run/bin/carthago-gateway" ./cmd/carthago-gateway && go build -o "$run/bin/carthago-sim" ./cmd/carthago-sim)
+# The game's maps folder: the map the synthetic matches are played on, written as a map
+# file, and a file that is not a map.
+mkdir -p "$game/cstrike/maps"
+"$run/bin/carthago-sim" -cs-map "$game/cstrike/maps/cs_carthago_yard.bsp"
+echo "not a map" >"$game/cstrike/maps/de_broken.bsp"
 (cd "$root/client" && cargo build -q -p carthago-cs16-companion --target x86_64-pc-windows-gnu && cargo build -q -p carthago-cs16-bridge)
 target="${CARGO_TARGET_DIR:-$root/client/target}"
 companion="$target/x86_64-pc-windows-gnu/debug/carthago-cs16.exe"
@@ -134,6 +146,15 @@ echo "ok   the human player has nothing above info"
 ! grep -q 'ALERT' "$run/companion.log" || fail "an alert was raised although the gateway runs without -client-notices"
 ! grep -q 'msg="enforcement notice"' "$log" || fail "the gateway issued a notice without -client-notices"
 echo "ok   no notice and no alert unless the gateway is started with -client-notices"
+
+step "synthetic Counter-Strike matches through the bridge and the gateway's scorer (go test)"
+(cd "$root/backend" && CARTHAGO_CS16_BRIDGE="$bridge" go test -count=1 -run 'TestCSMatchesThroughTheBridge' ./internal/knowledge/synth) || fail "the scorer's check through the bridge failed"
+pin=$("$bridge" map-hash "$game/cstrike/maps/cs_carthago_yard.bsp" | tail -1)
+[[ "$pin" =~ ^cs_carthago_yard\ [0-9a-f]{64}$ ]] || fail "map-hash printed no pin line: $pin"
+pins=$("$bridge" map-pins --maps "$run/nowhere" --maps "$game/cstrike/maps")
+grep -qxF "$pin" <<<"$pins" || fail "map-pins and map-hash disagree: $pins"
+grep -q '^# de_broken: not usable: ' <<<"$pins" || fail "map-pins did not list the file that is not a map"
+echo "ok   the map file's pin line is the same from map-hash and map-pins; a file that is not a map is skipped"
 
 if [[ -n "${DISPLAY:-}" ]]; then
   step "companion --test-alert: the alert screen as a preview (3 s)"
@@ -282,6 +303,7 @@ WRAP
   [[ $code == 21 ]] || { cat "$run/full-nodata.log"; fail "a run without match data should end with 21, got $code"; }
   grep -q 'plugin stage 2 .*as found by the last -Diagnose run' "$run/full-nodata.log" || fail "the remembered stage was not used"
   ! grep -q 'your player slot was tied' "$run/full-nodata.log" || fail "a slot is reported as tied although the plugin sent nothing"
+  grep -q 'maps: the walls of 1 maps were hashed and recorded in ' "$run/full-nodata.log" || fail "the first run with the plugin did not record the map files"
   grep -q 'load token=.* stage=2 ' "$run/full-nodata.log" || fail "the plugin's lines are missing from the result"
   "$bridge" synth --out "$run/synth-short.txt" --seconds 60 >/dev/null
   full -Map de_dust2 -GameArgs:"-game cstrike -secs 16" >"$run/full-data.log" 2>&1 &
@@ -354,6 +376,89 @@ WRAP
     echo "ok   a game that does not close when asked is ended, and only because the companion started it"
   fi
 
+  visibility_alert='^ALERT the session was flagged: A visibility cheat (wallhack) was detected on this game. \[category visibility, severity high,'
+  # Information-leak scoring. $1 names the case, $2 the stream, the rest are options of
+  # the script. The stream is a whole match played in well under a minute.
+  leak() {
+    local name="$1" stream="$2"
+    shift 2
+    full -Map cs_carthago_yard -AlertSecs 3 -GameArgs:"-game cstrike -secs 55" "$@" >"$run/leak-$name.log" 2>&1 &
+    local pid=$!
+    for _ in $(seq 200); do grep -q 'GAME pid=' "$run/leak-$name.log" 2>/dev/null && break; sleep 0.1; done
+    "$bridge" send "$stream" --to 127.0.0.1:27991 --speed 30 >/dev/null
+    wait "$pid" || { cat "$run/leak-$name.log"; fail "information-leak case $name: the run failed"; }
+    grep -E '^(OK|FAIL|NOTE|ALERT|FLAG)|^ +(evidence|raised by) |four-minute stretches were|at the gateway' "$run/leak-$name.log" | cut -c1-250
+    grep -q '^OK    match data reached the gateway' "$run/leak-$name.log" || fail "information-leak case $name: match data did not reach the gateway"
+  }
+  lhas() { grep -q -- "$2" "$run/leak-$1.log" || { cat "$run/leak-$1.log"; fail "information-leak case $1: missing: $2"; }; }
+  lhasnt() { ! grep -q -- "$2" "$run/leak-$1.log" || { cat "$run/leak-$1.log"; fail "information-leak case $1: unexpected: $2"; }; }
+  leak_log() { echo "$(ls -d "$run"/carthago-scratch/logs/*/ | tail -1)gateway.log"; }
+  others="legit,prefire,sound,teamcall,legit,subtle,legit,sound,prefire"
+  # The gateway takes a match id once, so every run gets a match of its own.
+  "$run/bin/carthago-sim" -cs-stream "$run/cs-honest.txt" -roles "legit,$others" -match cs-honest -match-seconds 1200 -seed 13
+  for id in review alert; do
+    "$run/bin/carthago-sim" -cs-stream "$run/cs-$id.txt" -roles "informed,$others" -match "cs-$id" -match-seconds 1200 -seed 13
+  done
+  for id in changed wrongmap; do
+    "$run/bin/carthago-sim" -cs-stream "$run/cs-$id.txt" -roles "informed,$others" -match "cs-$id" -match-seconds 150 -seed 13
+  done
+
+  step "information leak: an honest player on the map from the game's maps folder, with -AlertOnWallhackScore"
+  leak honest "$run/cs-honest.txt" -AlertOnWallhackScore
+  lhas honest 'maps: 1 recorded in '
+  lhas honest '^OK    map cs_carthago_yard: walls read from .*cs_carthago_yard.bsp'
+  lhas honest 'map cs_carthago_yard at the gateway: geometry [0-9a-f]\{64\}, the one recorded when this script first saw the map file, read by the game server from a map file with SHA-256 [0-9a-f]\{64\}'
+  lhas honest 'MAP check for cs_carthago_yard: [0-9]* of [0-9]* player positions were inside walls (0\.[0-9]* %)$'
+  lhas honest '^OK    information-leak score for you in match cs-honest: [-0-9.]*, not flagged (flag at 4\.5)'
+  lhas honest '-AlertOnWallhackScore: 0 of [45] four-minute stretches were strong; the alert needs 2'
+  lhas honest '^OK    no alert: the gateway did not flag this session'
+  lhasnt honest 'information_leak_live'
+  ! grep 'msg=detection ' "$(leak_log)" | grep 'player=cs16-local-player ' | grep -v 'severity=info' | grep -v 'rule=scanner_stalled' || fail "the honest player has evidence above info"
+  grep -q 'msg="map pins loaded" .* maps=1 ' "$(leak_log)" || fail "the gateway was not given the map pins"
+  echo "ok   honest play on a pinned map: scored, not flagged, no alert even with the opt-in"
+
+  step "information leak: a player who acts on enemies behind walls is flagged for review, with no alert"
+  leak review "$run/cs-review.txt"
+  lhas review '^FLAG  information-leak score for you in match cs-review: [0-9.]*, flagged for review (flag at 4\.5)'
+  lhas review '^OK    no alert: the gateway did not flag this session'
+  lhas review 'The score raises no alert by default; -AlertOnWallhackScore lets it'
+  lhasnt review 'information_leak_live'
+  lhasnt review 'four-minute stretches were'
+  grep -q 'msg=detection .*player=cs16-local-player rule=information_leak severity=\(medium\|high\) ' "$(leak_log)" || fail "no information_leak evidence for the local player"
+  ! grep -q 'msg="enforcement notice"' "$(leak_log)" || fail "a review flag sent a notice"
+  echo "ok   the review flag is evidence only: nothing is shown to the player"
+
+  step "information leak: the same match with -AlertOnWallhackScore raises the alert during the match"
+  leak alert "$run/cs-alert.txt" -AlertOnWallhackScore
+  lhas alert "$visibility_alert"
+  lhas alert 'raised by information_leak_live: Opt-in live wallhack rule: 2 of [0-9] windows of 240 s were strong'
+  lhas alert 'A behaviour score, not proof'
+  lhas alert '-AlertOnWallhackScore: [2-5] of [45] four-minute stretches were strong; the alert needs 2'
+  lhas alert '^FLAG  information-leak score for you in match cs-alert'
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$run/leak-alert.log")
+  [[ -n "$secs" && "$secs" -ge 54 ]] || fail "alert only: the game should have run its 55 s, ran ${secs:-?}"
+  ! grep -qi 'kick' "$(leak_log)" || fail "the gateway kicked a session"
+  echo "ok   with the opt-in, two strong stretches raise a visibility alert; the game is left running"
+
+  step "information leak: a map file that changed since it was first seen, then one that is not the map being played"
+  cp "$game/cstrike/maps/cs_carthago_yard.bsp" "$run/yard.bsp"
+  cp "$root/client/cs16/bridge/tests/data/cs_fixture.bsp" "$game/cstrike/maps/cs_carthago_yard.bsp"
+  leak changed "$run/cs-changed.txt" -AlertOnWallhackScore
+  lhas changed '^NOTE  the file of map cs_carthago_yard is not the one recorded for this game folder'
+  lhas changed '^NOTE  the gateway refused the walls of cs_carthago_yard: map pin: the geometry sent for cs_carthago_yard (hash [0-9a-f]*) is not the pinned one'
+  lhasnt changed 'information-leak score for you'
+  lhasnt changed 'no information-leak score yet'
+  lhas changed '^OK    no alert: the gateway did not flag this session'
+  leak wrongmap "$run/cs-wrongmap.txt" -AlertOnWallhackScore -ResetMapPins
+  lhasnt wrongmap 'is not the one recorded for this game folder'
+  lhas wrongmap '^NOTE  MAP check for cs_carthago_yard: .* the map file does not match the map being played'
+  lhas wrongmap '^NOTE  information-leak scores withheld: the map file does not match where the players were'
+  lhasnt wrongmap 'information-leak score for you'
+  lhas wrongmap '^OK    no alert: the gateway did not flag this session'
+  cp "$run/yard.bsp" "$game/cstrike/maps/cs_carthago_yard.bsp"
+  rm "$run"/carthago-scratch/map-pins-*.txt
+  echo "ok   a changed map file is refused by its pin; a map that does not fit the players' positions is not scored"
+
   # What the companion sees change in the started game. $1 names the case, variables for
   # the stand-in game follow up to "--", then options of the script. The picture of the
   # started game is taken early (-BaselineSecs 2) and the stand-in changes itself 22 s in.
@@ -372,7 +477,6 @@ WRAP
   hasnt() { ! grep -q -- "$2" "$run/integ-$1.log" || { cat "$run/integ-$1.log"; fail "integrity case $1: unexpected: $2"; }; }
   late='FAKE_CS16_LATE_AFTER=22'
   integrity_alert='^ALERT the session was flagged: The game.s code, memory or libraries were tampered with. \[category game_integrity, severity high,'
-  visibility_alert='^ALERT the session was flagged: A visibility cheat (wallhack) was detected on this game. \[category visibility, severity high,'
 
   step "integrity: a first start that is closed after a few seconds is continued by the next start"
   profile() { cat "$run"/carthago-scratch/start-profile-*.txt; }
