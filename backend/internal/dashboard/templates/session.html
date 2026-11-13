@@ -34,6 +34,8 @@
   {{else}}<p class="empty">No heartbeat telemetry recorded</p>{{end}}
 </section>
 </div>
+{{with $d.Oracle}}{{template "oraclecard" .}}{{end}}
+{{template "labelcard" $d.Label}}
 {{if $d.Coverage}}
 <section class="card">
   <h2>Scan coverage</h2>

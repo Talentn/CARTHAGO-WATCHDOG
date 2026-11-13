@@ -1,0 +1,126 @@
+{{define "oraclecard"}}
+<section class="card oracle" id="oracle">
+  <div class="card-head"><h2>Carthago Oracle</h2>
+    <span class="muted">{{with .Engine}}engine <span class="mono">{{.BundleID}}</span> · analyst {{.Analyst}}{{else}}engine off · showing stored results{{end}}</span></div>
+  <div class="oracle-split">
+    <div>
+      <h3>Behaviour model</h3>
+      {{with .Score}}
+      <div class="oscore"><b>{{$.Percent}}</b><span class="muted">/ 100</span><span class="tier tier-{{.Band}}">{{.Band}}</span></div>
+      <p class="replay-note">How closely this session resembles the cheating profiles the model was trained on. It is a ranking score, not the chance that the player cheats.</p>
+      {{if $.Signals}}
+      <table class="compact signals">
+        <thead><tr><th>Signal</th><th>Lowers · raises the score</th><th>Effect</th></tr></thead>
+        <tbody>{{range $.Signals}}<tr>
+          <td>{{.Label}}</td>
+          <td><svg class="sigbar" viewBox="0 0 100 6" preserveAspectRatio="none" role="img" aria-label="{{if .Raises}}raises{{else}}lowers{{end}} the score, {{.Strength}}"><rect class="axis" x="49.8" y="0" width="0.4" height="6"/><rect class="{{if .Raises}}up{{else}}down{{end}}" x="{{.X}}" y="1" width="{{.W}}" height="4"/></svg></td>
+          <td class="eff">{{if .Raises}}raises{{else}}lowers{{end}} <span class="muted">{{.Strength}}</span></td>
+        </tr>{{end}}</tbody>
+      </table>
+      {{else}}<p class="empty">No signal stands out from an ordinary session</p>{{end}}
+      <dl class="kv okv">
+        <dt>Model</dt><dd class="mono">{{.ModelID}} <span class="muted">features v{{.FeatureVersion}}</span></dd>
+        <dt>Scored</dt><dd>{{ago .UpdatedAt}}{{if .MatchID}} <span class="muted">from match</span> <span class="mono">{{short .MatchID}}</span>{{else}} <span class="muted">from client evidence only, no match played</span>{{end}}</dd>
+      </dl>
+      {{else}}<p class="empty">This session has not been scored</p>{{end}}
+    </div>
+    <div>
+      <h3>Analyst opinion</h3>
+      {{with .Verdict}}{{$v := .V}}
+      {{if .OK}}
+      <p class="lead olead">{{cheatName $v.CheatType}}</p>
+      <dl class="kv okv">
+        <dt>Confidence</dt><dd><span class="mono">{{$v.Confidence}}%</span> <small class="muted">the analyst's own estimate</small></dd>
+        <dt>Suggests</dt><dd>{{actionName $v.Action}}</dd>
+        <dt>Summary</dt><dd>{{$v.Summary}}</dd>
+        <dt>Cited evidence</dt><dd>{{if .Cited}}<span class="tags">{{range .Cited}}{{$c := .}}{{range .Evidence}}<a class="tag mono" href="/evidence/{{.}}">{{$c.ID}} · {{$c.Rule}} · #{{.}}</a>{{else}}<span class="tag mono">{{$c.ID}} · {{$c.Rule}}</span>{{end}}{{end}}</span>{{else}}<span class="muted">none</span>{{end}}</dd>
+        <dt>Analyst</dt><dd><span class="mono">{{$v.Provider}}</span> <span class="mono muted">{{$v.AnalystModel}}</span> · prompt <span class="mono">{{$v.PromptVersion}}</span> · {{ago $v.CreatedAt}}</dd>
+      </dl>
+      {{else}}
+      <p class="empty">No opinion: {{reason $v.Reason}}. <span class="muted">Tried {{ago $v.CreatedAt}}; the evidence below stands on its own.</span></p>
+      {{end}}
+      {{else}}<p class="empty">{{if .Waiting}}{{.Waiting}}{{else}}Not sent to the analyst: neither the rules nor the model flagged this session{{end}}</p>{{end}}
+      <p class="policy">An opinion for the reviewer, written by a language model from the pseudonymised evidence of this session. It is advisory: it never kicks, bans or changes a player's risk, and it can be wrong. Judge it against the evidence it cites.</p>
+    </div>
+  </div>
+</section>
+{{end}}
+
+{{define "labelcard"}}{{$csrf := .CSRF}}{{$id := .SessionID}}{{with .View}}
+<section class="card" id="label">
+  <div class="card-head"><h2>Reviewer label</h2><span class="muted">your studio's own conclusion · never kicks or bans</span></div>
+  {{if .Saved}}<p class="saved">Label saved</p>{{end}}
+  {{with .Label}}
+  <dl class="kv okv">
+    <dt>Label</dt><dd><span class="mark lbl-{{.Label}}">{{labelName .Label}}</span>{{if .CheatType}} <span class="muted">·</span> {{cheatName .CheatType}}{{end}}</dd>
+    <dt>By</dt><dd>{{if .Reviewer}}{{.Reviewer}}{{else}}<span class="muted">no name given</span>{{end}} <span class="muted">· {{when .LabelledAt}}</span></dd>
+    {{if .Note}}<dt>Note</dt><dd>{{.Note}}</dd>{{end}}
+  </dl>
+  {{else}}
+  <p class="empty">Not labelled yet</p>
+  {{end}}
+  {{with .Suggested}}
+  <form method="post" action="/sessions/{{path $id}}/label" class="suggest">
+    <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="suggested" value="1">
+    <input type="hidden" name="label" value="{{.Label}}"><input type="hidden" name="cheat_type" value="{{.CheatType}}"><input type="hidden" name="reviewer" value="{{$.View.Reviewer}}">
+    <p>Suggested: <b>{{labelName .Label}}</b> · {{cheatName .CheatType}} <span class="muted">from {{$.View.Why}}. Accept it only if you agree.</span></p>
+    <button type="submit" class="secondary">Accept suggestion</button>
+  </form>
+  {{end}}
+  <form method="post" action="/sessions/{{path $id}}/label" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Label
+      <select name="label">
+        <option value="confirmed_cheat"{{if $.View.Label}}{{if eq $.View.Label.Label "confirmed_cheat"}} selected{{end}}{{end}}>Confirmed cheat</option>
+        <option value="cleared"{{if $.View.Label}}{{if eq $.View.Label.Label "cleared"}} selected{{end}}{{end}}>Cleared</option>
+        <option value="unsure"{{if $.View.Label}}{{if eq $.View.Label.Label "unsure"}} selected{{end}}{{else}} selected{{end}}>Unsure</option>
+        {{if $.View.Label}}<option value="">Remove the label</option>{{end}}
+      </select>
+    </label>
+    <label>Cheat type <small class="muted">optional</small>
+      <select name="cheat_type">
+        <option value="">Not specified</option>
+        {{range .Types}}<option value="{{.}}"{{if $.View.Label}}{{if eq $.View.Label.CheatType .}} selected{{end}}{{end}}>{{cheatName .}}</option>{{end}}
+      </select>
+    </label>
+    <label class="grow">Note <small class="muted">optional, 280 characters</small>
+      <input type="text" name="note" maxlength="280" value="{{if $.View.Label}}{{$.View.Label.Note}}{{end}}" autocomplete="off">
+    </label>
+    <label>Your name
+      <input type="text" name="reviewer" maxlength="64" value="{{.Reviewer}}" autocomplete="name">
+    </label>
+    <button type="submit" class="primary">Save label</button>
+  </form>
+  {{if .Audit}}
+  <details>
+    <summary>History ({{len .Audit}})</summary>
+    <table class="compact">
+      <thead><tr><th>When</th><th>Change</th><th>Label</th><th>By</th><th>From</th><th>Note</th></tr></thead>
+      <tbody>{{range .Audit}}<tr>
+        <td class="when">{{when .At}}</td><td>{{auditName .Action}}</td>
+        <td>{{if .Label}}{{labelName .Label}}{{if .CheatType}} <span class="muted">· {{cheatName .CheatType}}</span>{{end}}{{else}}<span class="muted">—</span>{{end}}</td>
+        <td>{{if .Reviewer}}{{.Reviewer}}{{else}}<span class="muted">no name</span>{{end}}</td><td class="mono">{{.Remote}}</td><td class="sum">{{.Note}}</td>
+      </tr>{{end}}</tbody>
+    </table>
+  </details>
+  {{end}}
+</section>
+{{end}}{{end}}
+
+{{define "playeroracle"}}
+<section class="card" id="oracle">
+  <div class="card-head"><h2>Carthago Oracle</h2><span class="muted">{{with .Engine}}engine <span class="mono">{{.BundleID}}</span>{{else}}engine off · showing stored results{{end}} · advisory</span></div>
+  <table>
+    <thead><tr><th>Session</th><th class="num">Model score</th><th>Band</th><th>Analyst opinion</th><th class="num">Confidence</th><th>Reviewer label</th><th>Scored</th></tr></thead>
+    <tbody>{{range .Rows}}<tr>
+      <td><a class="mono" href="/sessions/{{path .SessionID}}#oracle">{{short .SessionID}}</a></td>
+      {{if .Score}}<td class="num">{{.Percent}}</td>{{else}}<td class="num muted">—</td>{{end}}
+      <td>{{with .Score}}<span class="tier tier-{{.Band}}">{{.Band}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td>{{with .Verdict}}{{cheatName .CheatType}}{{else}}<span class="muted">—</span>{{end}}</td>
+      <td class="num">{{with .Verdict}}{{.Confidence}}%{{else}}<span class="muted">—</span>{{end}}</td>
+      <td>{{with .Label}}<span class="mark lbl-{{.Label}}">{{labelName .Label}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td class="when">{{with .Score}}{{ago .UpdatedAt}}{{else}}<span class="muted">—</span>{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table>
+</section>
+{{end}}
