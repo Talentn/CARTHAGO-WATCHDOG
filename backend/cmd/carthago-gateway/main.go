@@ -30,6 +30,7 @@ import (
 type evidenceStore interface {
 	store.Store
 	store.EvidenceStore
+	store.OracleStore
 }
 
 type tenantFlag map[string]string
@@ -68,6 +69,7 @@ func main() {
 	maxHandshakesIP := flag.Int("max-handshakes-per-ip", 0, "client handshakes allowed in progress per remote address (0 = default 32; raise behind a proxy)")
 	autoKick := flag.Bool("auto-kick", false, "kick sessions on critical client integrity evidence (behavioural evidence never kicks)")
 	dashHosts := flag.String("dashboard-host", "", "comma-separated host names the dashboard answers to, besides localhost when it listens on loopback (e.g. the name a reverse proxy forwards)")
+	oracleCfg := oracleFlagSet(flag.CommandLine)
 	flag.Parse()
 	if len(tenants) == 0 {
 		tenants["demo"] = demoServerKey
@@ -136,17 +138,24 @@ func main() {
 		log.Warn(w, "dir", *ekRootsDir)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	orc, err := startOracle(ctx, oracleCfg, *dataDir, st, log)
+	if err != nil {
+		log.Error("oracle", "err", err)
+		os.Exit(1)
+	}
+	defer orc.close()
+
 	var gw *gateway.Gateway
 	kick := kickFunc(func(id, reason string) { gw.Sessions().Kick(id, reason) })
-	detections := pipeline.New(pipeline.Config{AutoKick: *autoKick}, st, st, kick, log)
+	detections := pipeline.New(pipeline.Config{AutoKick: *autoKick, Observer: orc.observer}, st, st, kick, log)
 	defer detections.Close()
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
 		Detections: detections, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP,
 	}, keys, st, log)
 	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
@@ -166,7 +175,7 @@ func main() {
 		_ = srv.Shutdown(sctx)
 	}()
 	if *dashListen != "" {
-		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, dashboardHosts(*dashListen, *dashHosts), st, log); err != nil {
+		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, dashboardHosts(*dashListen, *dashHosts), orc.info, st, log); err != nil {
 			log.Error("dashboard", "err", err)
 			os.Exit(1)
 		}
@@ -313,11 +322,11 @@ func (f kickFunc) Kick(id, reason string) { f(id, reason) }
 
 // serveDashboard runs the Carthago Watchdog dashboard on its own listener, so it can stay on
 // loopback (or behind a VPN or proxy) while the client gateway faces the internet.
-func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, st evidenceStore, log *slog.Logger) error {
+func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, orc *dashboard.OracleInfo, st evidenceStore, log *slog.Logger) error {
 	if len(keys) == 0 {
 		log.Warn("dashboard has no -dashboard-key entries; nobody can sign in")
 	}
-	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts}, st, log)
+	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts, Oracle: orc}, st, log)
 	if err != nil {
 		return err
 	}
