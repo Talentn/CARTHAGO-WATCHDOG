@@ -75,6 +75,13 @@ type Config struct {
 	// draw overlays or hold handles to the game, so their findings are downgraded to info.
 	OverlayAllow map[string]bool
 
+	// AllowRendererLibrary: an unsigned opengl32, d3d9, ddraw or glu32 that the game loads
+	// from outside the system directory is excused when the first recorded start of the
+	// game had it, as other things of a modified build are. Off by default: such a file is
+	// how a wallhack is delivered, and a start profile recorded with it in place would
+	// excuse it for good. For a build that ships its own.
+	AllowRendererLibrary bool
+
 	SnapDeg       float64 // one-tick angular step counted as a snap
 	SnapSettleDeg float64 // the step right after a snap must be below this to count as a lock
 	SnapMin       int     // snaps-then-lock events before the player is flagged
@@ -225,7 +232,7 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 		return ev("vulnerable_driver", SeverityLow, 0.5, false, "known-vulnerable driver loaded: "+detail), true
 	case pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE:
 		if b>>16&0xffff != 0 {
-			return classifyObservedModule(b, detail), true
+			return c.classifyObservedModule(b, detail), true
 		}
 		return classifyModuleSignature(b, detail), true
 	case pb.FindingCode_FINDING_CODE_EXTERNAL_MAPPED_IMAGE:

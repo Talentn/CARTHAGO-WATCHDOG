@@ -43,13 +43,13 @@ type companionCase struct {
 
 func companionCases() []companionCase {
 	// A clean start of a modified build, as the companion sees it on every run: its own
-	// unsigned files, a renderer replacement it has always shipped, an image its loader
+	// unsigned files, a Direct3D 8 wrapper it has always shipped, an image its loader
 	// maps, its launcher's handle, an overlay, executable memory of a script engine, and
 	// add-ons hooking the engine when the map starts.
 	clean := hb(
 		moduleSeen(unsigned, inGame, obsAtStart|obsKnown, "hw.dll"),
 		moduleSeen(unsigned, inGame, obsAtStart|obsKnown, "client.dll"),
-		moduleSeen(unsigned, inGame, obsAtStart|obsKnown|obsShadow, "opengl32.dll"),
+		moduleSeen(unsigned, inGame, obsAtStart|obsKnown|obsShadow, "d3d8.dll"),
 		moduleSeen(unsigned, inGame, obsAfter, "mp.dll"),
 		moduleSeen(unsigned, inGame, obsAfter, "amxmodx_mm.dll"),
 		finding(pb.FindingCode_FINDING_CODE_EXTERNAL_MAPPED_IMAGE, 0x1d00000, 0x40000|(obsAtStart|obsKnown)<<32, "aa"),
@@ -62,9 +62,12 @@ func companionCases() []companionCase {
 		codeChanged(pb.CodeChangeKind_CODE_CHANGE_KIND_JUMP_MODULE, (elsewhere+1)<<8|uint64(pb.ModuleSignature_MODULE_SIGNATURE_VALID)<<16, "opengl32.dll>discordhook.dll"),
 	)
 	return []companionCase{
-		// The renderer replacement and the mapped image have been there since the first
+		// The Direct3D 8 wrapper and the mapped image have been there since the first
 		// recorded start: only the opt-in tells the player about them.
 		{"clean start", []*pb.Heartbeat{clean}, nil, []sentNotice{vis, integ}},
+		// An unsigned OpenGL library is a wallhack's way in: the record of the first start
+		// does not excuse it.
+		{"renderer library that the first recorded start had", []*pb.Heartbeat{hb(moduleSeen(unsigned, inGame, obsAtStart|obsKnown|obsShadow, "OPENGL32.dll"))}, []sentNotice{vis}, []sentNotice{vis}},
 
 		{"renderer proxy dropped into the game folder", []*pb.Heartbeat{hb(moduleSeen(unsigned, inGame, obsAtStart|obsShadow, "opengl32.dll"))}, []sentNotice{vis}, []sentNotice{vis}},
 		{"library injected after start", []*pb.Heartbeat{hb(moduleSeen(unsigned, elsewhere, obsAfter, "hack.dll"))}, []sentNotice{integ}, []sentNotice{integ}},

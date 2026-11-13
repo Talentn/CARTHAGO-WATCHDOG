@@ -67,7 +67,7 @@ func TestModulesByWhenTheyWereSeen(t *testing.T) {
 		// The wallhack delivery: a renderer library that is not the Windows one.
 		{"renderer proxy, new at this start", module(sigNone, clsGame, atStart|shadows), "OpenGL32.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
 		{"renderer proxy loaded late", module(sigNone, clsGame, after|shadows), "opengl32.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
-		{"renderer proxy the build has always had", module(sigNone, clsGame, atStart|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityInfo, visibility, true}},
+		{"renderer proxy the build has always had", module(sigNone, clsGame, atStart|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
 		{"direct3d proxy", module(sigNone, clsGame, atStart|shadows), "d3d9.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
 		{"another search-order spot", module(sigNone, clsGame, atStart|shadows), "winmm.dll", want{"system_library_replaced", SeverityHigh, integrity, false}},
 		{"search-order spot the build has always used", module(sigNone, clsGame, after|shadows|known), "dinput.dll", want{"system_library_replaced", SeverityInfo, integrity, true}},
@@ -79,7 +79,7 @@ func TestModulesByWhenTheyWereSeen(t *testing.T) {
 
 		// Files of the game folder look like the game's own: opt-in only.
 		{"game file replaced", module(sigNone, clsGame, atStart|known|changed), "client.dll", want{"game_file_changed", SeverityMedium, integrity, true}},
-		{"renderer file replaced", module(sigNone, clsGame, atStart|known|changed|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityInfo, visibility, true}},
+		{"renderer file replaced", module(sigNone, clsGame, atStart|known|changed|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
 		{"new unsigned game-folder module after start", module(sigNone, clsGame, after|newFile), "extra.dll", want{"new_game_module", SeverityMedium, integrity, true}},
 		{"new game-folder module at start", module(sigNone, clsGame, atStart|known|newFile), "extra.dll", want{"module_signature", SeverityInfo, none, false}},
 	} {
@@ -96,23 +96,50 @@ func TestModulesByWhenTheyWereSeen(t *testing.T) {
 	check(t, "no flags", e, want{"module_signature", SeverityLow, none, false})
 }
 
-// In the first recorded start nothing has been compared: the evidence says so, instead of
-// "as at the first recorded start", and stays an opt-in notice like anything known.
-func TestFirstRecordedStartIsNotCalledKnown(t *testing.T) {
+// An unsigned renderer library in place of the Windows one is a wallhack's way in. It raises
+// the notice whenever it is seen: at start, in the first recorded start, and when the
+// record of the first start lists it. A signed one is not this evidence at all.
+func TestUnsignedRendererLibraryIsNeverExcused(t *testing.T) {
 	first := uint64(pb.ObservedFlags_OBSERVED_FLAGS_FIRST_START)
 	c := Defaults()
+	for _, lib := range []string{"OPENGL32.dll", "d3d9.dll", "ddraw.dll", "glu32.dll"} {
+		for name, flags := range map[string]uint64{"new at start": atStart | shadows, "first recorded start": atStart | shadows | known | first, "in the record": atStart | shadows | known, "loaded late": after | shadows} {
+			e, _ := c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigNone, clsGame, flags), lib)
+			check(t, lib+", "+name, e, want{"renderer_replaced", SeverityHigh, visibility, false})
+			if e.Held != "" || !e.Integrity {
+				t.Errorf("%s, %s: held %q integrity %v", lib, name, e.Held, e.Integrity)
+			}
+		}
+		e, _ := c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigValid, clsGame, atStart|shadows), lib)
+		if e.Rule == "renderer_replaced" || e.Notice != none {
+			t.Errorf("%s, validly signed: %s notice %v", lib, e.Rule, e.Notice)
+		}
+	}
 	e, _ := c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigNone, clsGame, atStart|shadows|known|first), "OPENGL32.dll")
-	check(t, "renderer proxy in the first recorded start", e, want{"renderer_replaced", SeverityInfo, visibility, true})
 	if strings.Contains(e.Summary, "as at the first recorded start") || !strings.Contains(e.Summary, "this run is the first recorded start") {
 		t.Errorf("summary: %s", e.Summary)
 	}
-	if e.Held != heldFirst {
-		t.Errorf("held: %s", e.Held)
+}
+
+// The opt-out for a build that ships its own renderer library: the record of the first
+// start excuses it, as it does other things of a modified build; one that the record does
+// not have still raises the notice.
+func TestAllowRendererLibrary(t *testing.T) {
+	first := uint64(pb.ObservedFlags_OBSERVED_FLAGS_FIRST_START)
+	c := Defaults()
+	c.AllowRendererLibrary = true
+	e, _ := c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigNone, clsGame, atStart|shadows|known|first), "OPENGL32.dll")
+	check(t, "first recorded start", e, want{"renderer_replaced", SeverityInfo, visibility, true})
+	if e.Held != heldFirst || !strings.Contains(e.Summary, "this run is the first recorded start") {
+		t.Errorf("first recorded start: %s / %s", e.Summary, e.Held)
 	}
 	e, _ = c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigNone, clsGame, atStart|shadows|known), "OPENGL32.dll")
-	if !strings.Contains(e.Summary, "as at the first recorded start") || e.Held != heldKnown {
-		t.Errorf("a later start: %s / %s", e.Summary, e.Held)
+	check(t, "in the record", e, want{"renderer_replaced", SeverityInfo, visibility, true})
+	if e.Held != heldKnown || !strings.Contains(e.Summary, "as at the first recorded start") {
+		t.Errorf("in the record: %s / %s", e.Summary, e.Held)
 	}
+	e, _ = c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigNone, clsGame, atStart|shadows), "OPENGL32.dll")
+	check(t, "not in the record", e, want{"renderer_replaced", SeverityHigh, visibility, false})
 }
 
 func TestMappedImages(t *testing.T) {

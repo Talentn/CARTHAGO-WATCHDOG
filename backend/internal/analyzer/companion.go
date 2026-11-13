@@ -31,6 +31,11 @@ var rendererLibs = map[string]bool{
 
 // Other system libraries a GoldSrc game loads by bare name, so that a file of that name
 // in the game folder is loaded in place of the system one.
+// The renderer libraries a wallhack for an OpenGL or Direct3D 9 game replaces. An unsigned
+// one in place of the Windows one is never excused by the record of the first start,
+// unless the operator says the build ships its own (Config.AllowRendererLibrary).
+var wallhackLibs = map[string]bool{"opengl32.dll": true, "glu32.dll": true, "ddraw.dll": true, "d3d9.dll": true}
+
 var hijackLibs = map[string]bool{
 	"wsock32.dll": true, "ws2_32.dll": true, "winmm.dll": true, "dinput.dll": true, "dinput8.dll": true,
 	"dsound.dll": true, "version.dll": true, "msacm32.dll": true, "avifil32.dll": true, "msvfw32.dll": true,
@@ -123,7 +128,7 @@ func integrityOrVisibility(lib string) pb.EnforcementCategory {
 }
 
 // classifyObservedModule handles a module report that says when the module was seen.
-func classifyObservedModule(b uint64, detail string) Evidence {
+func (c Config) classifyObservedModule(b uint64, detail string) Evidence {
 	state, class := pb.ModuleSignature(b&0xff), pb.ModulePathClass(b>>8&0xff)
 	flags, secs := b>>16&0xffff, b>>32&0xffff
 	name := strings.ToLower(strings.TrimSpace(detail))
@@ -135,6 +140,10 @@ func classifyObservedModule(b uint64, detail string) Evidence {
 		case rendererLibs[name]:
 			e := ev("renderer_replaced", SeverityHigh, 0.85, true,
 				fmt.Sprintf("renderer library %s is not the Windows one: an unsigned file of that name was loaded from outside the system directory (%s)", detail, when))
+			if wallhackLibs[name] && !c.AllowRendererLibrary {
+				e.Notice = pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY
+				return e
+			}
 			return tell(e, pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY, flags)
 		case hijackLibs[name]:
 			e := ev("system_library_replaced", SeverityHigh, 0.8, true,

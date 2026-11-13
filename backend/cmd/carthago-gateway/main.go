@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"carthago/backend/internal/analyzer"
 	"carthago/backend/internal/attest/ekroots"
 	"carthago/backend/internal/dashboard"
 	"carthago/backend/internal/gateway"
@@ -75,6 +76,7 @@ func main() {
 	autoKick := flag.Bool("auto-kick", false, "kick sessions on critical client integrity evidence (behavioural evidence never kicks)")
 	dashHosts := flag.String("dashboard-host", "", "comma-separated host names the dashboard answers to, besides localhost when it listens on loopback (e.g. the name a reverse proxy forwards)")
 	clientNotices := flag.Bool("client-notices", false, "tell a client when its session is flagged by evidence that stands on its own (a signed notice with a category and a severity; it never kicks)")
+	allowRendererLibrary := flag.Bool("allow-renderer-library", false, "for a game build that ships its own renderer library: an unsigned opengl32, d3d9, ddraw or glu32 loaded from outside the system directory is excused when the first recorded start of the game had it. By default it always counts as a replaced renderer (a wallhack) and raises the notice")
 	clientNoticesStrict := flag.Bool("client-notices-strict", false, "with -client-notices: also send the notices that are held back by default because an honest, modified game build can produce the same evidence (things present since the first recorded start of a game, changed or new files of the game folder, read-only handles, engine code rewritten while server add-ons are loaded)")
 	mapPins := flag.String("map-pins", "", "file of trusted map geometries, one `map_id sha256` per line (the line carthago-cs16-bridge map-hash prints); a geometry uploaded for a listed map with another hash is refused and that match is not scored for information leaks")
 	mapPinsRequired := flag.Bool("map-pins-required", false, "with -map-pins: also refuse geometry for maps the file does not list")
@@ -164,6 +166,8 @@ func main() {
 	var gw *gateway.Gateway
 	kick := kickFunc(func(id, reason string) { gw.Sessions().Kick(id, reason) })
 	pcfg := pipeline.Config{AutoKick: *autoKick, Notices: *clientNotices, NoticesOptIn: *clientNoticesStrict, MapPinsRequired: *mapPinsRequired, Observer: orc.observer}
+	pcfg.Rules = analyzer.Defaults()
+	pcfg.Rules.AllowRendererLibrary = *allowRendererLibrary
 	if *mapPins != "" {
 		if pcfg.MapPins, err = loadMapPins(*mapPins); err != nil {
 			log.Error("map-pins", "err", err)
