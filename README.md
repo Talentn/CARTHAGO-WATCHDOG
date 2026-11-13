@@ -195,8 +195,13 @@ powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # r
 ```
 
 - **Companion** (`carthago-cs16.exe`, 64-bit): does the normal handshake (TPM attestation,
-  pinned TLS), starts `hl.exe` as an ordinary child process, keeps only query, read and wait
-  access to it, and heartbeats until it exits. It runs `carthago_scan::external` on the
+  pinned TLS), starts the game program as an ordinary child process, keeps only query, read
+  and wait access to it, and heartbeats until it exits. The game program is `hl.exe` or, in
+  builds that have none (WaRzOnE), `cstrike.exe`; `-GameExe` names another. If the started
+  program is a launcher, the companion finds the process in the same folder that has the
+  engine loaded (`hw.dll`, `sw.dll` or `filesystem_stdio.dll`) and watches that one, with
+  the same read-only access; `crashpad_handler.exe`, `hltv.exe`, servers and installers are
+  never taken for the game. It runs `carthago_scan::external` on the
   usual budgeted scheduler: loader module list with each file's Authenticode state, a summary
   of executable memory with no backing image, debugger attachment, other processes' handles
   to the game, overlay windows, vulnerable drivers. All of it is recorded as context, none of
