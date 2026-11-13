@@ -74,6 +74,12 @@ func (f *fixture) doOn(h http.Handler, method, path string, cookie *http.Cookie,
 	}
 	r := httptest.NewRequest(method, path, body)
 	r.RemoteAddr, r.Host = f.remote, f.host
+	if f.remote == "" {
+		r.RemoteAddr = "127.0.0.1:5555"
+	}
+	if f.host == "" {
+		r.Host = "127.0.0.1:8751"
+	}
 	if form != nil {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}

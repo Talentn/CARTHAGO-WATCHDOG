@@ -94,18 +94,13 @@ func discardLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard,
 
 // doWith is do for a browser that holds more than one cookie.
 func (f *fixture) doWith(method, path string, form url.Values, hdr map[string]string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, path, strings.NewReader(form.Encode()))
-	r.RemoteAddr, r.Host = f.remote, f.host
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	for k, v := range hdr {
-		r.Header.Set(k, v)
-	}
-	for _, c := range cookies {
-		r.AddCookie(c)
-	}
-	w := httptest.NewRecorder()
-	f.h.ServeHTTP(w, r)
-	return w
+	add := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		f.h.ServeHTTP(w, r)
+	})
+	return f.doOn(add, method, path, nil, form, hdr)
 }
 
 func (f *fixture) get(c *http.Cookie, path string) *httptest.ResponseRecorder {
