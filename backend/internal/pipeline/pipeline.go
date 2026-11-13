@@ -46,6 +46,9 @@ type Config struct {
 	// Notices tells a session's client when the session is flagged by evidence that stands
 	// on its own (notice.go lists it). Off by default. A notice informs; it never kicks.
 	Notices bool
+	// NoticesOptIn also sends the notices that a guard holds back by default (notice.go
+	// lists them): evidence that a modified but honest game build can produce too.
+	NoticesOptIn bool
 	// ClientIdle and MatchIdle bound how long analyzer state is kept without traffic.
 	ClientIdle time.Duration
 	MatchIdle  time.Duration
@@ -114,6 +117,10 @@ type clientState struct {
 	mitApplied    uint64
 	mitFailed     uint64
 	lastSeen      time.Time
+	// Programs with a handle to the game's memory that the rules single out, and programs
+	// that draw a transparent window over the game, by process id.
+	holders  map[uint64]analyzer.Holder
+	overlays map[uint64]bool
 }
 
 type matchState struct {
@@ -127,6 +134,9 @@ type matchState struct {
 // maxSeenPerSession caps client-evidence dedupe keys per session; a client spraying unique
 // findings cannot grow server memory without bound.
 const maxSeenPerSession = 1024
+
+// maxWatchedPids caps the handle holders and overlay owners remembered per session.
+const maxWatchedPids = 256
 
 func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker, log *slog.Logger) *Pipeline {
 	cfg.defaults()
@@ -247,8 +257,11 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			return
 		}
 		cs.seen[key] = true
-		if cat, sev, ok := clientNotice(e, f); ok {
+		cat, sev, send, held := clientNotice(e, f, p.cfg.NoticesOptIn)
+		if send {
 			notices = append(notices, notice{cat, sev})
+		} else if held != "" && p.cfg.Notices {
+			p.log.Info("notice withheld", "session", sess.SessionID, "rule", e.Rule, "category", noticeCategoryName(cat), "why", held, "summary", e.Summary)
 		}
 		evs = append(evs, store.Evidence{
 			TenantID: sess.TenantID, PlayerHash: sess.PlayerHash, SessionID: sess.SessionID, Source: store.SourceClient,
@@ -268,6 +281,28 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		}
 		raw, _ := json.Marshal(map[string]any{"job": f.Job, "code": pb.FindingCode(f.Code).String(), "a": fmt.Sprintf("%#x", f.A), "b": fmt.Sprintf("%#x", f.B), "detail": f.Detail})
 		add(fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail), e, string(raw), f)
+		// One program that reads the game's memory and also draws over the game.
+		switch pb.FindingCode(f.Code) {
+		case pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE:
+			if h, ok := analyzer.HolderOf(f); ok && h.Suspect && len(cs.holders) < maxWatchedPids {
+				if cs.holders == nil {
+					cs.holders = map[uint64]analyzer.Holder{}
+				}
+				cs.holders[h.Pid] = h
+			}
+		case pb.FindingCode_FINDING_CODE_OVERLAY_WINDOW:
+			if len(cs.overlays) < maxWatchedPids {
+				if cs.overlays == nil {
+					cs.overlays = map[uint64]bool{}
+				}
+				cs.overlays[f.A] = true
+			}
+		default:
+			continue
+		}
+		if h, ok := cs.holders[f.A]; ok && cs.overlays[f.A] {
+			add(fmt.Sprintf("o|%x", f.A), analyzer.OverlayReader(h), string(raw), nil)
+		}
 	}
 	for _, e := range p.cfg.Rules.Heartbeat(&cs.an, hb, at) {
 		add("h|"+e.Rule, e, "", nil)
