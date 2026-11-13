@@ -66,6 +66,10 @@ type Evidence struct {
 	// named in Held applies. Such evidence need not be integrity evidence.
 	NoticeOptIn bool
 	Held        string
+
+	// engineCode: code_changed about a library other than the renderer and the client
+	// library. See Certain.
+	engineCode bool
 }
 
 // Config carries every threshold a rule uses. Defaults() gives values tuned for the Phase 1

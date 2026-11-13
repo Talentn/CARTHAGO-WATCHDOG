@@ -209,7 +209,7 @@ func classifyCodeChange(a, b uint64, detail string) Evidence {
 			return ev("code_changed", SeverityMedium, 0.5, true, fmt.Sprintf("%s: a jump into %s, whose signature could not be checked", where, target))
 		case tclass == uint64(pb.ModulePathClass_MODULE_PATH_CLASS_OTHER)+1:
 			e := ev("code_changed", SeverityHigh, 0.9, true, fmt.Sprintf("%s: a jump into %s, an unsigned file from outside the game folder%s", where, target, late))
-			e.Notice = cat
+			e.Notice, e.engineCode = cat, !clientSide
 			return e
 		case !clientSide && addons:
 			return ev("code_changed", SeverityLow, 0.3, false, fmt.Sprintf("%s: a jump into %s, an unsigned file of the game folder%s; server add-ons are loaded and hook the engine this way", where, target, late))
@@ -225,7 +225,7 @@ func classifyCodeChange(a, b uint64, detail string) Evidence {
 	if !clientSide && addons {
 		return optIn(e, cat, heldAddons)
 	}
-	e.Notice = cat
+	e.Notice, e.engineCode = cat, !clientSide
 	return e
 }
 
