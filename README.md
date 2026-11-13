@@ -103,6 +103,8 @@ players by verifying their token offline and removes them when the gateway sends
 | `backend/internal/attest` | Attestation verification on `google/go-attestation`; EK chain verification against the bundled vendor roots in `attest/ekroots` |
 | `backend/internal/analyzer` | Pure detection rules (no I/O); every threshold lives here |
 | `backend/internal/pipeline` | Bounded queue from gateway to analyzer and evidence store |
+| `backend/internal/oracle` | Carthago Oracle: behaviour model, bundle, scoring engine; `analyst` (case file, verdict checks, providers), `runtime` (local model life cycle), `train` (synthetic trainer), `tune` (label export) |
+| `backend/cmd/carthago-oracle` | Oracle tool: `train`, `eval`, `curve`, `bench`, `export`, `info`, `set` |
 | `backend/internal/store` | Store interface; SQLite (pure Go, no cgo) and in-memory |
 | `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
 | `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
@@ -287,6 +289,34 @@ visibility changes, command counts, trigger timestamps) and send each flushed ba
 
 ---
 
+## Carthago Oracle
+
+Carthago Oracle is the gateway's own AI detection engine. It runs on the gateway host only;
+nothing of it is in the client.
+
+- A **behaviour model** scores every session from the pipeline's numbers (aim, reaction and
+  input statistics, information-leak and decoy scores, integrity evidence, trust level).
+- An **analyst**, a small open-weights language model that the gateway runs locally through
+  llama.cpp, reads a pseudonymised case file for each flagged session after it has ended and
+  writes a structured opinion that cites stored evidence.
+- **Reviewer labels** on the dashboard (confirmed cheat, cleared, unsure) collect the ground
+  truth to tune both on.
+
+The Oracle is advisory: it never kicks, bans or talks to a client. The model, thresholds and
+prompts live in a bundle on the gateway that the dashboard never serves.
+
+```bash
+cd backend && go run ./cmd/carthago-oracle train -seed <your number> -out ../oracle-bundle
+tools/carthago-oracle-fetch.sh            # optional: the analyst's runtime and model, outside the repository
+cd backend && go run ./cmd/carthago-gateway -oracle-dir ../oracle-bundle
+tools/carthago-oracle-check.sh            # end-to-end check with synthetic traffic
+```
+
+Design, evaluation on synthetic sessions, the threat model and the limits are in
+[`docs/oracle.md`](docs/oracle.md).
+
+---
+
 ## Performance budgets
 
 Overhead is a product feature. The CPU and slice budgets are enforced by the scheduler at run
@@ -442,3 +472,6 @@ Phases are defined by scope and exit criteria, not dates.
   JetBrains Mono Project Authors: both under the SIL Open Font License 1.1. The dashboard
   embeds Latin subsets of each as WOFF2 (23.5 KB and 15.1 KB); the licence texts ship beside
   the files in `backend/internal/dashboard/static/fonts`.
+- The Carthago Oracle analyst runs on **llama.cpp** (MIT) and **Qwen2.5-1.5B-Instruct**
+  (Apache-2.0, Alibaba Cloud). Neither is in this repository or in a Carthago binary; a script
+  fetches them to the gateway host. See [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).

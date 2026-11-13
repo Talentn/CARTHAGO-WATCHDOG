@@ -259,7 +259,13 @@ func runBench(args []string) error {
 		return errors.New("-split is test or calibration")
 	}
 	cases := benchCases(b, rows, *split, *perProfile, *flagged, *clean)
-	if len(cases) == 0 || len(cases[0].Case.Evidence) == 0 && cases[0].Group == "cheat" {
+	withEvidence := 0
+	for i := range cases {
+		if len(cases[i].Case.Evidence) > 0 {
+			withEvidence++
+		}
+	}
+	if withEvidence == 0 {
 		return errors.New("the dataset holds no evidence; create it with carthago-oracle dataset -evidence")
 	}
 	if *list {
