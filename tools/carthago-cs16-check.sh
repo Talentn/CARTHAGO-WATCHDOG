@@ -11,7 +11,10 @@
 #      the human's slot bound to the companion's session;
 #   3. the script checks that the companion's findings arrive as info, that the machine-like
 #      bot trips the aim rules and is labelled a bot, and that nobody is flagged;
-#   4. if pwsh is installed, tools/carthago-cs16.ps1 finds that folder by searching, takes
+#   4. the companion is started on a launcher instead: one that starts the game and exits,
+#      one that stays, and one whose game never comes up. It must follow the first two to
+#      the game process and report the third as a failure;
+#   5. if pwsh is installed, tools/carthago-cs16.ps1 finds that folder by searching, takes
 #      cstrike.exe as the game program, installs the plugin, and -Uninstall restores the
 #      folder byte for byte.
 #
@@ -37,6 +40,7 @@ mkdir -p "$game/cstrike/dlls" "$run/bin"
 i686-w64-mingw32-gcc -O1 -o "$game/cstrike.exe" "$root/client/cs16/fakegame/fake_hl.c"
 i686-w64-mingw32-gcc -shared -o "$game/hw.dll" "$root/client/cs16/fakegame/fake_dll.c"
 i686-w64-mingw32-gcc -shared -o "$game/cstrike/dlls/mp.dll" "$root/client/cs16/fakegame/fake_dll.c"
+i686-w64-mingw32-gcc -O1 -o "$game/launcher.exe" "$root/client/cs16/fakegame/fake_launcher.c"
 # Programs that sit in the real folder and must never be taken for the game.
 for other in crashpad_handler.exe hltv.exe unins000.exe; do echo "not the game" >"$game/$other"; done
 printf 'game "Counter-Strike"\r\ngamedll "dlls\\mp.dll"\r\ngamedll_linux "dlls/cs_i386.so"\r\n' >"$game/cstrike/liblist.gam"
@@ -98,6 +102,35 @@ echo "ok   the human player has nothing above info"
 ! grep -q 'msg=detection .*player=bot:_BOT__\(Calm\|Mate\) ' "$log" || fail "an ordinary bot has evidence"
 ! grep -qi 'kick' "$log" || fail "something was kicked"
 
+# The companion started on a launcher. $1 names the case, the rest are game arguments.
+launcher_case() {
+  local name="$1" code=0
+  shift
+  (cd "$game" && wine "$companion" --keys "Z:$run/data/public-keys.json" --gateway "wss://127.0.0.1:$gw_port/v1/client" \
+    --exe "Z:$game/launcher.exe" --player "cs16-launcher-$name" --no-tpm -- -game cstrike "$@" >"$run/companion-$name.log" 2>&1) || code=$?
+  return "$code"
+}
+step "companion started on a launcher that starts the game and exits, then on one that stays"
+for name in exits stays; do
+  extra=()
+  [[ $name == stays ]] && extra=(-launcher-stay)
+  launcher_case "$name" -secs 12 "${extra[@]}" || { cat "$run/companion-$name.log"; fail "launcher that $name: the companion exited with an error"; }
+  clog="$run/companion-$name.log"
+  grep -E 'started by|GAME exited' "$clog"
+  grep -q 'GAME pid=[0-9]* 32-bit (cstrike.exe, hw.dll loaded) was started by pid=[0-9]*; now watching it' "$clog" || fail "launcher that $name: the game process was not found"
+  secs=$(sed -n 's/.*GAME exited with code 0x0 after \([0-9]*\) s.*/\1/p' "$clog")
+  [[ -n "$secs" && "$secs" -ge 11 ]] || fail "launcher that $name: the watch ended after ${secs:-?} s, before the game did"
+  grep -q "player=cs16-launcher-$name .*summary=\"module cstrike.exe (game folder): not signed\"" "$log" || fail "launcher that $name: the game's modules were not reported"
+done
+echo "ok   a launcher is followed to the game process, whether it exits or stays"
+
+step "companion started on a launcher whose game never comes up (takes 20 s)"
+code=0
+launcher_case nothing -launcher-nothing || code=$?
+grep -E 'looking for|no game process' "$run/companion-nothing.log" || true
+[[ $code == 5 ]] || { cat "$run/companion-nothing.log"; fail "a launcher without a game should end with exit code 5, got $code"; }
+echo "ok   a program that ends without a game process is reported as a failure, not as a finished game"
+
 jar="$run/cookies"
 curl -s -o /dev/null -c "$jar" -b "$jar" -H 'Sec-Fetch-Site: same-origin' -d 'tenant=demo&key=demo-dashboard-key' "http://127.0.0.1:$dash_port/login"
 players=$(curl -sf -b "$jar" "http://127.0.0.1:$dash_port/players") || fail "flagged players page"
@@ -122,6 +155,13 @@ if command -v pwsh >/dev/null; then
   grep -qF "game folder : $game" "$run/install.log" || { cat "$run/install.log"; fail "the search did not find the game folder"; }
   grep -q 'game program: cstrike\.exe ' "$run/install.log" || { cat "$run/install.log"; fail "the script did not choose cstrike.exe"; }
   echo "ok   the search finds the folder and takes cstrike.exe as the game program"
+  for bad in crashpad_handler.exe hltv.exe unins000.exe; do
+    ! pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -GameExe "$bad" -Scratch "$run/carthago-scratch" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
+      || fail "-GameExe $bad was accepted"
+  done
+  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -GameExe launcher.exe -Scratch "$run/carthago-scratch" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
+    && grep -q 'game program: launcher\.exe ' "$run/gameexe.log" || { cat "$run/gameexe.log"; fail "-GameExe launcher.exe was not accepted"; }
+  echo "ok   -GameExe names another program; the crash reporter, hltv and the uninstaller are refused"
   grep -q '^gamedll "addons\\metamod\\dlls\\metamod.dll"' "$game/cstrike/liblist.gam" || fail "liblist.gam does not load Metamod"
   grep -q '^win32 addons\\amxmodx\\dlls\\amxmodx_mm.dll' "$game/cstrike/addons/metamod/plugins.ini" || fail "Metamod does not load AMX Mod X"
   cmp -s "$root/client/cs16/plugin/carthago_cs16.amxx" "$game/cstrike/addons/amxmodx/plugins/carthago_cs16.amxx" || fail "plugin not installed"

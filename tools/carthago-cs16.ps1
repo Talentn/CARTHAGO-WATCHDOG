@@ -604,6 +604,7 @@ if (-not $DashboardOnly) {
         2 { Write-Host "FAIL  no session with the gateway; the game was not started (see $compLog)" -ForegroundColor Red }
         3 { Write-Host "FAIL  the session opened but $exeName could not be started (see $compLog)" -ForegroundColor Red }
         4 { Write-Host "FAIL  the session was lost and could not be re-established (see $compLog)" -ForegroundColor Red }
+        5 { Write-Host "FAIL  $exeName ended within seconds and no game appeared; the game did not start (see $compLog)" -ForegroundColor Red }
         default { Write-Host "FAIL  the companion exited with code $exit (see $compLog)" -ForegroundColor Red }
     }
     if ($plugin) {
@@ -611,12 +612,12 @@ if (-not $DashboardOnly) {
         $result = $matchData | Where-Object { $_ -match 'RESULT' } | Select-Object -Last 1
         if ($matchData | Where-Object { $_ -match 'NO DATA' }) {
             Write-Host "FAIL  no match data: the plugin sent nothing. Was a map started? In the game console, 'meta list' should show AMX Mod X and 'amxx plugins' should list carthago_cs16.amxx." -ForegroundColor Red
-            if (-not $exit) { $exit = 5 }
+            if (-not $exit) { $exit = 21 }
         } elseif ($result -match 'sent=(\d+) acknowledged=(\d+) rejected=(\d+)' -and $Matches[1] -ne '0' -and $Matches[1] -eq $Matches[2] -and $Matches[3] -eq '0') {
             Write-Host "OK    match data reached the gateway ($($Matches[1]) batches)" -ForegroundColor Green
         } else {
             Write-Host "FAIL  match data was not fully delivered (see $bridgeOut)" -ForegroundColor Red
-            if (-not $exit) { $exit = 6 }
+            if (-not $exit) { $exit = 22 }
         }
         if ($matchData | Where-Object { $_ -match 'SESSION bound' }) {
             Write-Host "OK    your player slot was tied to the companion's session" -ForegroundColor Green
