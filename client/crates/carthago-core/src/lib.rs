@@ -258,6 +258,12 @@ impl Runtime {
         (!t.is_empty()).then(|| t.clone())
     }
 
+    /// Per scan job: passes completed, steps that went over their time, and whether the
+    /// scheduler has stopped the job. For a companion's log.
+    pub fn job_stats(&self) -> Vec<carthago_sched::JobStats> {
+        try_lock(&self.inner.sched).and_then(|g| g.as_ref().map(|s| s.stats().jobs)).unwrap_or_default()
+    }
+
     pub fn status(&self) -> Status {
         let i = &self.inner;
         let (cpu, slices) = try_lock(&i.sched).and_then(|g| g.as_ref().map(|s| s.stats())).map_or((0, 0), |s| (s.worker_cpu_ns, s.slices));

@@ -22,6 +22,7 @@ pub mod observed {
     pub const SHADOWS_SYSTEM: u64 = 8;
     pub const FILE_CHANGED: u64 = 16;
     pub const NEW_FILE: u64 = 32;
+    pub const FIRST_START: u64 = 64;
 }
 
 /// A game file compared with the record.
@@ -90,6 +91,17 @@ impl Baseline {
         }
         let ready = self.engine_seen.is_some_and(|t| now.duration_since(t) >= self.settle.min) && now.duration_since(self.last_new) >= self.settle.quiet;
         if ready || now.duration_since(self.started) >= self.settle.max {
+            self.settled = Some(now);
+            return true;
+        }
+        false
+    }
+
+    /// The picture by the clock: `max` after the game started it is taken whether or not
+    /// the module scan has finished a pass by then. Without this, a module scan that the
+    /// scheduler has stopped, or that never gets through the list, means no picture at all.
+    pub fn expire(&mut self, now: Instant) -> bool {
+        if self.settled.is_none() && now.duration_since(self.started) >= self.settle.max {
             self.settled = Some(now);
             return true;
         }
@@ -318,6 +330,27 @@ mod tests {
 
     fn secs(n: u64) -> Duration {
         Duration::from_secs(n)
+    }
+
+    #[test]
+    fn the_picture_is_taken_by_the_clock_when_no_pass_comes() {
+        let t0 = Instant::now();
+        let mut b = Baseline::new(Settle::after(20), t0);
+        assert!(!b.expire(t0 + Duration::from_secs(79)));
+        assert!(!b.settled());
+        assert!(b.expire(t0 + Duration::from_secs(80)));
+        assert_eq!(b.settled_after(), Some(80));
+        // Taken once: neither the clock nor a late pass takes it again.
+        assert!(!b.expire(t0 + Duration::from_secs(200)));
+        assert!(!b.pass(t0 + Duration::from_secs(201), true, true));
+        assert_eq!(b.settled_after(), Some(80));
+
+        // A module scan that works takes it first, and the clock leaves it alone.
+        let mut b = Baseline::new(Settle::after(20), t0);
+        assert!(!b.pass(t0 + Duration::from_secs(2), true, true));
+        assert!(b.pass(t0 + Duration::from_secs(23), false, true));
+        assert!(!b.expire(t0 + Duration::from_secs(300)));
+        assert_eq!(b.settled_after(), Some(23));
     }
 
     #[test]

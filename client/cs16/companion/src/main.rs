@@ -207,6 +207,26 @@ mod win {
         exit::OK
     }
 
+    /// How each scan job is doing, so that a run in which one of them never got through
+    /// explains itself.
+    fn log_jobs(log: &Log, rt: &Runtime) {
+        for j in rt.job_stats() {
+            log.info(&format!(
+                "JOB {}: {} passes completed, {} cut short for CPU time, {} steps over their time (longest step {:.2} ms){}",
+                j.name,
+                j.runs_completed,
+                j.runs_aborted_budget,
+                j.overruns,
+                j.max_step_cpu_ns as f64 / 1e6,
+                match (j.quarantined, j.panics) {
+                    (false, _) => "",
+                    (true, 0) => "; STOPPED by the scheduler for going over its time",
+                    (true, _) => "; STOPPED by the scheduler after an internal error",
+                }
+            ));
+        }
+    }
+
     fn begin(rt: &Runtime, player: &str) -> Result<SessionReady, String> {
         let (tx, rx) = channel();
         if !rt.begin_session(
@@ -472,17 +492,29 @@ mod win {
                 break exit::OK;
             }
             rt.tick();
+            watch.tick();
             if !baseline_logged {
                 if let Some(secs) = watch.status().settled_after {
                     baseline_logged = true;
                     let st = watch.status();
+                    let engine = watch.engine_listed();
+                    let engine = match engine.is_empty() {
+                        true => format!("none of {}", ENGINE_MODULES.join(", ")),
+                        false => format!("{} (of {})", engine.join(", "), ENGINE_MODULES.join(", ")),
+                    };
                     log.info(&format!(
-                        "BASELINE taken {secs} s after pid={} started, {} modules loaded{}. From here on a new module, an image mapped by hand and rewritten code of {} are reported as changes.",
+                        "BASELINE taken {secs} s after pid={} started, {} modules loaded{}. Engine modules the module scan has listed: {engine}. From here on a new module, an image mapped by hand and rewritten code of {} are reported as changes.",
                         target.pid(),
                         st.modules,
                         if st.first_start { " (first recorded start)" } else { "" },
                         CODE_MODULES.join(", ")
                     ));
+                    if st.module_passes == 0 {
+                        log.warn(&format!(
+                            "BASELINE was taken by the clock: {secs} s after the game started the module scan had not got through the game's module list once. Modules it lists from here on count as present at start until it has."
+                        ));
+                        log_jobs(&log, &rt);
+                    }
                     save_profile(&log);
                 }
             }
@@ -575,6 +607,9 @@ mod win {
         }
         if !baseline_logged {
             log.info("the game ended before it had finished starting: no picture was taken and nothing was recorded");
+        }
+        if !baseline_logged || rt.job_stats().iter().any(|j| j.quarantined) {
+            log_jobs(&log, &rt);
         }
         write_session(&ready, target.pid(), "ended");
         // One last heartbeat so findings from the final seconds are not lost.

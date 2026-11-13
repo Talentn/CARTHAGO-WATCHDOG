@@ -295,6 +295,8 @@ struct WatchInner {
     pid: u32,
     baseline: Option<Baseline>,
     modules: Vec<Module>,
+    /// Whole passes of the module scan over this process.
+    passes: u32,
     profile: StartProfile,
 }
 
@@ -305,6 +307,9 @@ pub struct WatchStatus {
     pub settled_after: Option<u32>,
     pub modules: usize,
     pub first_start: bool,
+    /// Whole passes the module scan has made over the game. None by the time the picture
+    /// is taken means the picture was taken by the clock.
+    pub module_passes: u32,
 }
 
 /// The picture of the started game, shared by the external jobs: when it was taken, which
@@ -324,7 +329,7 @@ impl Watch {
             engine: cfg.engine_modules,
             code: cfg.code_modules,
             settle: cfg.settle,
-            inner: Mutex::new(WatchInner { pid: 0, baseline: None, modules: Vec::new(), profile: cfg.profile }),
+            inner: Mutex::new(WatchInner { pid: 0, baseline: None, modules: Vec::new(), passes: 0, profile: cfg.profile }),
         })
     }
 
@@ -337,6 +342,7 @@ impl Watch {
             w.pid = t.pid();
             w.baseline = Some(Baseline::new(self.settle, Instant::now()));
             w.modules.clear();
+            w.passes = 0;
         }
         Some(t)
     }
@@ -354,8 +360,37 @@ impl Watch {
     fn pass(&self, new_modules: bool) {
         let mut w = self.inner.lock().unwrap();
         let engine = w.modules.iter().any(|m| self.engine.contains(&m.name));
+        w.passes = w.passes.saturating_add(1);
         if let Some(b) = w.baseline.as_mut() {
             b.pass(Instant::now(), new_modules, engine);
+        }
+    }
+
+    /// Called by the companion's own loop, not by a scan job: takes the picture by the
+    /// clock when the module scan has not come to it (see [`Baseline::expire`]).
+    pub fn tick(&self) {
+        if let Some(b) = self.inner.lock().unwrap().baseline.as_mut() {
+            b.expire(Instant::now());
+        }
+    }
+
+    fn module_passes(&self) -> u32 {
+        self.inner.lock().unwrap().passes
+    }
+
+    /// The engine modules that the module scan has listed so far, for the companion's log.
+    pub fn engine_listed(&self) -> Vec<String> {
+        let w = self.inner.lock().unwrap();
+        self.engine.iter().filter(|e| w.modules.iter().any(|m| &m.name == *e)).cloned().collect()
+    }
+
+    /// FIRST_START for something that counts as known only because this run is the first
+    /// recorded start.
+    fn first_start(&self, flags: u64) -> u64 {
+        if flags & observed::KNOWN_START != 0 && self.inner.lock().unwrap().profile.learning() {
+            flags | observed::FIRST_START
+        } else {
+            flags
         }
     }
 
@@ -413,7 +448,7 @@ impl Watch {
 
     pub fn status(&self) -> WatchStatus {
         let w = self.inner.lock().unwrap();
-        WatchStatus { settled_after: w.baseline.as_ref().and_then(Baseline::settled_after), modules: w.modules.len(), first_start: w.profile.learning() }
+        WatchStatus { settled_after: w.baseline.as_ref().and_then(Baseline::settled_after), modules: w.modules.len(), first_start: w.profile.learning(), module_passes: w.passes }
     }
 
     /// The record of the first start, when there is something new to write. Nothing is
@@ -433,7 +468,7 @@ pub(crate) fn observed_flags(watch: &Watch, after_start: bool, key: &str) -> u64
     if after_start {
         observed::AFTER_START
     } else if watch.known_at_start(key) {
-        observed::AT_START | observed::KNOWN_START
+        watch.first_start(observed::AT_START | observed::KNOWN_START)
     } else {
         observed::AT_START
     }
@@ -450,6 +485,8 @@ pub struct ExtModules {
     cur: Option<Arc<Target>>,
     mods: Vec<usize>,
     idx: usize,
+    /// The module list of this pass has been read.
+    listed: bool,
     new_any: bool,
     settled_at_begin: bool,
     waiting: Vec<(usize, ModulePathClass, String)>,
@@ -466,6 +503,7 @@ impl ExtModules {
             cur: None,
             mods: Vec::new(),
             idx: 0,
+            listed: false,
             new_any: false,
             settled_at_begin: false,
             waiting: Vec::new(),
@@ -497,6 +535,7 @@ impl ExtModules {
         } else {
             when | observed::KNOWN_START
         };
+        flags = self.watch.first_start(flags);
         if c.class == ModulePathClass::GameDir && !c.digest.is_empty() {
             let path = c.path.strip_prefix(r"\\?\").unwrap_or(&c.path).replace('/', "\\").to_lowercase();
             let rel = path.strip_prefix(self.dirs.game.as_str()).unwrap_or(&path);
@@ -550,17 +589,25 @@ impl Job for ExtModules {
         self.cur = self.watch.target();
         self.idx = 0;
         self.new_any = false;
-        match &self.cur {
-            Some(t) => {
-                self.settled_at_begin = self.watch.settled(t.pid());
-                t.modules(&mut self.mods);
-            }
-            None => self.mods.clear(),
-        }
+        self.listed = false;
+        self.mods.clear();
+        // A module counts as loaded after the start only when an earlier pass got through
+        // the whole list without it. When the picture was taken by the clock, that has
+        // not happened yet.
+        self.settled_at_begin = self.cur.as_ref().is_some_and(|t| self.watch.settled(t.pid())) && self.watch.module_passes() > 0;
     }
     fn step(&mut self, ctx: &Ctx<'_>) -> Step {
         self.drain(ctx);
         let Some(t) = self.cur.clone() else { return Step::Done };
+        // Listing a game's modules and asking for a module's path and size each walk the
+        // game's whole loader list. Each is a step of its own: several in one step went
+        // over the step's time on a game with a long list, and a job that does that three
+        // times is stopped by the scheduler for good.
+        if !self.listed {
+            self.listed = true;
+            t.modules(&mut self.mods);
+            return Step::Continue;
+        }
         // Files the signature thread had no room for on an earlier pass.
         if let Some((base, class, path)) = self.waiting.pop() {
             self.submit(&t, base, class, path);
@@ -598,6 +645,7 @@ impl Job for ExtModules {
             if let Some(class) = class {
                 self.submit(&t, base, class, path);
             }
+            return Step::Continue;
         }
         Step::Continue
     }
