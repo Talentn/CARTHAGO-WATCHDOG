@@ -427,7 +427,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 		s.fail(w, err)
 		return
 	}
-	if d.Oracle, err = s.oracleFor(ctx, tenant, sess); err != nil {
+	if d.Oracle, err = s.oracleFor(ctx, tenant, sess, d.Evidence); err != nil {
 		s.fail(w, err)
 		return
 	}

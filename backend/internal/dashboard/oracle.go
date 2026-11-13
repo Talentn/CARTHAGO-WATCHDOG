@@ -94,7 +94,18 @@ func signalRows(raw string) []signalRow {
 	return out
 }
 
-func (s *Server) oracleFor(ctx context.Context, tenant string, sess *store.Session) (*oracleView, error) {
+// ruleFlagged reports whether the rules stored something of medium severity or above
+// about the session: the engine sends those to the analyst whatever the model says.
+func ruleFlagged(evidence []store.Evidence) bool {
+	for i := range evidence {
+		if !evidence[i].Bot && evidence[i].Severity >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) oracleFor(ctx context.Context, tenant string, sess *store.Session, evidence []store.Evidence) (*oracleView, error) {
 	v := &oracleView{Engine: s.oracle}
 	sc, err := s.st.GetOracleScore(ctx, tenant, sess.SessionID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -114,7 +125,7 @@ func (s *Server) oracleFor(ctx context.Context, tenant string, sess *store.Sessi
 			vv.Cited = cited
 		}
 		v.Verdict = vv
-	} else if sc != nil && sc.Band == store.OracleBandReview && s.oracle != nil && s.oracle.Analyst != "off" {
+	} else if sc != nil && (sc.Band == store.OracleBandReview || ruleFlagged(evidence)) && s.oracle != nil && s.oracle.Analyst != "off" {
 		v.Waiting = "The analyst reviews a session after it has ended."
 		if sess.State != store.SessionActive {
 			v.Waiting = "Waiting for the analyst."

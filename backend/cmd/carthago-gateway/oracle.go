@@ -46,7 +46,7 @@ type oracleFlags struct {
 	reviewLive                    *bool
 	external                      tenantSet
 	perHour, perDay, tokensPerDay *int
-	timeout                       *time.Duration
+	timeout, endedAfter           *time.Duration
 }
 
 func envOr(name, def string) string {
@@ -76,6 +76,7 @@ func oracleFlagSet(fs *flag.FlagSet) *oracleFlags {
 	f.perDay = fs.Int("oracle-cases-per-day", envInt("CARTHAGO_ORACLE_CASES_PER_DAY", 0), "analyst cases per tenant and day (0 = default 200)")
 	f.tokensPerDay = fs.Int("oracle-tokens-per-day", envInt("CARTHAGO_ORACLE_TOKENS_PER_DAY", 0), "analyst tokens per tenant and day (0 = default 400000)")
 	f.timeout = fs.Duration("oracle-timeout", 0, "time limit for one analyst case (0 = default 2m)")
+	f.endedAfter = fs.Duration("oracle-ended-after", 0, "how long a session must have been silent before the analyst reviews it (0 = default 2m)")
 	return f
 }
 
@@ -137,7 +138,7 @@ func startOracle(ctx context.Context, f *oracleFlags, dataDir string, st oracleS
 			an = nil
 		}
 	}
-	eng, err := oracle.New(oracle.Config{Bundle: bundle, Analyst: an, PseudonymKey: key, ReviewLive: *f.reviewLive}, st, log)
+	eng, err := oracle.New(oracle.Config{Bundle: bundle, Analyst: an, PseudonymKey: key, ReviewLive: *f.reviewLive, EndedAfter: *f.endedAfter}, st, log)
 	if err != nil {
 		closeProvider()
 		return nil, err
