@@ -356,7 +356,7 @@ WRAP
 
   # What the companion sees change in the started game. $1 names the case, variables for
   # the stand-in game follow up to "--", then options of the script. The picture of the
-  # started game is taken early (-BaselineSecs 2) and the stand-in changes itself 16 s in.
+  # started game is taken early (-BaselineSecs 2) and the stand-in changes itself 22 s in.
   integ() {
     local name="$1" vars=()
     shift
@@ -370,9 +370,23 @@ WRAP
   }
   has() { grep -q -- "$2" "$run/integ-$1.log" || { cat "$run/integ-$1.log"; fail "integrity case $1: missing: $2"; }; }
   hasnt() { ! grep -q -- "$2" "$run/integ-$1.log" || { cat "$run/integ-$1.log"; fail "integrity case $1: unexpected: $2"; }; }
-  late='FAKE_CS16_LATE_AFTER=16'
+  late='FAKE_CS16_LATE_AFTER=22'
   integrity_alert='^ALERT the session was flagged: The game.s code, memory or libraries were tampered with. \[category game_integrity, severity high,'
   visibility_alert='^ALERT the session was flagged: A visibility cheat (wallhack) was detected on this game. \[category visibility, severity high,'
+
+  step "integrity: a first start that is closed after a few seconds is continued by the next start"
+  profile() { cat "$run"/carthago-scratch/start-profile-*.txt; }
+  integ short -- -ResetStartProfile -GameArgs:"-game cstrike -secs 7"
+  has short '^OK    no alert: the gateway did not flag this session'
+  # Mapped code is looked for every ten seconds, so a game closed this early has usually
+  # not shown it; the record says so and the next start still counts as a first one for it.
+  profile | grep -q '^whole mapped' || has short 'the game was closed before the companion had looked at everything a clean start shows'
+  integ continued -- -GameArgs:"-game cstrike -secs 25"
+  has continued '^OK    no alert: the gateway did not flag this session'
+  hasnt continued '^ \+evidence '
+  profile | grep -q '^whole mapped' || fail "the second start did not complete the record of the first"
+  profile | grep -q '^start mapped:' || fail "the image the stand-in maps at every start was not recorded"
+  echo "ok   a start that was cut short alerts on nothing later: the next start completes the record"
 
   step "integrity: the first recorded start of a clean game, then a clean start with a hook that is taken out again"
   integ first -- -ResetStartProfile -GameArgs:"-game cstrike -secs 25"
