@@ -540,29 +540,41 @@ WRAP
   echo "ok   a renderer library that was not there at the first recorded start: a visibility alert"
 
   step "wallhack delivery: a build that has always shipped its own renderer library, and that library hooked while the game runs"
-  integ shipped "$late" FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b FAKE_CS16_LATE_REWRITE=opengl32.dll:unbacked -- -ResetStartProfile -GameArgs:"-game cstrike -secs 45"
+  integ shipped "$late" FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b FAKE_CS16_LATE_REWRITE=opengl32.dll:unbacked -- -AllowRendererLibrary -ResetStartProfile -GameArgs:"-game cstrike -secs 45"
   has shipped '^NOTE  no alert by default for: renderer library opengl32.dll is not the Windows one'
   has shipped 'opengl32.dll is not the Windows one: .* (present at start; this run is the first recorded start, so there is nothing to compare it with)'
   has shipped 'why: this run is the first recorded start of this game, so it has not been compared with anything'
   hasnt shipped 'as at the first recorded start'
   has shipped '^NOTE  an unsigned opengl32.dll sits in the game folder (.*opengl32.dll) and the game loaded it in place of the Windows renderer library'
-  has shipped 'It is excused only because this is the first recorded run. Unless this game build ships that file, it is a wallhack'
+  has shipped 'It is excused only because this is the first recorded run and -AllowRendererLibrary is given. Unless this game build ships that file, it is a wallhack'
   has shipped "$visibility_alert"
   has shipped 'evidence  code_changed (high): code of opengl32.dll was rewritten at 0x[0-9a-f]* after the game had finished starting: a jump to 0x[0-9a-f]*, memory that no file backs'
   hasnt shipped 'evidence  renderer_replaced'
   echo "ok   the build's own renderer library is held back; rewriting its code while the game runs is a visibility alert"
 
   step "wallhack delivery: -AlertOnIntegrity also alerts on what the build has always shipped"
-  integ strict FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b -- -AlertOnIntegrity -GameArgs:"-game cstrike -secs 30"
+  integ strict FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b -- -AllowRendererLibrary -AlertOnIntegrity -GameArgs:"-game cstrike -secs 30"
   has strict "$visibility_alert"
   has strict '-AlertOnIntegrity: the alert is also raised for what a modified but honest game build shows'
   hasnt strict '^NOTE  no alert by default'
   has strict 'raised by renderer_replaced: renderer library opengl32.dll is not the Windows one.*(present at start, as at the first recorded start)'
   hasnt strict 'It is excused only because this is the first recorded run'
   grep -q -- '-client-notices-strict' "$root/tools/carthago-cs16.ps1" || fail "the script does not pass the opt-in to the gateway"
+  echo "ok   with the opt-in, the build's own renderer library raises the alert"
+
+  step "wallhack delivery: without -AllowRendererLibrary an unsigned renderer library alerts in every run, recorded or not"
+  integ recorded FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b -- -GameArgs:"-game cstrike -secs 30"
+  has recorded "$visibility_alert"
+  has recorded 'evidence  renderer_replaced (high): renderer library opengl32.dll is not the Windows one: .* (present at start, as at the first recorded start)'
+  hasnt recorded '^NOTE  no alert by default for: renderer library'
+  integ firstrun FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b -- -ResetStartProfile -GameArgs:"-game cstrike -secs 30"
+  has firstrun "$visibility_alert"
+  has firstrun 'evidence  renderer_replaced (high): renderer library opengl32.dll is not the Windows one: .* (present at start; this run is the first recorded start, so there is nothing to compare it with)'
+  hasnt firstrun '^NOTE  no alert by default for: renderer library'
+  hasnt firstrun 'It is excused only because'
+  echo "ok   an unsigned renderer library raises the visibility alert by default, in the first recorded run and when the record lists it"
   rm "$game/opengl32.dll"
   ! grep -qi 'kick' "$run"/carthago-scratch/logs/*/gateway.log || fail "the gateway kicked a session"
-  echo "ok   with the opt-in, the build's own renderer library raises the alert"
 
   ps1 -Uninstall >"$run/uninstall2.log" 2>&1 || { cat "$run/uninstall2.log"; fail "uninstall after the staged check"; }
   diff -r "$run/game.before" "$game" || fail "the game folder differs after the staged check and -Uninstall"

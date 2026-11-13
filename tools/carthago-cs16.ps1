@@ -123,6 +123,12 @@ param(
     # new files of the game folder, read-only handles of unsigned programs, engine code
     # rewritten while server add-ons are loaded. Expect alerts on a clean game.
     [switch]$AlertOnIntegrity,
+    # For a game build that ships its own renderer library. By default an unsigned
+    # opengl32.dll, d3d9.dll, ddraw.dll or glu32.dll that the game loads in place of the
+    # Windows one raises the alert in every run, the first one included: it is how a
+    # wallhack is delivered. With this switch such a file is excused when the first
+    # recorded start had it.
+    [switch]$AllowRendererLibrary,
     # Opt-in, for a test on your own server: also raise the alert when the information-leak
     # (wallhack) score of the player on this PC is strong in two separate four-minute
     # stretches of one match. Without it that score is evidence for review only. It is a
@@ -919,6 +925,7 @@ $gwLog = J $logs "gateway.log"
 # the companion that the session was flagged, which is what raises the alert.
 $gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
 if ($AlertOnIntegrity) { $gwArgs += "-client-notices-strict" }
+if ($AllowRendererLibrary) { $gwArgs += "-allow-renderer-library" }
 $script:mapDirs = @()
 if ($plugin -and -not $DashboardOnly) {
     $script:mapDirs = @(MapDirs)
@@ -1044,8 +1051,8 @@ function IntegrityReport {
             $at = J $script:GameDir $lib
             $where = if (Test-Path -LiteralPath $at) { "sits in the game folder ($at)" } else { "was loaded from outside the Windows system folder" }
             Write-Host "NOTE  an unsigned $lib $where and the game loaded it in place of the Windows renderer library." -ForegroundColor Yellow
-            Write-Host "      It is excused only because this is the first recorded run. Unless this game build ships that file, it is a wallhack." -ForegroundColor Yellow
-            Note "      If it does not belong to the build: remove it and run once with -ResetStartProfile. As long as it is recorded as part of the build, only -AlertOnIntegrity alerts on it."
+            Write-Host "      It is excused only because this is the first recorded run$(if ($AllowRendererLibrary) { ' and -AllowRendererLibrary is given' }). Unless this game build ships that file, it is a wallhack." -ForegroundColor Yellow
+            Note "      If it does not belong to the build: remove it and run once with -ResetStartProfile$(if ($AllowRendererLibrary) { ', or run without -AllowRendererLibrary, which alerts on it in every run' })."
         }
     }
     $comp = @(Get-Content -LiteralPath $script:compLog -ErrorAction SilentlyContinue)
