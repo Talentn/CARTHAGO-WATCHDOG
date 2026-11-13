@@ -15,7 +15,15 @@
   6. starts the game through the companion, which opens an attested session (TPM where
      available, pinned TLS) and watches the game from outside with read-only access;
   7. if the gateway flags the session, the companion shows a full-screen red alert in a
-     window of its own. The game is left running unless -EndMatchOnDetect is given;
+     window of its own. The game is left running unless -EndMatchOnDetect is given.
+     The companion takes a picture of the game once it has finished starting and records
+     the first start of each game folder in the scratch folder. What is flagged: a
+     debugger on the game, and changes against that picture (a replaced renderer or
+     system library, an unsigned library from outside the game folder, an image mapped by
+     hand, rewritten renderer, engine or client code, an unsigned program holding the
+     game open for writing, or reading it while drawing over it). What the game build has
+     shown since its first recorded start is not flagged unless -AlertOnIntegrity is
+     given; the result names what was held back;
   8. when the game closes, keeps the dashboard up until Enter is pressed.
 
   What is changed in the game folder, and only there:
@@ -45,6 +53,8 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -TestAlert
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60 -EndMatchOnDetect
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -AlertOnIntegrity
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -ResetStartProfile
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Diagnose
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Stage 2
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -DashboardOnly
@@ -91,6 +101,17 @@ param(
     [int]$AlertSecs = 20,
     # Log a flagged session only; show no alert screen.
     [switch]$NoAlert,
+    # Also alert on what is held back by default because an honest, modified game build
+    # shows the same: things present since the first recorded start of this game (its own
+    # replacement libraries, images its loader maps, programs that start it), changed or
+    # new files of the game folder, read-only handles of unsigned programs, engine code
+    # rewritten while server add-ons are loaded. Expect alerts on a clean game.
+    [switch]$AlertOnIntegrity,
+    # Forget the recorded first start of this game folder; this run records it anew. Use
+    # it after the game was updated or reinstalled, and only with no cheat running.
+    [switch]$ResetStartProfile,
+    # Seconds after the engine has loaded before the picture of the started game is taken.
+    [int]$BaselineSecs = 20,
     # Start the game in a borderless window (-window -noborder), where the alert is always
     # visible. The game remembers this; start it once with -full to go back.
     [switch]$Windowed,
@@ -704,6 +725,7 @@ $bridgeExe = J $env:CARGO_TARGET_DIR "release" "carthago-cs16-bridge$exeSuffix"
 
 if ($AlertSecs -lt 0 -or $AlertSecs -gt 600) { Die "-AlertSecs is 0 to 600" }
 if ($TestAlertAfter -lt 0 -or $TestAlertAfter -gt 3600) { Die "-TestAlertAfter is 0 to 3600 seconds" }
+if ($BaselineSecs -lt 2 -or $BaselineSecs -gt 600) { Die "-BaselineSecs is 2 to 600" }
 
 # ---- preview of the alert screen ------------------------------------------------------------
 if ($TestAlert) {
@@ -797,6 +819,7 @@ $gwLog = J $logs "gateway.log"
 # -auto-kick: nothing the gateway sees can end the session. -client-notices lets it tell
 # the companion that the session was flagged, which is what raises the alert.
 $gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
+if ($AlertOnIntegrity) { $gwArgs += "-client-notices-strict" }
 if ($TestAlertAfter -gt 0 -and -not $Diagnose -and -not $DashboardOnly) { $gwArgs += @("-test-notice-after", "${TestAlertAfter}s") }
 $script:gateway = Start-Process $gatewayExe -ArgumentList $gwArgs -RedirectStandardError $gwLog `
     -RedirectStandardOutput (J $logs "gateway.out") -NoNewWindow -PassThru
@@ -835,11 +858,20 @@ function StopBridge {
     StopProc $script:bridge
     return @(Get-Content $script:bridgeOut -ErrorAction SilentlyContinue)
 }
+# The record of the first start of this game folder, one file per folder, in the scratch
+# folder.
+function StartProfilePath {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hash = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($script:GameDir.TrimEnd('\', '/').ToLowerInvariant()))
+    $sha.Dispose()
+    return J $Scratch ("start-profile-" + (-join ($hash[0..5] | ForEach-Object { $_.ToString("x2") })) + ".txt")
+}
 # Starts the game through the companion and waits until the game has closed.
 function RunGame($dir, $extra) {
     $script:compLog = J $dir "companion.log"
     $compArgs = @("--keys", $keys, "--gateway", "wss://127.0.0.1:$gatewayPort/v1/client", "--exe", $script:GameExePath,
-        "--player", $Player, "--session-file", (J $dir "session.json"), "--log", $script:compLog)
+        "--player", $Player, "--session-file", (J $dir "session.json"), "--log", $script:compLog,
+        "--start-profile", (StartProfilePath), "--baseline-secs", "$BaselineSecs")
     if ($NoTpm) { $compArgs += "--no-tpm" }
     if ($InputMonitor) { $compArgs += "--input-monitor" }
     # The staged check closes the game by itself; an alert has no place in it.
@@ -869,6 +901,44 @@ function AlertVerdict {
     if ($NoAlert) { Note "the alert screen was not shown (-NoAlert)" }
     $lines | Where-Object { $_ -match 'END MATCH' } | ForEach-Object { Note (($_ -replace '^\[[^\]]*\]\s*\S+\s+', '')) }
     if (-not $EndMatchOnDetect) { Note "the game was left running (alert only; -EndMatchOnDetect also closes the game)" }
+}
+# What the gateway recorded about the game's integrity in this run, from its log: the
+# evidence above "info", and what would have raised the alert but was held back.
+function IntegrityReport {
+    $lines = @(Get-Content -LiteralPath $gwLog -ErrorAction SilentlyContinue)
+    $text = '"((?:[^"\\]|\\.)*)"'
+    $clean = { param($t) $t -replace '\\"', '"' -replace '\\\\', '\' }
+    $own = 'renderer_replaced|system_library_replaced|foreign_module|mapped_image|code_changed|external_writer|external_reader|memory_tool|overlay_reader|game_file_changed|new_game_module|debugger'
+    $shown = @{}
+    foreach ($line in $lines) {
+        if ($line -match "msg=detection .* rule=($own) severity=(medium|high|critical) summary=$text") {
+            $shown[$Matches[3]] = $true
+            Write-Host "      evidence  $($Matches[1]) ($($Matches[2])): $(& $clean $Matches[3])" -ForegroundColor $(if ($Matches[2] -eq 'medium') { 'Yellow' } else { 'Red' })
+        }
+    }
+    foreach ($line in $lines) {
+        if ($line -match "msg=""notice raised by"" .* rule=(\S+) category=\S+ summary=$text" -and -not $shown[$Matches[2]]) {
+            $shown[$Matches[2]] = $true
+            Write-Host "      raised by $($Matches[1]): $(& $clean $Matches[2])" -ForegroundColor Red
+        }
+    }
+    $held = @($lines | Where-Object { $_ -match 'msg="notice withheld"' })
+    foreach ($line in $held) {
+        if ($line -match "rule=(\S+) category=(\S+) why=$text summary=$text") {
+            Write-Host "NOTE  no alert by default for: $(& $clean $Matches[4])" -ForegroundColor Yellow
+            Note "      why: $(& $clean $Matches[3]). Category $($Matches[2]), rule $($Matches[1])."
+        }
+    }
+    if ($held.Count) { Note "-AlertOnIntegrity raises the alert for these as well." }
+    $comp = @(Get-Content -LiteralPath $script:compLog -ErrorAction SilentlyContinue)
+    if ($comp | Where-Object { $_ -match 'START PROFILE written' }) {
+        if ($script:firstStart) { Note "the first start of this game was recorded in $(StartProfilePath); later runs are compared with it" }
+    } elseif ($script:firstStart) {
+        Note "the game closed before its start could be recorded; the next run records it"
+    }
+    if (-not ($comp | Where-Object { $_ -match 'BASELINE taken' })) {
+        Note "the game closed before the companion had taken its picture of the started game (about $BaselineSecs seconds after the engine loads): changes were not looked for"
+    }
 }
 function CompanionVerdict($code, $exeName) {
     switch ($code) {
@@ -979,6 +1049,18 @@ if ($plugin -and -not $Map) { Note "In the game: New Game, pick a map, Start. Ad
 Note "After about 20 seconds in the game, open Sessions in the dashboard."
 if ($TestAlertAfter -gt 0) { Note "A test alert appears $TestAlertAfter seconds after the session opens. Esc or a click closes it." }
 if ($EndMatchOnDetect) { Note "-EndMatchOnDetect: if the session is flagged, the companion also closes the game it started." }
+if ($ResetStartProfile) { Remove-Item -LiteralPath (StartProfilePath) -Force -ErrorAction SilentlyContinue }
+$script:firstStart = -not (Test-Path -LiteralPath (StartProfilePath))
+if ($script:firstStart) {
+    Note "First recorded start of this game: whatever the game shows while it starts is taken to be the game build and is"
+    Note "    not alerted on later. Run this once with no cheat present. -ResetStartProfile records it anew."
+} else {
+    Note "This start is compared with the first recorded start of this game ($(StartProfilePath))."
+}
+if ($AlertOnIntegrity) { Note "-AlertOnIntegrity: the alert is also raised for what a modified but honest game build shows. Expect alerts on a clean game." }
+$elevated = $false
+try { $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
+if (-not $elevated) { Note "This window is not elevated: a program that runs as administrator (Cheat Engine does) cannot be seen holding the game open." }
 $extra = @()
 if ($Windowed) {
     $extra += @("-window", "-noborder")
@@ -997,6 +1079,7 @@ if ($plugin) { $matchData = StopBridge }
 Step "result"
 CompanionVerdict $exit $exeName
 AlertVerdict
+IntegrityReport
 if ($plugin) {
     $info = CollectGame $logs $since $from $stamp
     $status = $matchData | Where-Object { $_ -match 'STATUS' } | Select-Object -Last 1
