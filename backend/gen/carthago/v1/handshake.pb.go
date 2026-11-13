@@ -518,6 +518,123 @@ func (WatchedApi) EnumDescriptor() ([]byte, []int) {
 	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{6}
 }
 
+// Why a session was flagged, as a broad category. Which rule fired, its scores and its
+// thresholds never leave the server.
+type EnforcementCategory int32
+
+const (
+	EnforcementCategory_ENFORCEMENT_CATEGORY_UNSPECIFIED EnforcementCategory = 0
+	// Sent on an operator's request to try the client's screen. Nothing was detected.
+	EnforcementCategory_ENFORCEMENT_CATEGORY_TEST EnforcementCategory = 1
+	// The game's code or memory was changed while it ran.
+	EnforcementCategory_ENFORCEMENT_CATEGORY_GAME_INTEGRITY EnforcementCategory = 2
+	// A debugger is attached to the game.
+	EnforcementCategory_ENFORCEMENT_CATEGORY_DEBUGGER EnforcementCategory = 3
+	// The game's clocks were manipulated.
+	EnforcementCategory_ENFORCEMENT_CATEGORY_TIME_MANIPULATION EnforcementCategory = 4
+	// Aiming in the match was not that of a person.
+	EnforcementCategory_ENFORCEMENT_CATEGORY_AIM_ASSISTANCE EnforcementCategory = 5
+)
+
+// Enum value maps for EnforcementCategory.
+var (
+	EnforcementCategory_name = map[int32]string{
+		0: "ENFORCEMENT_CATEGORY_UNSPECIFIED",
+		1: "ENFORCEMENT_CATEGORY_TEST",
+		2: "ENFORCEMENT_CATEGORY_GAME_INTEGRITY",
+		3: "ENFORCEMENT_CATEGORY_DEBUGGER",
+		4: "ENFORCEMENT_CATEGORY_TIME_MANIPULATION",
+		5: "ENFORCEMENT_CATEGORY_AIM_ASSISTANCE",
+	}
+	EnforcementCategory_value = map[string]int32{
+		"ENFORCEMENT_CATEGORY_UNSPECIFIED":       0,
+		"ENFORCEMENT_CATEGORY_TEST":              1,
+		"ENFORCEMENT_CATEGORY_GAME_INTEGRITY":    2,
+		"ENFORCEMENT_CATEGORY_DEBUGGER":          3,
+		"ENFORCEMENT_CATEGORY_TIME_MANIPULATION": 4,
+		"ENFORCEMENT_CATEGORY_AIM_ASSISTANCE":    5,
+	}
+)
+
+func (x EnforcementCategory) Enum() *EnforcementCategory {
+	p := new(EnforcementCategory)
+	*p = x
+	return p
+}
+
+func (x EnforcementCategory) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EnforcementCategory) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_handshake_proto_enumTypes[7].Descriptor()
+}
+
+func (EnforcementCategory) Type() protoreflect.EnumType {
+	return &file_carthago_v1_handshake_proto_enumTypes[7]
+}
+
+func (x EnforcementCategory) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EnforcementCategory.Descriptor instead.
+func (EnforcementCategory) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{7}
+}
+
+type EnforcementSeverity int32
+
+const (
+	EnforcementSeverity_ENFORCEMENT_SEVERITY_UNSPECIFIED EnforcementSeverity = 0
+	EnforcementSeverity_ENFORCEMENT_SEVERITY_NOTICE      EnforcementSeverity = 1 // no detection behind it (a test)
+	EnforcementSeverity_ENFORCEMENT_SEVERITY_HIGH        EnforcementSeverity = 2
+	EnforcementSeverity_ENFORCEMENT_SEVERITY_CRITICAL    EnforcementSeverity = 3
+)
+
+// Enum value maps for EnforcementSeverity.
+var (
+	EnforcementSeverity_name = map[int32]string{
+		0: "ENFORCEMENT_SEVERITY_UNSPECIFIED",
+		1: "ENFORCEMENT_SEVERITY_NOTICE",
+		2: "ENFORCEMENT_SEVERITY_HIGH",
+		3: "ENFORCEMENT_SEVERITY_CRITICAL",
+	}
+	EnforcementSeverity_value = map[string]int32{
+		"ENFORCEMENT_SEVERITY_UNSPECIFIED": 0,
+		"ENFORCEMENT_SEVERITY_NOTICE":      1,
+		"ENFORCEMENT_SEVERITY_HIGH":        2,
+		"ENFORCEMENT_SEVERITY_CRITICAL":    3,
+	}
+)
+
+func (x EnforcementSeverity) Enum() *EnforcementSeverity {
+	p := new(EnforcementSeverity)
+	*p = x
+	return p
+}
+
+func (x EnforcementSeverity) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EnforcementSeverity) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_handshake_proto_enumTypes[8].Descriptor()
+}
+
+func (EnforcementSeverity) Type() protoreflect.EnumType {
+	return &file_carthago_v1_handshake_proto_enumTypes[8]
+}
+
+func (x EnforcementSeverity) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EnforcementSeverity.Descriptor instead.
+func (EnforcementSeverity) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{8}
+}
+
 type DeviceKey struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Alg           DeviceKeyAlg           `protobuf:"varint,1,opt,name=alg,proto3,enum=carthago.v1.DeviceKeyAlg" json:"alg,omitempty"`
@@ -2056,6 +2173,162 @@ func (x *Error) GetMessage() string {
 	return ""
 }
 
+type EnforcementNoticeBody struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NoticeId      []byte                 `protobuf:"bytes,1,opt,name=notice_id,json=noticeId,proto3" json:"notice_id,omitempty"`    // 16 random bytes
+	SessionId     []byte                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // the session this notice is about, 16 bytes
+	TenantId      string                 `protobuf:"bytes,3,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	PlayerIdHash  string                 `protobuf:"bytes,4,opt,name=player_id_hash,json=playerIdHash,proto3" json:"player_id_hash,omitempty"`
+	IssuedAtMs    uint64                 `protobuf:"varint,5,opt,name=issued_at_ms,json=issuedAtMs,proto3" json:"issued_at_ms,omitempty"`
+	Category      uint32                 `protobuf:"varint,6,opt,name=category,proto3" json:"category,omitempty"` // EnforcementCategory
+	Severity      uint32                 `protobuf:"varint,7,opt,name=severity,proto3" json:"severity,omitempty"` // EnforcementSeverity
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnforcementNoticeBody) Reset() {
+	*x = EnforcementNoticeBody{}
+	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnforcementNoticeBody) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnforcementNoticeBody) ProtoMessage() {}
+
+func (x *EnforcementNoticeBody) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnforcementNoticeBody.ProtoReflect.Descriptor instead.
+func (*EnforcementNoticeBody) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *EnforcementNoticeBody) GetNoticeId() []byte {
+	if x != nil {
+		return x.NoticeId
+	}
+	return nil
+}
+
+func (x *EnforcementNoticeBody) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+func (x *EnforcementNoticeBody) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *EnforcementNoticeBody) GetPlayerIdHash() string {
+	if x != nil {
+		return x.PlayerIdHash
+	}
+	return ""
+}
+
+func (x *EnforcementNoticeBody) GetIssuedAtMs() uint64 {
+	if x != nil {
+		return x.IssuedAtMs
+	}
+	return 0
+}
+
+func (x *EnforcementNoticeBody) GetCategory() uint32 {
+	if x != nil {
+		return x.Category
+	}
+	return 0
+}
+
+func (x *EnforcementNoticeBody) GetSeverity() uint32 {
+	if x != nil {
+		return x.Severity
+	}
+	return 0
+}
+
+// Tells a client that its session was flagged, so the game can show its own screen. It is
+// information only: the session stays up, and ending it remains the game server's decision
+// (Kick). The signature lets the game pass the notice on and anyone holding the pinned
+// server identity key check it, outside the sealed channel it arrived on.
+type EnforcementNotice struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Body          []byte                 `protobuf:"bytes,1,opt,name=body,proto3" json:"body,omitempty"`                            // encoded EnforcementNoticeBody; verified and passed on as these exact bytes
+	ServerSig     []byte                 `protobuf:"bytes,2,opt,name=server_sig,json=serverSig,proto3" json:"server_sig,omitempty"` // Ed25519 by the server identity key over "carthago/v1/enforcement-notice" || body
+	ServerKeyId   string                 `protobuf:"bytes,3,opt,name=server_key_id,json=serverKeyId,proto3" json:"server_key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnforcementNotice) Reset() {
+	*x = EnforcementNotice{}
+	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnforcementNotice) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnforcementNotice) ProtoMessage() {}
+
+func (x *EnforcementNotice) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnforcementNotice.ProtoReflect.Descriptor instead.
+func (*EnforcementNotice) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *EnforcementNotice) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *EnforcementNotice) GetServerSig() []byte {
+	if x != nil {
+		return x.ServerSig
+	}
+	return nil
+}
+
+func (x *EnforcementNotice) GetServerKeyId() string {
+	if x != nil {
+		return x.ServerKeyId
+	}
+	return ""
+}
+
 // Plaintext of every client->server sealed frame. seq must equal the frame seq.
 type ClientMsg struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
@@ -2073,7 +2346,7 @@ type ClientMsg struct {
 
 func (x *ClientMsg) Reset() {
 	*x = ClientMsg{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2085,7 +2358,7 @@ func (x *ClientMsg) String() string {
 func (*ClientMsg) ProtoMessage() {}
 
 func (x *ClientMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2098,7 +2371,7 @@ func (x *ClientMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientMsg.ProtoReflect.Descriptor instead.
 func (*ClientMsg) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{21}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ClientMsg) GetSeq() uint64 {
@@ -2174,6 +2447,7 @@ type ServerMsg struct {
 	//	*ServerMsg_HeartbeatAck
 	//	*ServerMsg_Kicked
 	//	*ServerMsg_Error
+	//	*ServerMsg_EnforcementNotice
 	Body          isServerMsg_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2181,7 +2455,7 @@ type ServerMsg struct {
 
 func (x *ServerMsg) Reset() {
 	*x = ServerMsg{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2193,7 +2467,7 @@ func (x *ServerMsg) String() string {
 func (*ServerMsg) ProtoMessage() {}
 
 func (x *ServerMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2206,7 +2480,7 @@ func (x *ServerMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMsg.ProtoReflect.Descriptor instead.
 func (*ServerMsg) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{22}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ServerMsg) GetSeq() uint64 {
@@ -2273,6 +2547,15 @@ func (x *ServerMsg) GetError() *Error {
 	return nil
 }
 
+func (x *ServerMsg) GetEnforcementNotice() *EnforcementNotice {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMsg_EnforcementNotice); ok {
+			return x.EnforcementNotice
+		}
+	}
+	return nil
+}
+
 type isServerMsg_Body interface {
 	isServerMsg_Body()
 }
@@ -2293,6 +2576,10 @@ type ServerMsg_Error struct {
 	Error *Error `protobuf:"bytes,13,opt,name=error,proto3,oneof"`
 }
 
+type ServerMsg_EnforcementNotice struct {
+	EnforcementNotice *EnforcementNotice `protobuf:"bytes,14,opt,name=enforcement_notice,json=enforcementNotice,proto3,oneof"`
+}
+
 func (*ServerMsg_Session) isServerMsg_Body() {}
 
 func (*ServerMsg_HeartbeatAck) isServerMsg_Body() {}
@@ -2300,6 +2587,8 @@ func (*ServerMsg_HeartbeatAck) isServerMsg_Body() {}
 func (*ServerMsg_Kicked) isServerMsg_Body() {}
 
 func (*ServerMsg_Error) isServerMsg_Body() {}
+
+func (*ServerMsg_EnforcementNotice) isServerMsg_Body() {}
 
 var File_carthago_v1_handshake_proto protoreflect.FileDescriptor
 
@@ -2437,7 +2726,22 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\"5\n" +
 	"\x05Error\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xca\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xf0\x01\n" +
+	"\x15EnforcementNoticeBody\x12\x1b\n" +
+	"\tnotice_id\x18\x01 \x01(\fR\bnoticeId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\fR\tsessionId\x12\x1b\n" +
+	"\ttenant_id\x18\x03 \x01(\tR\btenantId\x12$\n" +
+	"\x0eplayer_id_hash\x18\x04 \x01(\tR\fplayerIdHash\x12 \n" +
+	"\fissued_at_ms\x18\x05 \x01(\x04R\n" +
+	"issuedAtMs\x12\x1a\n" +
+	"\bcategory\x18\x06 \x01(\rR\bcategory\x12\x1a\n" +
+	"\bseverity\x18\a \x01(\rR\bseverity\"j\n" +
+	"\x11EnforcementNotice\x12\x12\n" +
+	"\x04body\x18\x01 \x01(\fR\x04body\x12\x1d\n" +
+	"\n" +
+	"server_sig\x18\x02 \x01(\fR\tserverSig\x12\"\n" +
+	"\rserver_key_id\x18\x03 \x01(\tR\vserverKeyId\"\xca\x01\n" +
 	"\tClientMsg\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x1d\n" +
 	"\n" +
@@ -2447,7 +2751,7 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x05prove\x18\n" +
 	" \x01(\v2\x12.carthago.v1.ProveH\x00R\x05prove\x126\n" +
 	"\theartbeat\x18\v \x01(\v2\x16.carthago.v1.HeartbeatH\x00R\theartbeatB\x06\n" +
-	"\x04body\"\xb5\x02\n" +
+	"\x04body\"\x86\x03\n" +
 	"\tServerMsg\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12\x1d\n" +
 	"\n" +
@@ -2458,7 +2762,8 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	" \x01(\v2\x14.carthago.v1.SessionH\x00R\asession\x12@\n" +
 	"\rheartbeat_ack\x18\v \x01(\v2\x19.carthago.v1.HeartbeatAckH\x00R\fheartbeatAck\x12-\n" +
 	"\x06kicked\x18\f \x01(\v2\x13.carthago.v1.KickedH\x00R\x06kicked\x12*\n" +
-	"\x05error\x18\r \x01(\v2\x12.carthago.v1.ErrorH\x00R\x05errorB\x06\n" +
+	"\x05error\x18\r \x01(\v2\x12.carthago.v1.ErrorH\x00R\x05error\x12O\n" +
+	"\x12enforcement_notice\x18\x0e \x01(\v2\x1e.carthago.v1.EnforcementNoticeH\x00R\x11enforcementNoticeB\x06\n" +
 	"\x04body*v\n" +
 	"\fDeviceKeyAlg\x12\x1e\n" +
 	"\x1aDEVICE_KEY_ALG_UNSPECIFIED\x10\x00\x12#\n" +
@@ -2524,7 +2829,19 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x12'\n" +
 	"#WATCHED_API_KERNEL32_LOAD_LIBRARY_A\x10\v\x12'\n" +
 	"#WATCHED_API_KERNEL32_LOAD_LIBRARY_W\x10\f\x12,\n" +
-	"(WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A\x10\rB-Z+carthago/backend/gen/carthago/v1;carthagov1b\x06proto3"
+	"(WATCHED_API_KERNELBASE_LOAD_LIBRARY_EX_A\x10\r*\xfb\x01\n" +
+	"\x13EnforcementCategory\x12$\n" +
+	" ENFORCEMENT_CATEGORY_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19ENFORCEMENT_CATEGORY_TEST\x10\x01\x12'\n" +
+	"#ENFORCEMENT_CATEGORY_GAME_INTEGRITY\x10\x02\x12!\n" +
+	"\x1dENFORCEMENT_CATEGORY_DEBUGGER\x10\x03\x12*\n" +
+	"&ENFORCEMENT_CATEGORY_TIME_MANIPULATION\x10\x04\x12'\n" +
+	"#ENFORCEMENT_CATEGORY_AIM_ASSISTANCE\x10\x05*\x9e\x01\n" +
+	"\x13EnforcementSeverity\x12$\n" +
+	" ENFORCEMENT_SEVERITY_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bENFORCEMENT_SEVERITY_NOTICE\x10\x01\x12\x1d\n" +
+	"\x19ENFORCEMENT_SEVERITY_HIGH\x10\x02\x12!\n" +
+	"\x1dENFORCEMENT_SEVERITY_CRITICAL\x10\x03B-Z+carthago/backend/gen/carthago/v1;carthagov1b\x06proto3"
 
 var (
 	file_carthago_v1_handshake_proto_rawDescOnce sync.Once
@@ -2538,65 +2855,70 @@ func file_carthago_v1_handshake_proto_rawDescGZIP() []byte {
 	return file_carthago_v1_handshake_proto_rawDescData
 }
 
-var file_carthago_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_carthago_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_carthago_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_carthago_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_carthago_v1_handshake_proto_goTypes = []any{
-	(DeviceKeyAlg)(0),     // 0: carthago.v1.DeviceKeyAlg
-	(FindingCode)(0),      // 1: carthago.v1.FindingCode
-	(ModuleSignature)(0),  // 2: carthago.v1.ModuleSignature
-	(UnbackedFlags)(0),    // 3: carthago.v1.UnbackedFlags
-	(DebugSignal)(0),      // 4: carthago.v1.DebugSignal
-	(ModulePathClass)(0),  // 5: carthago.v1.ModulePathClass
-	(WatchedApi)(0),       // 6: carthago.v1.WatchedApi
-	(*DeviceKey)(nil),     // 7: carthago.v1.DeviceKey
-	(*TpmEnrollment)(nil), // 8: carthago.v1.TpmEnrollment
-	(*EnvReport)(nil),     // 9: carthago.v1.EnvReport
-	(*Hello)(nil),         // 10: carthago.v1.Hello
-	(*EkChallenge)(nil),   // 11: carthago.v1.EkChallenge
-	(*AttestRequest)(nil), // 12: carthago.v1.AttestRequest
-	(*ChallengeBody)(nil), // 13: carthago.v1.ChallengeBody
-	(*Challenge)(nil),     // 14: carthago.v1.Challenge
-	(*Pcr)(nil),           // 15: carthago.v1.Pcr
-	(*TpmEvidence)(nil),   // 16: carthago.v1.TpmEvidence
-	(*Prove)(nil),         // 17: carthago.v1.Prove
-	(*Session)(nil),       // 18: carthago.v1.Session
-	(*Finding)(nil),       // 19: carthago.v1.Finding
-	(*SchedSummary)(nil),  // 20: carthago.v1.SchedSummary
-	(*TimeSample)(nil),    // 21: carthago.v1.TimeSample
-	(*InputStats)(nil),    // 22: carthago.v1.InputStats
-	(*JobCoverage)(nil),   // 23: carthago.v1.JobCoverage
-	(*Heartbeat)(nil),     // 24: carthago.v1.Heartbeat
-	(*HeartbeatAck)(nil),  // 25: carthago.v1.HeartbeatAck
-	(*Kicked)(nil),        // 26: carthago.v1.Kicked
-	(*Error)(nil),         // 27: carthago.v1.Error
-	(*ClientMsg)(nil),     // 28: carthago.v1.ClientMsg
-	(*ServerMsg)(nil),     // 29: carthago.v1.ServerMsg
+	(DeviceKeyAlg)(0),             // 0: carthago.v1.DeviceKeyAlg
+	(FindingCode)(0),              // 1: carthago.v1.FindingCode
+	(ModuleSignature)(0),          // 2: carthago.v1.ModuleSignature
+	(UnbackedFlags)(0),            // 3: carthago.v1.UnbackedFlags
+	(DebugSignal)(0),              // 4: carthago.v1.DebugSignal
+	(ModulePathClass)(0),          // 5: carthago.v1.ModulePathClass
+	(WatchedApi)(0),               // 6: carthago.v1.WatchedApi
+	(EnforcementCategory)(0),      // 7: carthago.v1.EnforcementCategory
+	(EnforcementSeverity)(0),      // 8: carthago.v1.EnforcementSeverity
+	(*DeviceKey)(nil),             // 9: carthago.v1.DeviceKey
+	(*TpmEnrollment)(nil),         // 10: carthago.v1.TpmEnrollment
+	(*EnvReport)(nil),             // 11: carthago.v1.EnvReport
+	(*Hello)(nil),                 // 12: carthago.v1.Hello
+	(*EkChallenge)(nil),           // 13: carthago.v1.EkChallenge
+	(*AttestRequest)(nil),         // 14: carthago.v1.AttestRequest
+	(*ChallengeBody)(nil),         // 15: carthago.v1.ChallengeBody
+	(*Challenge)(nil),             // 16: carthago.v1.Challenge
+	(*Pcr)(nil),                   // 17: carthago.v1.Pcr
+	(*TpmEvidence)(nil),           // 18: carthago.v1.TpmEvidence
+	(*Prove)(nil),                 // 19: carthago.v1.Prove
+	(*Session)(nil),               // 20: carthago.v1.Session
+	(*Finding)(nil),               // 21: carthago.v1.Finding
+	(*SchedSummary)(nil),          // 22: carthago.v1.SchedSummary
+	(*TimeSample)(nil),            // 23: carthago.v1.TimeSample
+	(*InputStats)(nil),            // 24: carthago.v1.InputStats
+	(*JobCoverage)(nil),           // 25: carthago.v1.JobCoverage
+	(*Heartbeat)(nil),             // 26: carthago.v1.Heartbeat
+	(*HeartbeatAck)(nil),          // 27: carthago.v1.HeartbeatAck
+	(*Kicked)(nil),                // 28: carthago.v1.Kicked
+	(*Error)(nil),                 // 29: carthago.v1.Error
+	(*EnforcementNoticeBody)(nil), // 30: carthago.v1.EnforcementNoticeBody
+	(*EnforcementNotice)(nil),     // 31: carthago.v1.EnforcementNotice
+	(*ClientMsg)(nil),             // 32: carthago.v1.ClientMsg
+	(*ServerMsg)(nil),             // 33: carthago.v1.ServerMsg
 }
 var file_carthago_v1_handshake_proto_depIdxs = []int32{
 	0,  // 0: carthago.v1.DeviceKey.alg:type_name -> carthago.v1.DeviceKeyAlg
-	7,  // 1: carthago.v1.Hello.device_key:type_name -> carthago.v1.DeviceKey
-	9,  // 2: carthago.v1.Hello.env:type_name -> carthago.v1.EnvReport
-	8,  // 3: carthago.v1.Hello.tpm_enrollment:type_name -> carthago.v1.TpmEnrollment
-	11, // 4: carthago.v1.AttestRequest.ek_challenge:type_name -> carthago.v1.EkChallenge
-	12, // 5: carthago.v1.ChallengeBody.attest:type_name -> carthago.v1.AttestRequest
-	15, // 6: carthago.v1.TpmEvidence.pcrs:type_name -> carthago.v1.Pcr
-	16, // 7: carthago.v1.Prove.attestation:type_name -> carthago.v1.TpmEvidence
-	20, // 8: carthago.v1.Heartbeat.sched:type_name -> carthago.v1.SchedSummary
-	19, // 9: carthago.v1.Heartbeat.findings:type_name -> carthago.v1.Finding
-	21, // 10: carthago.v1.Heartbeat.time:type_name -> carthago.v1.TimeSample
-	22, // 11: carthago.v1.Heartbeat.input:type_name -> carthago.v1.InputStats
-	23, // 12: carthago.v1.Heartbeat.coverage:type_name -> carthago.v1.JobCoverage
-	17, // 13: carthago.v1.ClientMsg.prove:type_name -> carthago.v1.Prove
-	24, // 14: carthago.v1.ClientMsg.heartbeat:type_name -> carthago.v1.Heartbeat
-	18, // 15: carthago.v1.ServerMsg.session:type_name -> carthago.v1.Session
-	25, // 16: carthago.v1.ServerMsg.heartbeat_ack:type_name -> carthago.v1.HeartbeatAck
-	26, // 17: carthago.v1.ServerMsg.kicked:type_name -> carthago.v1.Kicked
-	27, // 18: carthago.v1.ServerMsg.error:type_name -> carthago.v1.Error
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	9,  // 1: carthago.v1.Hello.device_key:type_name -> carthago.v1.DeviceKey
+	11, // 2: carthago.v1.Hello.env:type_name -> carthago.v1.EnvReport
+	10, // 3: carthago.v1.Hello.tpm_enrollment:type_name -> carthago.v1.TpmEnrollment
+	13, // 4: carthago.v1.AttestRequest.ek_challenge:type_name -> carthago.v1.EkChallenge
+	14, // 5: carthago.v1.ChallengeBody.attest:type_name -> carthago.v1.AttestRequest
+	17, // 6: carthago.v1.TpmEvidence.pcrs:type_name -> carthago.v1.Pcr
+	18, // 7: carthago.v1.Prove.attestation:type_name -> carthago.v1.TpmEvidence
+	22, // 8: carthago.v1.Heartbeat.sched:type_name -> carthago.v1.SchedSummary
+	21, // 9: carthago.v1.Heartbeat.findings:type_name -> carthago.v1.Finding
+	23, // 10: carthago.v1.Heartbeat.time:type_name -> carthago.v1.TimeSample
+	24, // 11: carthago.v1.Heartbeat.input:type_name -> carthago.v1.InputStats
+	25, // 12: carthago.v1.Heartbeat.coverage:type_name -> carthago.v1.JobCoverage
+	19, // 13: carthago.v1.ClientMsg.prove:type_name -> carthago.v1.Prove
+	26, // 14: carthago.v1.ClientMsg.heartbeat:type_name -> carthago.v1.Heartbeat
+	20, // 15: carthago.v1.ServerMsg.session:type_name -> carthago.v1.Session
+	27, // 16: carthago.v1.ServerMsg.heartbeat_ack:type_name -> carthago.v1.HeartbeatAck
+	28, // 17: carthago.v1.ServerMsg.kicked:type_name -> carthago.v1.Kicked
+	29, // 18: carthago.v1.ServerMsg.error:type_name -> carthago.v1.Error
+	31, // 19: carthago.v1.ServerMsg.enforcement_notice:type_name -> carthago.v1.EnforcementNotice
+	20, // [20:20] is the sub-list for method output_type
+	20, // [20:20] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_carthago_v1_handshake_proto_init() }
@@ -2604,23 +2926,24 @@ func file_carthago_v1_handshake_proto_init() {
 	if File_carthago_v1_handshake_proto != nil {
 		return
 	}
-	file_carthago_v1_handshake_proto_msgTypes[21].OneofWrappers = []any{
+	file_carthago_v1_handshake_proto_msgTypes[23].OneofWrappers = []any{
 		(*ClientMsg_Prove)(nil),
 		(*ClientMsg_Heartbeat)(nil),
 	}
-	file_carthago_v1_handshake_proto_msgTypes[22].OneofWrappers = []any{
+	file_carthago_v1_handshake_proto_msgTypes[24].OneofWrappers = []any{
 		(*ServerMsg_Session)(nil),
 		(*ServerMsg_HeartbeatAck)(nil),
 		(*ServerMsg_Kicked)(nil),
 		(*ServerMsg_Error)(nil),
+		(*ServerMsg_EnforcementNotice)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_handshake_proto_rawDesc), len(file_carthago_v1_handshake_proto_rawDesc)),
-			NumEnums:      7,
-			NumMessages:   23,
+			NumEnums:      9,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -304,6 +304,49 @@ message Error {
   string message = 2;
 }
 
+// Why a session was flagged, as a broad category. Which rule fired, its scores and its
+// thresholds never leave the server.
+enum EnforcementCategory {
+  ENFORCEMENT_CATEGORY_UNSPECIFIED = 0;
+  // Sent on an operator's request to try the client's screen. Nothing was detected.
+  ENFORCEMENT_CATEGORY_TEST = 1;
+  // The game's code or memory was changed while it ran.
+  ENFORCEMENT_CATEGORY_GAME_INTEGRITY = 2;
+  // A debugger is attached to the game.
+  ENFORCEMENT_CATEGORY_DEBUGGER = 3;
+  // The game's clocks were manipulated.
+  ENFORCEMENT_CATEGORY_TIME_MANIPULATION = 4;
+  // Aiming in the match was not that of a person.
+  ENFORCEMENT_CATEGORY_AIM_ASSISTANCE = 5;
+}
+
+enum EnforcementSeverity {
+  ENFORCEMENT_SEVERITY_UNSPECIFIED = 0;
+  ENFORCEMENT_SEVERITY_NOTICE = 1; // no detection behind it (a test)
+  ENFORCEMENT_SEVERITY_HIGH = 2;
+  ENFORCEMENT_SEVERITY_CRITICAL = 3;
+}
+
+message EnforcementNoticeBody {
+  bytes notice_id = 1; // 16 random bytes
+  bytes session_id = 2; // the session this notice is about, 16 bytes
+  string tenant_id = 3;
+  string player_id_hash = 4;
+  uint64 issued_at_ms = 5;
+  uint32 category = 6; // EnforcementCategory
+  uint32 severity = 7; // EnforcementSeverity
+}
+
+// Tells a client that its session was flagged, so the game can show its own screen. It is
+// information only: the session stays up, and ending it remains the game server's decision
+// (Kick). The signature lets the game pass the notice on and anyone holding the pinned
+// server identity key check it, outside the sealed channel it arrived on.
+message EnforcementNotice {
+  bytes body = 1; // encoded EnforcementNoticeBody; verified and passed on as these exact bytes
+  bytes server_sig = 2; // Ed25519 by the server identity key over "carthago/v1/enforcement-notice" || body
+  string server_key_id = 3;
+}
+
 // Plaintext of every client->server sealed frame. seq must equal the frame seq.
 message ClientMsg {
   uint64 seq = 1;
@@ -324,5 +367,6 @@ message ServerMsg {
     HeartbeatAck heartbeat_ack = 11;
     Kicked kicked = 12;
     Error error = 13;
+    EnforcementNotice enforcement_notice = 14;
   }
 }
