@@ -72,11 +72,23 @@ type Stats struct {
 	Skipped int
 }
 
-// Minimum labelled sessions before retraining the behaviour model on them is worth it;
-// see docs/oracle.md for where the numbers come from.
+// Minimum labelled sessions before retraining the behaviour model on them is worth it.
+// They come from the learning curves on synthetic sessions (carthago-oracle curve) and
+// from what a count can prove; real play is noisier, so they are lower bounds:
+//
+//   - 400 confirmed cheating sessions: below that the model on synthetic data is still
+//     visibly short of what it reaches with more (AUC 0.983 at 200, 0.993 at 400, 0.997
+//     at 1,140), and it sends far fewer cheating sessions to review;
+//   - 100 per cheat type the model should recognise: fewer cannot measure that type's
+//     recall to within about 10 points;
+//   - 600 cleared sessions: the model itself needs only a few hundred, but 600 is the
+//     fewest on which "no honest session in review" bounds the honest review rate at
+//     0.5% (95% confidence), and that is counted on held-out sessions only, so a studio
+//     that holds out a fifth needs 3,000 in all for that bound;
+//   - 50 distinct players, so the model learns behaviour and not a few people's habits.
 const (
 	MinCleared           = 600
-	MinConfirmed         = 300
+	MinConfirmed         = 400
 	MinConfirmedPerType  = 100
 	MinDistinctPlayers   = 50
 	MinAnalystSamples    = 500
