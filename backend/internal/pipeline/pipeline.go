@@ -117,6 +117,7 @@ type Pipeline struct {
 	sessions SessionLookup
 	kick     Kicker
 	notify   Notifier
+	ban      Banner
 	log      *slog.Logger
 
 	q    chan func()
@@ -179,6 +180,16 @@ func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker
 
 // SetNotifier sets who delivers client notices. Call it before the first heartbeat.
 func (p *Pipeline) SetNotifier(n Notifier) { p.notify = n }
+
+// Banner bans a session's player (bans.Service.Automatic).
+type Banner interface {
+	Automatic(sess store.Session, rule, summary string)
+}
+
+// SetBanner turns automatic bans on: client evidence of the certain tier
+// (analyzer.Evidence.Certain) bans the session's account and device key. Evidence of the
+// suspicious tier, and all gameplay evidence, never does. Call it before any traffic.
+func (p *Pipeline) SetBanner(b Banner) { p.ban = b }
 
 // Close drains queued work and stops the worker.
 func (p *Pipeline) Close() {
@@ -277,6 +288,8 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		sev pb.EnforcementSeverity
 	}
 	var notices []notice
+	// The first evidence of this heartbeat that bans by itself.
+	var certain *analyzer.Evidence
 	add := func(key string, e analyzer.Evidence, raw string, f *pb.Finding) {
 		if cs.seen[key] {
 			return
@@ -291,6 +304,9 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			raw = ""
 		} else {
 			cs.seen[key] = true
+		}
+		if certain == nil && e.Certain() {
+			certain = &e
 		}
 		cat, sev, send, held := clientNotice(e, f, p.cfg.NoticesOptIn)
 		if send {
@@ -366,6 +382,10 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		for _, n := range notices {
 			p.notify.Notice(sess.SessionID, n.cat, n.sev)
 		}
+	}
+	// After the notice, so the player's screen says what happened before the session ends.
+	if certain != nil && p.ban != nil {
+		p.ban.Automatic(sess, certain.Rule, certain.Summary)
 	}
 	if err := p.st.PutTelemetry(ctx, telemetry(sess.SessionID, hb, cs, at)); err != nil {
 		p.log.Warn("persist telemetry", "session", sess.SessionID, "err", err)

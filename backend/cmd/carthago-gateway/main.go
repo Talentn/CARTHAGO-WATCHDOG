@@ -21,6 +21,7 @@ import (
 
 	"carthago/backend/internal/analyzer"
 	"carthago/backend/internal/attest/ekroots"
+	"carthago/backend/internal/bans"
 	"carthago/backend/internal/dashboard"
 	"carthago/backend/internal/gateway"
 	"carthago/backend/internal/knowledge"
@@ -33,6 +34,7 @@ type evidenceStore interface {
 	store.Store
 	store.EvidenceStore
 	store.OracleStore
+	store.BanStore
 }
 
 type tenantFlag map[string]string
@@ -48,6 +50,9 @@ func (t tenantFlag) Set(v string) error {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "bans" {
+		os.Exit(bansCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "dashboard-user" {
 		os.Exit(dashboardUserCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
@@ -81,6 +86,7 @@ func main() {
 	mapPins := flag.String("map-pins", "", "file of trusted map geometries, one `map_id sha256` per line (the line carthago-cs16-bridge map-hash prints); a geometry uploaded for a listed map with another hash is refused and that match is not scored for information leaks")
 	mapPinsRequired := flag.Bool("map-pins-required", false, "with -map-pins: also refuse geometry for maps the file does not list")
 	leakAlert := flag.Bool("leak-alert", false, "opt-in live wallhack rule: a player whose information-leak score is strong in two separate windows of one match gets information_leak_live evidence during the match and, with -client-notices, a notice of the visibility category when the slot is bound to a verified session. Off, information_leak is evidence for review at the end of a match and never tells the player")
+	autoBan := flag.Bool("auto-ban", true, "ban a player's account and device key automatically on certain evidence: hard integrity findings about the game process itself. Statistical and advisory evidence never bans; -auto-ban=false leaves every ban to a reviewer")
 	testNotice := flag.Duration("test-notice-after", 0, "development: send every session a notice of category test this long after its client connected (0 = never)")
 	oracleCfg := oracleFlagSet(flag.CommandLine)
 	flag.Parse()
@@ -180,13 +186,19 @@ func main() {
 		pcfg.LeakAlert = &a
 		log.Info("live information-leak rule on (opt-in)", "window_s", a.WindowSec, "window_z", a.Z, "min_excess", a.MinExcess, "windows", a.Windows, "tells_the_player", *clientNotices)
 	}
+	banning := bans.New(st, log)
 	detections := pipeline.New(pcfg, st, st, kick, log)
 	defer detections.Close()
+	if *autoBan {
+		detections.SetBanner(banning)
+	}
+	log.Info("bans", "automatic_on_certain_evidence", *autoBan)
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
+		Detections: detections, Bans: banning, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
+	banning.SetEnder(gw.Sessions())
 	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
 	go func() {
 		t := time.NewTicker(time.Minute)
@@ -207,7 +219,7 @@ func main() {
 		_ = srv.Shutdown(sctx)
 	}()
 	if *dashListen != "" {
-		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, dashboardHosts(*dashListen, *dashHosts), orc.info, st, log); err != nil {
+		if err := serveDashboard(ctx, *dashListen, dashKeys, *dashSecure, dashboardHosts(*dashListen, *dashHosts), orc.info, banning, st, log); err != nil {
 			log.Error("dashboard", "err", err)
 			os.Exit(1)
 		}
@@ -382,11 +394,11 @@ func (f kickFunc) Kick(id, reason string) { f(id, reason) }
 
 // serveDashboard runs the Carthago Watchdog dashboard on its own listener, so it can stay on
 // loopback (or behind a VPN or proxy) while the client gateway faces the internet.
-func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, orc *dashboard.OracleInfo, st evidenceStore, log *slog.Logger) error {
+func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, orc *dashboard.OracleInfo, banning *bans.Service, st evidenceStore, log *slog.Logger) error {
 	if len(keys) == 0 {
 		log.Info("dashboard has no shared demo key: people sign in with accounts; the first admin of a studio is created with: carthago-gateway dashboard-user add-admin")
 	}
-	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts, Oracle: orc}, st, log)
+	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts, Oracle: orc, Bans: banning}, st, log)
 	if err != nil {
 		return err
 	}

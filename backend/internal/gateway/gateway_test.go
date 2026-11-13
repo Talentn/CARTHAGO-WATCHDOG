@@ -87,6 +87,10 @@ func p256Key() deviceKey {
 }
 
 func handshake(t *testing.T, e *env, dk deviceKey, corruptSig bool) (*testClient, error) {
+	return handshakeAs(t, e, dk, "player-1", corruptSig)
+}
+
+func handshakeAs(t *testing.T, e *env, dk deviceKey, player string, corruptSig bool) (*testClient, error) {
 	ctx := context.Background()
 	ws, _, err := websocket.Dial(ctx, e.url("/v1/client"), e.dial)
 	if err != nil {
@@ -98,7 +102,7 @@ func handshake(t *testing.T, e *env, dk deviceKey, corruptSig bool) (*testClient
 	ephPub, _ := protocol.X25519Public(eph)
 	hello, _ := proto.Marshal(&pb.Hello{
 		ProtocolVersion: 1, SdkVersion: "test", TenantId: "demo", BuildId: "b1", ClientEphPub: ephPub,
-		DeviceKey: &pb.DeviceKey{Alg: dk.alg, PublicKey: dk.pub}, PlayerIdHash: "player-1", ClientTsMs: uint64(time.Now().UnixMilli()),
+		DeviceKey: &pb.DeviceKey{Alg: dk.alg, PublicKey: dk.pub}, PlayerIdHash: player, ClientTsMs: uint64(time.Now().UnixMilli()),
 	})
 	if err := ws.Write(ctx, websocket.MessageBinary, append([]byte{protocol.FrameHello}, hello...)); err != nil {
 		t.Fatal(err)
@@ -131,6 +135,9 @@ func handshake(t *testing.T, e *env, dk deviceKey, corruptSig bool) (*testClient
 	}
 	if m.GetError() != nil {
 		return c, &rejectError{code: m.GetError().Code, msg: m.GetError().Message}
+	}
+	if b := m.GetBanned(); b != nil {
+		return c, &banRefused{refusal: b}
 	}
 	c.session = m.GetSession()
 	if c.session == nil {

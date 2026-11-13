@@ -47,6 +47,16 @@ func reject(code, format string, a ...any) error {
 	return &rejectError{code: code, msg: fmt.Sprintf(format, a...)}
 }
 
+// banRefused ends a handshake for a banned account or device key. The client is sent the
+// signed refusal instead of an Error.
+type banRefused struct {
+	refusal *pb.BanRefusal
+	ref     string
+	by      string
+}
+
+func (e *banRefused) Error() string { return "banned (" + e.ref + ", by " + e.by + ")" }
+
 // sealedConn is the post-Challenge AEAD channel (server side).
 type sealedConn struct {
 	ws        *websocket.Conn
@@ -129,6 +139,13 @@ func (g *Gateway) handleClient(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sc, hb, err := g.handshake(ctx, ws)
 	if err != nil {
+		var banned *banRefused
+		if errors.As(err, &banned) && sc != nil {
+			g.log.Info("handshake refused: banned", "remote", r.RemoteAddr, "ban", banned.ref, "matched", banned.by)
+			_ = sc.send(ctx, &pb.ServerMsg{Body: &pb.ServerMsg_Banned{Banned: banned.refusal}})
+			ws.Close(websocket.StatusPolicyViolation, "banned")
+			return
+		}
 		var re *rejectError
 		code, msg := "internal", "handshake failed"
 		if errors.As(err, &re) {
@@ -316,6 +333,26 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 	}
 	if !verifyDeviceSig(devicePub, protocol.ProveDigest(th), prove.DeviceSig) {
 		return sc, nil, reject("bad_device_sig", "device key signature over the transcript is invalid")
+	}
+	// Only now is it known that the client holds the device key it named.
+	if g.cfg.Bans != nil {
+		ban, err := g.cfg.Bans.Refused(ctx, hello.TenantId, hello.PlayerIdHash, deviceID)
+		if err != nil {
+			return sc, nil, err
+		}
+		if ban != nil {
+			refusal, err := protocol.SignBan(g.keys.Identity, g.keys.IdentityKID, &pb.BanRefusalBody{
+				SessionId: sc.sid, TenantId: hello.TenantId, PlayerIdHash: hello.PlayerIdHash, IssuedAtMs: uint64(now.UnixMilli()), BanRef: ban.Ref,
+			})
+			if err != nil {
+				return sc, nil, err
+			}
+			by := "device key"
+			if ban.PlayerHash == hello.PlayerIdHash {
+				by = "account"
+			}
+			return sc, nil, &banRefused{refusal: refusal, ref: ban.Ref, by: by}
+		}
 	}
 
 	flags := uint64(0)
@@ -520,6 +557,15 @@ func (g *Gateway) serve(ctx context.Context, ws *websocket.Conn, sc *sealedConn,
 	for {
 		select {
 		case reason := <-kicked:
+			// A notice raised just before the session was ended still reaches the client.
+			for pending := true; pending; {
+				select {
+				case n := <-notices:
+					_ = sc.send(ctx, &pb.ServerMsg{Body: &pb.ServerMsg_EnforcementNotice{EnforcementNotice: n}})
+				default:
+					pending = false
+				}
+			}
 			_ = sc.send(ctx, &pb.ServerMsg{Body: &pb.ServerMsg_Kicked{Kicked: &pb.Kicked{Reason: reason}}})
 			ws.Close(websocket.StatusPolicyViolation, "kicked: "+reason)
 			return

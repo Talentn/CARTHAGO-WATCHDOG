@@ -239,6 +239,24 @@ func (m *Manager) Prune(keep time.Duration) {
 	m.mu.Unlock()
 }
 
+// EndSessions kicks the tenant's active sessions of an account, and of a device key when
+// one is named. It returns how many it ended.
+func (m *Manager) EndSessions(tenant, playerHash, deviceID, reason string) int {
+	m.mu.Lock()
+	var ids []string
+	for id, ls := range m.sessions {
+		r := ls.rec
+		if r.State == store.SessionActive && r.TenantID == tenant && (r.PlayerHash == playerHash || deviceID != "" && r.DeviceID == deviceID) {
+			ids = append(ids, id)
+		}
+	}
+	m.mu.Unlock()
+	for _, id := range ids {
+		m.Kick(id, reason)
+	}
+	return len(ids)
+}
+
 func (m *Manager) Get(id string) (store.Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

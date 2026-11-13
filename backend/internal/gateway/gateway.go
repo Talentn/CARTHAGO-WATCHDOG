@@ -47,11 +47,19 @@ type Config struct {
 	// Detections receives every accepted heartbeat and serves /v1/ingest; nil disables both.
 	Detections Detections
 
+	// Bans, when set, is asked at every handshake whether the account or the device key is
+	// banned (internal/bans). Nil: nobody is refused for a ban.
+	Bans BanChecker
 	// TestNoticeAfter sends every session an enforcement notice of category TEST this long
 	// after its client connected, to try a game's alert screen. Zero disables it.
 	TestNoticeAfter time.Duration
 
 	Now func() time.Time
+}
+
+// BanChecker returns the ban that refuses an account or a device key now, nil for none.
+type BanChecker interface {
+	Refused(ctx context.Context, tenant, playerHash, deviceID string) (*store.Ban, error)
 }
 
 // Detections is the analysis pipeline (internal/pipeline). Heartbeat must not block.
