@@ -82,8 +82,8 @@ const YELLOW: COLORREF = rgb(255, 214, 10);
 const BLACK: COLORREF = rgb(16, 16, 16);
 
 /// Shows the alert on its own thread and returns at once. The thread ends when the screen
-/// is closed.
-pub fn show(alert: Alert) -> JoinHandle<()> {
+/// is closed, with `false` if the window could not be opened.
+pub fn show(alert: Alert) -> JoinHandle<bool> {
     std::thread::spawn(move || run(alert))
 }
 
@@ -131,7 +131,7 @@ fn monitor_rect(game_pid: Option<u32>) -> RECT {
     info.rcMonitor
 }
 
-fn run(alert: Alert) {
+fn run(alert: Alert) -> bool {
     unsafe { SetProcessDPIAware() };
     let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
     let class = wide("CarthagoWatchdogAlert");
@@ -169,7 +169,8 @@ fn run(alert: Alert) {
         )
     };
     if hwnd.is_null() {
-        return;
+        SHOWN.with(|s| *s.borrow_mut() = None);
+        return false;
     }
     unsafe {
         ShowWindow(hwnd, SW_SHOW);
@@ -188,6 +189,7 @@ fn run(alert: Alert) {
         }
     }
     SHOWN.with(|s| *s.borrow_mut() = None);
+    true
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

@@ -159,7 +159,7 @@ mod win {
 
     /// What happens when the gateway flags the session: a log line, the alert screen, and
     /// with `--end-match-on-detect` the end of the game.
-    fn on_notice(log: &Log, o: &Options, n: &Notice, target: &Target, closer: Option<&Closer>, alerts: &mut Vec<std::thread::JoinHandle<()>>) {
+    fn on_notice(log: &Log, o: &Options, n: &Notice, target: &Target, closer: Option<&Closer>, alerts: &mut Vec<std::thread::JoinHandle<bool>>) {
         log.warn(&format!(
             "ALERT notice={} category={} severity={} test={}: {}",
             n.notice_id_hex(),
@@ -171,7 +171,7 @@ mod win {
         if o.alert {
             let text = alert_text(n.reason(), n.is_test(), &o.player, &n.session_id_hex(), n.issued_at_ms, o.end_match_on_detect);
             alerts.push(alert::show(Alert { text, seconds: o.alert_secs, game_pid: Some(target.pid()) }));
-            log.info("ALERT screen shown in this program's own window (Esc, a click or the timer closes it)");
+            log.info("ALERT screen opened in this program's own window (Esc, a click or the timer closes it)");
         }
         if o.end_match_on_detect {
             end_game(log, target, closer);
@@ -198,7 +198,10 @@ mod win {
             s => format!("; it closes by itself after {s} s"),
         });
         let text = alert_text(test.reason(), true, &o.player, "", now_ms, o.end_match_on_detect);
-        let _ = alert::show(Alert { text, seconds: o.alert_secs, game_pid: None }).join();
+        if !alert::show(Alert { text, seconds: o.alert_secs, game_pid: None }).join().unwrap_or(false) {
+            eprintln!("carthago-cs16: the alert screen could not be opened on this desktop");
+            return exit::USAGE;
+        }
         println!("ALERT preview: closed. Nothing was detected and nothing was started.");
         exit::OK
     }
@@ -524,7 +527,9 @@ mod win {
         if !alerts.is_empty() {
             log.info("waiting for the alert screen to be closed (Esc, a click, or it closes by itself)");
             for a in alerts {
-                let _ = a.join();
+                if !a.join().unwrap_or(false) {
+                    log.warn("ALERT screen could not be opened on this desktop; the lines above are the alert");
+                }
             }
         }
         exit

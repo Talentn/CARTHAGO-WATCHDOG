@@ -235,7 +235,12 @@ pub fn alert_text(reason: &str, test: bool, player: &str, session_id: &str, issu
         subtitle: if closes_game { "MATCH TERMINATED" } else { "THIS MATCH HAS BEEN FLAGGED" }.into(),
         reason: reason.to_owned(),
         details,
-        footer: "Press Esc or click to close. This screen is a window of the Carthago Watchdog companion; nothing in the game was changed.".into(),
+        footer: if closes_game {
+            "Press Esc or click to close. This screen is a window of the Carthago Watchdog companion. The game was asked to close; nothing in it was changed."
+        } else {
+            "Press Esc or click to close. This screen is a window of the Carthago Watchdog companion; nothing in the game was changed."
+        }
+        .into(),
     }
 }
 
