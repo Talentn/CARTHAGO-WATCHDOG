@@ -203,11 +203,20 @@ powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall  # r
   images missing from the loader list, API hooks, patched code pages, the mitigation profile
   and the game's own clocks. Executable private memory cannot be judged per region from
   outside, because the engine's own loader and script JITs look the same as foreign code.
-- **Match data**: `carthago_cs16.amxx` (AMX Mod X 1.8.2+, read-only hooks) reports view
-  angles, positions, user commands, shots, hits and engine line-of-sight traces for every
-  player and bot over loopback UDP; `carthago-cs16-bridge` turns that into `GameplayBatch`
-  v1 and v2, marks bots (`MatchPlayer.bot`: analysed and shown, never counted toward risk)
-  and binds the local human's slot to the companion's verified session.
+- **Match data**: `carthago_cs16.amxx` (AMX Mod X 1.8+, fakemeta and sockets only, read-only
+  hooks) reports view angles, positions, user commands, shots, hits and engine line-of-sight
+  traces for every player and bot over loopback UDP; `carthago-cs16-bridge` turns that into
+  `GameplayBatch` v1 and v2, marks bots (`MatchPlayer.bot`: analysed and shown, never counted
+  toward risk) and binds the local human's slot to the companion's verified session.
+- **Unknown game builds**: the plugin hooks nothing while it loads, switches its parts on one
+  per second after the map is up, writes a line before and after each (`addons\amxmodx\logs\
+  carthago_cs16.log`) and stays off with a log line when a module or native is missing. It is
+  built in four stages (loaded only; positions; user commands and line of sight; shots and
+  hits). `tools\carthago-cs16.ps1 -Diagnose` runs them one after the other on a map, each
+  closing the game by itself, names the step a failing stage stopped at, copies the plugin,
+  AMX Mod X, console and crash-dump information into the run's log folder, and leaves the
+  highest working stage installed. Where the game ships `amxxpc.exe`, the script builds the
+  plugin with it, so the build matches the AMX Mod X that loads it.
 - **Not done**: map occluders are not derived from the BSP, so information-leak scoring is
   off for these matches; thresholds are the synthetic defaults, not tuned for CS 1.6.
 

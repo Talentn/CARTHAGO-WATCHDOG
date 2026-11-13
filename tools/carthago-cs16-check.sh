@@ -16,10 +16,17 @@
 #      the game process and report the third as a failure;
 #   5. if pwsh is installed, tools/carthago-cs16.ps1 finds that folder by searching, takes
 #      cstrike.exe as the game program, installs the plugin, and -Uninstall restores the
-#      folder byte for byte.
+#      folder byte for byte;
+#   6. its staged check (-Diagnose) is run against the stand-in game, which writes what the
+#      plugin would write and can end at a chosen stage: the failing step must be named, the
+#      working stage left installed, and a later run must use it. A player slot must be
+#      reported as tied to the session only when match data says so.
 #
 # Needs: cargo with the x86_64-pc-windows-gnu target, mingw-w64 (i686 and x86_64), wine, go.
-# Usage: tools/carthago-cs16-check.sh       (ports 28750, 28751 and UDP 27992)
+# Usage: tools/carthago-cs16-check.sh       (ports 28750, 28751 and UDP 27992; part 6 uses the
+#        script's own 8750, 8751 and UDP 27991)
+#        CARTHAGO_AMXXPC_DIR=<AMX Mod X scripting folder with a Linux amxxpc> also checks that
+#        the script builds the plugin with the game's own compiler.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -77,12 +84,12 @@ wait "$companion_pid" || { cat "$run/companion.log"; fail "the companion exited 
 touch "$run/bridge.stop"
 wait "$bridge_pid" || { cat "$run/bridge.log"; fail "the bridge did not deliver every batch"; }
 grep -E 'SESSION|GAME|DONE' "$run/companion.log"
-grep -E 'SESSION bound|RESULT' "$run/bridge.log"
+grep -E 'SLOT bound|RESULT' "$run/bridge.log"
 
 step "check what the gateway recorded"
 log="$run/gateway.log"
 grep -q 'GAME pid=.* 32-bit watched with read-only access' "$run/companion.log" || fail "the game was not watched as a 32-bit process"
-grep -q 'SESSION bound' "$run/bridge.log" || fail "the local player's slot was not bound to the companion's session"
+grep -q 'SLOT bound: slot 1 ' "$run/bridge.log" || fail "the local player's slot was not bound to the companion's session"
 grep -q 'lost=0 .* bad_lines=0' "$run/bridge.log" || fail "the bridge lost or rejected plugin data"
 grep -q 'starting .*cstrike\.exe"\? -game cstrike' "$run/companion.log" || fail "the companion did not start cstrike.exe"
 for m in cstrike.exe hw.dll mp.dll; do
@@ -151,25 +158,101 @@ if command -v pwsh >/dev/null; then
     echo stand-in >"$game/cstrike/$f"
   done
   cp -a "$game" "$run/game.before"
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -SearchRoot "$run/drive" -Scratch "$run/carthago-scratch" -InstallOnly >"$run/install.log" 2>&1 || { cat "$run/install.log"; fail "install"; }
+  ps1() { pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -Scratch "$run/carthago-scratch" "$@"; }
+  ps1 -SearchRoot "$run/drive" -InstallOnly >"$run/install.log" 2>&1 || { cat "$run/install.log"; fail "install"; }
   grep -qF "game folder : $game" "$run/install.log" || { cat "$run/install.log"; fail "the search did not find the game folder"; }
   grep -q 'game program: cstrike\.exe ' "$run/install.log" || { cat "$run/install.log"; fail "the script did not choose cstrike.exe"; }
   echo "ok   the search finds the folder and takes cstrike.exe as the game program"
   for bad in crashpad_handler.exe hltv.exe unins000.exe; do
-    ! pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -GameExe "$bad" -Scratch "$run/carthago-scratch" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
-      || fail "-GameExe $bad was accepted"
+    ! ps1 -GameDir "$game" -GameExe "$bad" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 || fail "-GameExe $bad was accepted"
   done
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -GameDir "$game" -GameExe launcher.exe -Scratch "$run/carthago-scratch" -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
+  ps1 -GameDir "$game" -GameExe launcher.exe -NoPlugin -InstallOnly >"$run/gameexe.log" 2>&1 \
     && grep -q 'game program: launcher\.exe ' "$run/gameexe.log" || { cat "$run/gameexe.log"; fail "-GameExe launcher.exe was not accepted"; }
   echo "ok   -GameExe names another program; the crash reporter, hltv and the uninstaller are refused"
+  amx="$game/cstrike/addons/amxmodx"
   grep -q '^gamedll "addons\\metamod\\dlls\\metamod.dll"' "$game/cstrike/liblist.gam" || fail "liblist.gam does not load Metamod"
   grep -q '^win32 addons\\amxmodx\\dlls\\amxmodx_mm.dll' "$game/cstrike/addons/metamod/plugins.ini" || fail "Metamod does not load AMX Mod X"
-  cmp -s "$root/client/cs16/plugin/carthago_cs16.amxx" "$game/cstrike/addons/amxmodx/plugins/carthago_cs16.amxx" || fail "plugin not installed"
-  pwsh -NoLogo -NoProfile -File "$root/tools/carthago-cs16.ps1" -Scratch "$run/carthago-scratch" -Uninstall >"$run/uninstall.log" 2>&1 || { cat "$run/uninstall.log"; fail "uninstall"; }
+  cmp -s "$root/client/cs16/plugin/carthago_cs16_stage4.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "plugin not installed"
+  ps1 -GameDir "$game" -Stage 2 -InstallOnly >"$run/install2.log" 2>&1 || { cat "$run/install2.log"; fail "install of stage 2"; }
+  cmp -s "$root/client/cs16/plugin/carthago_cs16_stage2.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "-Stage 2 did not install the stage 2 plugin"
+  ps1 -Uninstall >"$run/uninstall.log" 2>&1 || { cat "$run/uninstall.log"; fail "uninstall"; }
   diff -r "$run/game.before" "$game" || fail "the game folder differs after -Uninstall"
   echo "ok   install is reversible: the game folder is identical after -Uninstall"
+
+  # The whole script, with the stand-in game writing what the plugin would write. The script
+  # looks for release builds; point it at the debug builds made above (the companion through
+  # Wine) and at the gateway built above.
+  mkdir -p "$run/target/release" "$run/carthago-scratch/bin"
+  printf '#!/bin/sh\nexec wine "%s" "$@"\n' "$companion" >"$run/target/release/carthago-cs16"
+  chmod +x "$run/target/release/carthago-cs16"
+  cp "$bridge" "$run/target/release/carthago-cs16-bridge"
+  cp "$run/bin/carthago-gateway" "$run/carthago-scratch/bin/carthago-gateway"
+  full() { CARGO_TARGET_DIR="$run/target" ps1 -GameDir "$game" -SkipBuild -NoBrowser -NoTpm "$@" </dev/null; }
+
+  step "carthago-cs16.ps1 -Diagnose: a game that cannot even load the plugin (two short runs)"
+  code=0
+  FAKE_CS16_CRASH_STAGE=1 full -Diagnose -DiagnoseSecs 2 >"$run/diagnose1.log" 2>&1 || code=$?
+  grep -E '^(PASS|FAIL|NOTE)|plugin cannot run' "$run/diagnose1.log" || true
+  [[ $code == 20 ]] || { cat "$run/diagnose1.log"; fail "-Diagnose should end with 20 when stage 1 fails, got $code"; }
+  grep -q 'trying once more with the plugin listed in configs.plugins.ini' "$run/diagnose1.log" || fail "-Diagnose did not retry with plugins.ini"
+  diff -r "$run/game.before" "$game" || fail "a failed -Diagnose left changes in the game folder"
+  [[ "$(cat "$run/carthago-scratch/plugin-stage.txt")" == 0 ]] || fail "the failed stage was not remembered"
+  echo "ok   stage 1 fails: reported, the plugin is removed again, and later runs go without it"
+
+  step "carthago-cs16.ps1 -Diagnose: a game that ends when user commands are hooked, and reads plugins.ini only"
+  # With the game's own compiler in place (a wrapper around a Linux amxxpc, if one is given).
+  if [[ -n "${CARTHAGO_AMXXPC_DIR:-}" && -x "$CARTHAGO_AMXXPC_DIR/amxxpc" ]]; then
+    mkdir -p "$amx/scripting"
+    cp -r "$CARTHAGO_AMXXPC_DIR/include" "$amx/scripting/include"
+    printf '#!/bin/sh\ncd "%s" && exec ./amxxpc "$@"\n' "$CARTHAGO_AMXXPC_DIR" >"$amx/scripting/amxxpc.exe"
+    chmod +x "$amx/scripting/amxxpc.exe"
+    rm -rf "$run/game.before" && cp -a "$game" "$run/game.before"
+  fi
+  code=0
+  FAKE_CS16_CRASH_STAGE=3 FAKE_CS16_IGNORE_EXTRA_INI=1 full -Diagnose -DiagnoseSecs 2 >"$run/diagnose3.log" 2>&1 || code=$?
+  grep -E '^(PASS|FAIL|NOTE)|plugin  |left installed' "$run/diagnose3.log" || true
+  [[ $code == 22 ]] || { cat "$run/diagnose3.log"; fail "-Diagnose should end with 22 when stage 3 fails, got $code"; }
+  grep -q '^PASS  2 ' "$run/diagnose3.log" || fail "-Diagnose: stage 2 should pass"
+  grep -q '^FAIL  3 .*last line: step 3 commands: hooking CmdStart' "$run/diagnose3.log" || fail "-Diagnose did not name the failing step"
+  grep -q 'Exe build: ' "$run/diagnose3.log" || fail "-Diagnose did not print the version lines from the game console"
+  [[ "$(cat "$run/carthago-scratch/plugin-stage.txt")" == "2 main" ]] || fail "the working stage was not remembered"
+  grep -q '^carthago_cs16.amxx' "$amx/configs/plugins.ini" || fail "the plugin is not listed in plugins.ini"
+  grep -q '^stage=2' "$amx/configs/carthago_cs16.ini" || fail "the working stage was not left installed"
+  ls "$run"/carthago-scratch/logs/*/stage3/{plugin-steps.txt,console.log,companion.log} >/dev/null || fail "-Diagnose did not collect the logs of the failing run"
+  if [[ -x "$amx/scripting/amxxpc.exe" ]]; then
+    grep -q "built here with the game's own AMX Mod X compiler, stage 2" "$run/diagnose3.log" || { cat "$run/diagnose3.log"; fail "the game's compiler was not used"; }
+    ! cmp -s "$root/client/cs16/plugin/carthago_cs16_stage2.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "the locally built plugin was not installed"
+    echo "ok   the plugin is built with the game's own compiler when it ships one"
+  else
+    cmp -s "$root/client/cs16/plugin/carthago_cs16_stage2.amxx" "$amx/plugins/carthago_cs16.amxx" || fail "the stage 2 plugin was not left installed"
+    echo "skip building with the game's compiler (set CARTHAGO_AMXXPC_DIR to an AMX Mod X scripting folder with amxxpc)"
+  fi
+  echo "ok   stage 3 fails: the failing step is named and stage 2 is left installed"
+
+  step "carthago-cs16.ps1: a run with the stage found above, first without and then with match data"
+  code=0
+  full -Map de_dust2 -GameArgs:"-game cstrike -secs 6" >"$run/full-nodata.log" 2>&1 || code=$?
+  grep -E '^(OK|FAIL|NOTE)' "$run/full-nodata.log" || true
+  [[ $code == 21 ]] || { cat "$run/full-nodata.log"; fail "a run without match data should end with 21, got $code"; }
+  grep -q 'plugin stage 2 .*as found by the last -Diagnose run' "$run/full-nodata.log" || fail "the remembered stage was not used"
+  ! grep -q 'your player slot was tied' "$run/full-nodata.log" || fail "a slot is reported as tied although the plugin sent nothing"
+  grep -q 'load token=.* stage=2 ' "$run/full-nodata.log" || fail "the plugin's lines are missing from the result"
+  "$bridge" synth --out "$run/synth-short.txt" --seconds 60 >/dev/null
+  full -Map de_dust2 -GameArgs:"-game cstrike -secs 16" >"$run/full-data.log" 2>&1 &
+  full_pid=$!
+  for _ in $(seq 200); do grep -q 'GAME pid=' "$run/full-data.log" 2>/dev/null && break; sleep 0.1; done
+  "$bridge" send "$run/synth-short.txt" --to 127.0.0.1:27991 --speed 12
+  wait "$full_pid" || { cat "$run/full-data.log"; fail "a run with match data failed"; }
+  grep -E '^(OK|FAIL|NOTE)' "$run/full-data.log"
+  grep -q '^OK    match data reached the gateway' "$run/full-data.log" || fail "match data did not reach the gateway"
+  grep -q "^OK    your player slot was tied to the companion's session" "$run/full-data.log" || fail "the player's slot was not tied to the session"
+  echo "ok   the slot is reported as tied only when the plugin reported the player"
+
+  ps1 -Uninstall >"$run/uninstall2.log" 2>&1 || { cat "$run/uninstall2.log"; fail "uninstall after the staged check"; }
+  diff -r "$run/game.before" "$game" || fail "the game folder differs after the staged check and -Uninstall"
+  echo "ok   after -Diagnose and two runs, -Uninstall leaves the game folder identical"
 else
-  echo "skip the PowerShell install check (pwsh not installed)"
+  echo "skip the PowerShell checks (pwsh not installed)"
 fi
 
 printf '\nPASS (logs in %s)\n' "$run"
