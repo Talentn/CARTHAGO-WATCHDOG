@@ -177,7 +177,75 @@ input:focus-visible { outline-offset: 0; border-color: transparent; }
 button.primary { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 8px; height: 40px; padding: 0 16px; font: 500 14px var(--sans); cursor: pointer; }
 button.primary:hover { background: var(--accent-hi); }
 button.primary:active { transform: scale(0.98); }
+button.secondary { background: var(--raised); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; height: 32px; padding: 0 12px; font: 500 13px var(--sans); cursor: pointer; white-space: nowrap; }
+button.secondary:hover { border-color: var(--line-3); }
+select { background: var(--inset); border: 1px solid var(--line-2); color: var(--text); border-radius: 8px; height: 40px; padding: 0 8px; font: 400 14px var(--sans); }
+select:hover { border-color: var(--line-3); }
 .alert { background: var(--raised); border: 1px solid var(--act-line); padding: 8px 12px; border-radius: 8px; margin: 0 0 16px; }
+
+/* Accounts, sign-in and the audit log. These pages add no colour of their own. An error
+   keeps the red hairline of .alert and a confirmation is the same box in neutral. "On",
+   "Active" and "Required" are the plain filled dot, "Off" and "Disabled" the hollow one.
+   Only the demo login wears amber, because it is a state someone should end. */
+.notice { background: var(--raised); border: 1px solid var(--line-2); padding: 8px 12px; border-radius: 8px; margin: 0 0 16px; }
+.hint { margin: 0; color: var(--muted); font-size: 13px; }
+.mark-on::before { background: var(--text-2); }
+a.mark, a.user { text-decoration: none; color: var(--text-2); }
+a.mark:hover, a.user:hover { color: var(--text); }
+.user .mono { color: var(--text); margin-right: 4px; }
+button.tall { height: 40px; font-size: 14px; padding: 0 16px; }
+/* A second block inside a sign-in card: the demo login, the way out of a two-factor step. */
+.demo { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+.demo p, .demo form { margin: 0; }
+.login-card.wide { max-width: 520px; }
+.narrow { max-width: 640px; }
+.form { max-width: 376px; }
+.head h1 .mono { margin-left: 8px; }
+.card > p:last-child, .foot-note { margin-bottom: 0; }
+.foot-note { margin-top: 12px; }
+/* The user name next to a password field, for password managers; people do not see it. */
+.pm-user { display: none; }
+.top nav a { white-space: nowrap; }
+/* A command or a link that must be copied whole: wrap it instead of cutting it off. */
+pre.wrapall { white-space: pre-wrap; }
+.card > p:first-child { margin-top: 0; }
+dl.spaced { margin-top: 16px; }
+dl.tight { grid-template-columns: 96px minmax(0, 1fr); margin-bottom: 24px; }
+.act { text-align: right; white-space: nowrap; }
+.act form { margin: 0; }
+button.link:hover, .act button.link { text-decoration: underline 1px var(--line-3); text-underline-offset: 3px; }
+.act button.link { color: var(--text-2); }
+/* One-time codes are read digit by digit: mono, a size up, a little air between figures. */
+.otp { font: 400 16px var(--mono); letter-spacing: 0.08em; }
+.otp.short { width: 112px; }
+/* A list of settings: what it does on the left, the control on the right, a hairline between. */
+.rows { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; padding-top: 0; }
+.row:last-child { padding-bottom: 0; }
+.row > div { flex: 1 1 240px; }
+.row p { margin: 0; }
+.row form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.row input, .row select { height: 32px; font-size: 13px; }
+.row input { width: 144px; }
+/* Enrolment: three numbered steps, the QR code in the second. The code is drawn in the page
+   and text colours the other way round, since a scanner wants dark modules on a light field. */
+.steps { display: flex; flex-direction: column; gap: 24px; margin: 0; padding-left: 24px; }
+.steps li { padding-left: 4px; }
+.steps li::marker { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.steps p { margin: 0 0 8px; }
+.steps .hint { margin: 0; }
+.qr { display: block; width: 216px; height: 216px; margin: 12px 0; border-radius: 8px; shape-rendering: crispEdges; }
+.qr-bg { fill: var(--text); }
+.qr-fg { fill: var(--page); }
+.codes { display: grid; grid-template-columns: repeat(2, max-content); gap: 8px 48px; list-style: none; margin: 0 0 16px; padding: 16px 20px; background: var(--inset); border: 1px solid var(--line); border-radius: 8px; font: 400 14px/20px var(--mono); font-variant-ligatures: none; }
+select, button.secondary { transition: border-color 140ms var(--ease); }
+@media (prefers-reduced-motion: reduce) { select, button.secondary { transition: none; } }
+@media (max-width: 720px) {
+  .codes { grid-template-columns: max-content; }
+  .top nav { overflow-x: auto; }
+  .row form { flex: 1 1 100%; }
+}
 
 /* Information-leak explanation */
 .policy { margin: 16px 0 0; padding: 12px 16px; background: var(--raised); border-radius: 8px; font-size: 13px; color: var(--text-2); }

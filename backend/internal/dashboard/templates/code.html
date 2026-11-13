@@ -1,0 +1,22 @@
+{{define "content"}}
+{{$d := .Data}}
+<section class="login">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="/static/carthago-watchdog.svg" alt="" width="56" height="56">
+      <h1>Two-factor code</h1>
+      <p class="muted">Signing in as <span class="mono">{{$d.Name}}</span></p>
+    </div>
+    {{with $d.Error}}<p class="alert">{{.}}</p>{{end}}
+    <form method="post" action="/login/code" class="stack">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label>Code from your authenticator app<input name="code" class="otp" inputmode="numeric" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" maxlength="24" required autofocus></label>
+      <button type="submit" class="primary">Verify</button>
+    </form>
+    <div class="demo">
+      <p class="hint">No phone at hand? Enter one of your recovery codes in the same field. Each one works once</p>
+      <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="link">Cancel and sign in again</button></form>
+    </div>
+  </div>
+</section>
+{{end}}

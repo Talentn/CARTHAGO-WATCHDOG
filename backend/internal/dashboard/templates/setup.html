@@ -1,0 +1,42 @@
+{{define "content"}}
+{{$d := .Data}}
+{{if .Tenant}}<div class="head"><h1>{{if $d.Replace}}Replace your authenticator app{{else}}Set up two-factor sign-in{{end}}</h1></div>{{end}}
+<section{{if not .Tenant}} class="login"{{end}}>
+  <div class="{{if .Tenant}}card narrow{{else}}login-card wide{{end}}">
+    {{if not .Tenant}}
+    <div class="login-brand">
+      <img src="/static/carthago-watchdog.svg" alt="" width="56" height="56">
+      <h1>Set up two-factor sign-in</h1>
+      <p class="muted">{{if $d.Forced}}Your studio requires it for every account{{else}}Signing in as <span class="mono">{{$d.Account}}</span>{{end}}</p>
+    </div>
+    {{end}}
+    {{with $d.Error}}<p class="alert">{{.}}</p>{{end}}
+    <ol class="steps">
+      <li>
+        <p>Open an authenticator app on your phone</p>
+        <p class="hint">Any app that shows 6-digit codes works: Google Authenticator, Microsoft Authenticator, Aegis, 1Password and others</p>
+      </li>
+      <li>
+        <p>Scan this code with the app</p>
+        <svg class="qr" viewBox="0 0 {{$d.QRSide}} {{$d.QRSide}}" width="216" height="216" role="img" aria-label="QR code that adds this account to your authenticator app"><rect class="qr-bg" width="{{$d.QRSide}}" height="{{$d.QRSide}}"/><path class="qr-fg" d="{{$d.QRPath}}"/></svg>
+        <details><summary>Cannot scan it</summary><p class="hint">Add an account by hand in the app. Account name <span class="mono">{{$d.Account}}</span>, time-based, and this key</p><pre>{{$d.Key}}</pre></details>
+      </li>
+      <li>
+        <p>Enter the code the app shows now</p>
+        <form method="post" action="/account/two-factor/setup" class="stack form">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <input type="hidden" name="pending" value="{{$d.Pending}}">
+          {{if $d.NeedPassword}}<input class="pm-user" type="text" name="username" value="{{$d.User}}" autocomplete="username" readonly><label>Your password<input name="password" type="password" autocomplete="current-password" required></label>{{end}}
+          <label>6-digit code<input name="code" class="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="12" required{{if not $d.NeedPassword}} autofocus{{end}}></label>
+          <button type="submit" class="primary">{{if $d.Replace}}Replace authenticator app{{else}}Turn on two-factor sign-in{{end}}</button>
+        </form>
+      </li>
+    </ol>
+    <div class="demo">
+      {{if $d.Replace}}<p class="hint">The app you use now stops working for this account, and you get new recovery codes</p>{{end}}
+      {{if .Tenant}}<p><a href="/account">Back to your account</a></p>
+      {{else}}<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="link">Cancel and sign out</button></form>{{end}}
+    </div>
+  </div>
+</section>
+{{end}}

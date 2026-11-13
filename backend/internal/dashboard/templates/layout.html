@@ -15,16 +15,20 @@
     <a href="/"{{if eq .Nav "overview"}} class="on"{{end}}>Overview</a>
     <a href="/sessions"{{if eq .Nav "sessions"}} class="on"{{end}}>Sessions</a>
     <a href="/players"{{if eq .Nav "players"}} class="on"{{end}}>Players</a>
+    {{if .Viewer.Admin}}<a href="/users"{{if eq .Nav "users"}} class="on"{{end}}>Users</a>
+    <a href="/audit"{{if eq .Nav "audit"}} class="on"{{end}}>Audit log</a>{{end}}
   </nav>
   <div class="who">
     <span class="tenant"><span class="muted">Studio</span> {{.Tenant}}</span>
-    <form method="post" action="/logout"><button type="submit" class="link">Sign out</button></form>
+    {{if .Viewer.Demo}}<a class="mark mark-watch" href="/account" title="Signed in with the shared studio key, not as a person">Demo login</a>
+    {{else if .Viewer.Name}}<a class="user" href="/account" title="Your account"><span class="mono">{{.Viewer.Name}}</span> <span class="muted">{{.Viewer.Role.Label}}</span></a>{{end}}
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="link">Sign out</button></form>
   </div>
 </header>
 {{end}}
 <main{{if .Tenant}} class="wrap"{{end}}>
 {{template "content" .}}
 </main>
-{{if .Tenant}}<footer class="wrap foot">Carthago Watchdog · read-only studio view · times in UTC</footer>{{end}}
+{{if .Tenant}}<footer class="wrap foot">Carthago Watchdog · studio view · times in UTC</footer>{{end}}
 </body>
 </html>

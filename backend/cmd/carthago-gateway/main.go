@@ -45,6 +45,9 @@ func (t tenantFlag) Set(v string) error {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "dashboard-user" {
+		os.Exit(dashboardUserCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	tenants := tenantFlag{}
 	listen := flag.String("listen", "127.0.0.1:8750", "listen address")
 	dataDir := flag.String("data", "gateway-data", "directory for keys, public-keys.json and the SQLite database")
@@ -62,8 +65,9 @@ func main() {
 	verbose := flag.Bool("v", false, "debug logging (per-heartbeat lines)")
 	dashListen := flag.String("dashboard-listen", "127.0.0.1:8751", "Carthago Watchdog dashboard listen address (empty disables)")
 	dashKeys := tenantFlag{}
-	flag.Var(dashKeys, "dashboard-key", "tenant=dashboard-login-key (repeatable); default demo=demo-dashboard-key with the default tenant")
-	dashSecure := flag.Bool("dashboard-secure-cookie", false, "mark the dashboard cookie Secure (when served over HTTPS)")
+	flag.Var(dashKeys, "dashboard-key", "tenant=shared-demo-key (repeatable): the demo login, for a loopback dashboard only and only until that tenant has a user account; default demo=demo-dashboard-key with the default tenant")
+	dashSecure := flag.Bool("dashboard-secure-cookie", false, "the dashboard sits behind a TLS-terminating proxy: mark its cookies Secure and send HSTS")
+	dashAuthOpts := dashAuthFlagSet(flag.CommandLine)
 	maxHandshakes := flag.Int("max-handshakes", 0, "client handshakes allowed in progress at once (0 = default 1024)")
 	maxHandshakesIP := flag.Int("max-handshakes-per-ip", 0, "client handshakes allowed in progress per remote address (0 = default 32; raise behind a proxy)")
 	autoKick := flag.Bool("auto-kick", false, "kick sessions on critical client integrity evidence (behavioural evidence never kicks)")
@@ -74,10 +78,13 @@ func main() {
 	flag.Parse()
 	if len(tenants) == 0 {
 		tenants["demo"] = demoServerKey
-		if len(dashKeys) == 0 {
+		if len(dashKeys) == 0 && *dashListen != "" && gateway.IsLoopbackListen(*dashListen) {
 			dashKeys["demo"] = demoDashboardKey
 		}
 	}
+	// A dashboard that serves HTTPS itself is as good as one behind a TLS proxy.
+	*dashSecure = *dashSecure || dashAuthOpts.tls()
+	dashAuthOpts.dataDir, dashAuthOpts.memory = *dataDir, *storeKind != "sqlite"
 	if err := checkExposure(*listen, *dashListen, tenants, dashKeys, *dashSecure); err != nil {
 		fmt.Fprintln(os.Stderr, "carthago-gateway:", err)
 		os.Exit(2)
@@ -267,8 +274,9 @@ const (
 
 // checkExposure refuses configurations that are only acceptable on a developer machine:
 // the built-in demo keys or short keys on a listener reachable from other hosts, a
-// dashboard served in plaintext to other hosts, and tenants sharing a server key (the
-// key is what selects the tenant).
+// dashboard served in plaintext to other hosts or given a shared login key there, and
+// tenants sharing a server key (the key is what selects the tenant). dashSecure means the
+// dashboard is reached over TLS: its own, or a proxy's in front of it.
 func checkExposure(listen, dashListen string, tenants, dashKeys map[string]string, dashSecure bool) error {
 	byKey := map[string]string{}
 	for tenant, key := range tenants {
@@ -285,13 +293,11 @@ func checkExposure(listen, dashListen string, tenants, dashKeys map[string]strin
 		}
 	}
 	if dashListen != "" && !gateway.IsLoopbackListen(dashListen) {
-		for tenant, key := range dashKeys {
-			if key == demoDashboardKey || len(key) < minExposedKeyLen {
-				return fmt.Errorf("refusing to serve the dashboard on %s with the demo or a short key for tenant %q; set -dashboard-key %s=<at least %d random characters>", dashListen, tenant, tenant, minExposedKeyLen)
-			}
-		}
 		if !dashSecure {
-			return fmt.Errorf("refusing to serve the dashboard on %s without -dashboard-secure-cookie: it speaks plain HTTP, so off loopback it must sit behind a TLS-terminating proxy", dashListen)
+			return fmt.Errorf("refusing to serve the dashboard on %s in plain HTTP: give it -dashboard-tls-cert and -dashboard-tls-key, or put it behind a TLS-terminating proxy and say so with -dashboard-secure-cookie", dashListen)
+		}
+		for tenant := range dashKeys {
+			return fmt.Errorf("refusing to serve the dashboard on %s with a shared login key for tenant %q: -dashboard-key is the demo login and works on loopback only; remove it and create an admin with: carthago-gateway dashboard-user add-admin -tenant %s -name <name>", dashListen, tenant, tenant)
 		}
 	}
 	return nil
@@ -319,9 +325,16 @@ func (f kickFunc) Kick(id, reason string) { f(id, reason) }
 // loopback (or behind a VPN or proxy) while the client gateway faces the internet.
 func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, st evidenceStore, log *slog.Logger) error {
 	if len(keys) == 0 {
-		log.Warn("dashboard has no -dashboard-key entries; nobody can sign in")
+		log.Info("dashboard has no shared demo key: people sign in with accounts; the first admin of a studio is created with: carthago-gateway dashboard-user add-admin")
 	}
 	d, err := dashboard.New(dashboard.Config{Keys: keys, SecureCookie: secure, AllowedHosts: hosts}, st, log)
+	if err != nil {
+		return err
+	}
+	if err := dashAuth.configure(d, addr); err != nil {
+		return err
+	}
+	dashTLS, err := dashAuth.tlsConfig()
 	if err != nil {
 		return err
 	}
@@ -329,7 +342,7 @@ func serveDashboard(ctx context.Context, addr string, keys map[string]string, se
 	if err != nil {
 		return err
 	}
-	ds := &http.Server{Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	ds := &http.Server{Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10, TLSConfig: dashTLS}
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -337,8 +350,15 @@ func serveDashboard(ctx context.Context, addr string, keys map[string]string, se
 		_ = ds.Shutdown(sctx)
 	}()
 	go func() {
-		log.Info("Carthago Watchdog dashboard listening", "addr", "http://"+addr, "tenants", len(keys))
-		if err := ds.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if dashTLS != nil {
+			log.Info("Carthago Watchdog dashboard listening", "addr", "https://"+addr, "demo_keys", len(keys))
+			err = ds.ServeTLS(ln, "", "")
+		} else {
+			log.Info("Carthago Watchdog dashboard listening", "addr", "http://"+addr, "demo_keys", len(keys))
+			err = ds.Serve(ln)
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("dashboard listen", "err", err)
 		}
 	}()

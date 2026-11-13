@@ -1,4 +1,5 @@
 {{define "content"}}
+{{$d := .Data}}
 <section class="login">
   <div class="login-card">
     <div class="login-brand">
@@ -6,12 +7,26 @@
       <h1>Carthago <b>Watchdog</b></h1>
       <p class="muted">Studio dashboard</p>
     </div>
-    {{with .Data}}<p class="alert">{{.}}</p>{{end}}
+    {{with $d.Error}}<p class="alert">{{.}}</p>{{end}}
+    {{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
     <form method="post" action="/login" class="stack">
-      <label>Studio (tenant id)<input name="tenant" autocomplete="username" required autofocus></label>
-      <label>Dashboard key<input name="key" type="password" autocomplete="current-password" required></label>
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label>Studio<input name="tenant" value="{{$d.Tenant}}" autocomplete="organization" autocapitalize="none" spellcheck="false" required{{if not $d.Tenant}} autofocus{{end}}></label>
+      <label>User name<input name="user" value="{{$d.User}}" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required{{if $d.Tenant}} autofocus{{end}}></label>
       <button type="submit" class="primary">Sign in</button>
     </form>
+    {{if $d.Demo}}
+    <div class="demo">
+      <p><span class="mark mark-watch">Demo login</span></p>
+      <p class="hint">For testing on this PC only. It signs in with the shared studio key and stops working for a studio once that studio has its first admin account</p>
+      <form method="post" action="/login" class="stack">
+        <label>Studio<input name="tenant" autocomplete="off" autocapitalize="none" spellcheck="false" required></label>
+        <label>Dashboard key<input name="key" type="password" autocomplete="off" required></label>
+        <button type="submit" class="secondary tall">Sign in with the studio key</button>
+      </form>
+    </div>
+    {{end}}
   </div>
 </section>
 {{end}}

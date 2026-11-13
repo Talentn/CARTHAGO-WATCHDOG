@@ -1,0 +1,71 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head"><h1>Users</h1></div>
+{{with $d.Error}}<p class="alert">{{.}}</p>{{end}}
+{{with $d.Notice}}<p class="notice">{{.}}</p>{{end}}
+<section class="card">
+  <table>
+    <thead><tr><th>User</th><th>Role</th><th>Two-factor</th><th>Status</th><th>Last sign-in</th><th>Created</th></tr></thead>
+    <tbody>
+    {{range $d.Users}}
+    <tr>
+      <td><a class="mono" href="/users/{{.ID}}">{{.Name}}</a>{{if eq .ID $d.Self}} <span class="tag">you</span>{{end}}</td>
+      <td>{{roleLabel .Role}}</td>
+      <td>{{if .TOTPSecret}}<span class="mark mark-on">On</span>{{else}}<span class="mark mark-clear">Off</span>{{end}}</td>
+      <td>{{if .Disabled}}<span class="mark mark-clear">Disabled</span>{{else}}<span class="mark mark-on">Active</span>{{end}}</td>
+      <td class="when" title="{{when .LastLoginAt}}">{{if gt .LastLoginAt.Unix 0}}<span class="mono">{{.LastLoginAt.UTC.Format "2006-01-02 15:04"}}</span> {{end}}<span class="muted">{{ago .LastLoginAt}}</span></td>
+      <td class="when" title="{{when .CreatedAt}}"><span class="mono">{{.CreatedAt.UTC.Format "2006-01-02"}}</span> <span class="muted">by {{.CreatedBy}}</span></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+<div class="grid2">
+<section class="card">
+  <h2>Invite a user</h2>
+  <form method="post" action="/users/invite" class="stack form">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>User name<input name="name" value="{{$d.Name}}" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="3" maxlength="32" required></label>
+    <label>Role
+      <select name="role">
+        <option value="read_only"{{if eq $d.Role "read_only"}} selected{{end}}>Read-only: sees every page</option>
+        <option value="reviewer"{{if eq $d.Role "reviewer"}} selected{{end}}>Reviewer: also labels sessions</option>
+        <option value="admin"{{if eq $d.Role "admin"}} selected{{end}}>Admin: also manages users and reads the audit log</option>
+      </select>
+    </label>
+    <p class="hint">You get a link to send them. It works once, for 72 hours, and the person who opens it chooses the password</p>
+    <button type="submit" class="secondary tall">Create invite link</button>
+  </form>
+</section>
+<section class="card">
+  <div class="card-head"><h2>Two-factor sign-in</h2>{{if $d.Required}}<span class="mark mark-on">Required</span>{{else}}<span class="mark mark-clear">Optional</span>{{end}}</div>
+  {{if $d.Required}}
+  <p class="note">Every account in this studio signs in with a password and a code from an authenticator app. An account without one has to set it up before it can open anything.</p>
+  <form method="post" action="/users/require-two-factor"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="require" value="0"><button type="submit" class="secondary">Make it optional</button></form>
+  {{else}}
+  <p class="note">Each user decides whether to add a code from an authenticator app to their password. If you require it, an account without one has to set it up at its next sign-in.</p>
+  <form method="post" action="/users/require-two-factor"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="require" value="1"><button type="submit" class="secondary">Require it for everyone</button></form>
+  {{end}}
+</section>
+</div>
+{{if $d.Invites}}
+<section class="card">
+  <h2>Open links</h2>
+  <table>
+    <thead><tr><th>For</th><th>Kind</th><th>Role</th><th>Made by</th><th>Expires</th><th></th></tr></thead>
+    <tbody>
+    {{range $d.Invites}}
+    <tr>
+      <td class="mono">{{.Name}}</td>
+      <td>{{if eq .Kind "reset"}}Password reset{{else}}Invite{{end}}</td>
+      <td>{{roleLabel .Role}}</td>
+      <td class="mono">{{.CreatedBy}}</td>
+      <td class="when"><span class="mono">{{.ExpiresAt.UTC.Format "2006-01-02 15:04"}}</span> <span class="muted">UTC</span></td>
+      <td class="act"><form method="post" action="/users/invites/revoke"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.TokenHash}}"><button type="submit" class="link">Revoke</button></form></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{end}}

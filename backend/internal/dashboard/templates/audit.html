@@ -1,0 +1,31 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <h1>Audit log</h1>
+  <div class="tabs"><a href="/audit"{{if not $d.Show}} class="on"{{end}}>All</a><a href="/audit?show=signins"{{if eq $d.Show "signins"}} class="on"{{end}}>Sign-ins</a><a href="/audit?show=changes"{{if eq $d.Show "changes"}} class="on"{{end}}>Changes</a></div>
+</div>
+{{if $d.Checked}}
+{{if $d.Broken}}<p class="alert">Entry #{{$d.Broken}} does not fit the entry before it. The log was changed outside the dashboard</p>
+{{else}}<p class="notice">{{count $d.Count "entry" "entries"}} checked. Each one fits the one before it, so none was changed or removed</p>{{end}}
+{{end}}
+<section class="card">
+{{if $d.Entries}}
+<table>
+  <thead><tr><th>Time</th><th>Who</th><th>Action</th><th>On</th><th>Detail</th><th>From</th></tr></thead>
+  <tbody>
+  {{range $d.Entries}}
+  <tr>
+    <td class="when" title="{{when .At}}"><span class="mono">{{.At.UTC.Format "2006-01-02 15:04:05"}}</span> <span class="muted">{{ago .At}}</span></td>
+    <td class="mono">{{if .Actor}}{{.Actor}}{{else}}<span class="muted">—</span>{{end}}</td>
+    <td class="mono">{{.Action}}</td>
+    <td class="mono">{{.Target}}</td>
+    <td class="sum">{{.Detail}}</td>
+    <td class="mono">{{.IP}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}<p class="empty">Nothing recorded yet</p>{{end}}
+</section>
+<p class="note">Sign-ins, failed attempts and every change made through the dashboard are recorded with who, when and from which address. Entries cannot be edited or deleted, and each one carries a fingerprint of the one before it. {{if $d.Older}}<a href="/audit?{{if $d.Show}}show={{$d.Show}}&amp;{{end}}before={{$d.Older}}">Older entries</a> · {{end}}<a href="/audit?{{if $d.Show}}show={{$d.Show}}&amp;{{end}}check=1">Check the log for changes</a></p>
+{{end}}

@@ -1,0 +1,32 @@
+{{define "content"}}
+{{$d := .Data}}
+<section class="login">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="/static/carthago-watchdog.svg" alt="" width="56" height="56">
+      <h1>Carthago <b>Watchdog</b></h1>
+      <p class="muted">{{if $d.Gone}}Studio dashboard{{else if $d.Reset}}Set a new password{{else}}Create your account{{end}}</p>
+    </div>
+    {{if $d.Gone}}
+    <p class="alert">This link is not valid</p>
+    <p class="hint">It may have been used already, or it has expired. Ask an admin of your studio for a new one</p>
+    <div class="demo"><p><a href="/login">Sign in</a></p></div>
+    {{else}}
+    {{with $d.Error}}<p class="alert">{{.}}</p>{{end}}
+    <dl class="kv tight">
+      <dt>Studio</dt><dd class="mono">{{$d.Tenant}}</dd>
+      <dt>User name</dt><dd class="mono">{{$d.Name}}</dd>
+      <dt>Role</dt><dd>{{$d.Role.Label}}</dd>
+    </dl>
+    <form method="post" action="/invite/{{$d.Token}}" class="stack">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input class="pm-user" type="text" name="username" value="{{$d.Name}}" autocomplete="username" readonly>
+      <label>{{if $d.Reset}}New password{{else}}Password{{end}}<input name="password" type="password" autocomplete="new-password" minlength="12" required autofocus></label>
+      <label>The same password again<input name="repeat" type="password" autocomplete="new-password" minlength="12" required></label>
+      <p class="hint">At least 12 characters. A few unrelated words work well</p>
+      <button type="submit" class="primary">{{if $d.Reset}}Set password{{else}}Create account{{end}}</button>
+    </form>
+    {{end}}
+  </div>
+</section>
+{{end}}

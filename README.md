@@ -39,7 +39,7 @@ players ranked by risk, and the latest detections with the finding behind each o
 | **Server-side detections** | Snap-and-lock aim; headshot rate against an MMR baseline (exact binomial test); time-to-damage against the lobby (robust z-score); sustained command rate; trigger-interval regularity; time-source divergence; scanner stalls. Client findings are classified against an allowlist of common overlays and capture tools (Steam, Discord, OBS, RTSS, NVIDIA). |
 | **Information-leak scoring** | Telemetry v2 (positions, view, sounds, team pings, input device, versioned map geometry) feeds a per-team knowledge model: line of sight through occluders, audible sounds, and what teammates spotted. A scorer tests whether a player's aim, shots and routes follow enemies the team could not have known about, against a null model of the same enemies at shifted times. Flag-only, with the moments and a top-down replay in the dashboard; per-segment thresholds (game mode × input device) target a false-positive rate of 1 in 1,000 player-matches. |
 | **Decoys** | The game server can replicate fake enemies to one player at a time, only while that player cannot see or hear them. The server SDK places them, using the gateway's own visibility rules, and reports them. The gateway's `decoy_reaction` rule tests whether a player's aim and shots follow decoys more than the same decoys at shifted times, and needs reactions to several decoys. Flag-only, a separate evidence family with its own dashboard card and replay. Integration rules and limits: [`docs/decoys.md`](docs/decoys.md). |
-| **Studio dashboard** | Sessions and trust levels, flagged players ranked by severity × confidence, a per-player history and the raw evidence for every verdict. Read-only, tenant-isolated, and served on its own listener. |
+| **Studio dashboard** | Sessions and trust levels, flagged players ranked by severity × confidence, a per-player history and the raw evidence for every verdict. Tenant-isolated and served on its own listener. People sign in with their own account (password, optional or required two-factor code), hold a role (admin, reviewer, read-only), and every sign-in and change lands in an append-only audit log. |
 | **No false-ban defaults** | Behavioural evidence is advisory and goes to review. Automatic kicks can be enabled only for critical client-integrity evidence, and are off by default. |
 
 ---
@@ -137,23 +137,56 @@ cd backend
 go run ./cmd/carthago-gateway -data gateway-data
 #   client and game-server endpoints   ws://127.0.0.1:8750   (/v1/client, /v1/gs, /v1/ingest; loopback only)
 #   dashboard                           http://127.0.0.1:8751
-#   dashboard login                     studio "demo", key "demo-dashboard-key"
+#   demo login (this PC only)           studio "demo", key "demo-dashboard-key"
 ```
 
-Useful flags: `-tenant id=server-key` and `-dashboard-key id=login-key` (both repeatable),
+#### Dashboard accounts
+
+The demo login above is for trying the dashboard on the PC that runs the gateway. It works
+only on a loopback listener, only for requests from that PC, and only while the studio has
+no user account. Pages show a "Demo login" mark while it is in use.
+
+Create the first admin of a studio from the gateway command line (the gateway can keep
+running):
+
+```bash
+go run ./cmd/carthago-gateway dashboard-user add-admin -data gateway-data -tenant demo -name ala
+```
+
+It prints a one-time link (valid 24 hours). Open it in a browser, choose a password of at
+least 12 characters, and sign in. From then on the demo key no longer signs in to that
+studio. The admin invites further users under **Users**: each invite is a one-time link
+(72 hours) that the admin passes on; there is no email service. Roles are admin (manages
+users and sign-in rules, reads the audit log), reviewer and read-only. Under **Account**
+every user can change their password, set up two-factor sign-in with an authenticator app
+(the QR code is drawn by the dashboard itself), and sign out their other browsers; an admin
+can require two-factor sign-in for the whole studio.
+
+Other `dashboard-user` commands: `list -tenant ID`, `reset-password -tenant ID -name NAME`
+(prints a one-time link), `reset-two-factor -tenant ID -name NAME` (for a lost phone when no
+admin can do it in the dashboard), and `add-admin ... -password-stdin` for scripted
+installs. How access is protected, and what is not covered yet:
+[`docs/dashboard-security.md`](docs/dashboard-security.md).
+
+Useful flags: `-tenant id=server-key` and `-dashboard-key id=demo-key` (both repeatable; the
+dashboard key is the demo login described above),
 `-store memory`, `-auto-kick` (critical integrity evidence only), `-client-notices` (tell a
 client when its session is flagged, see [Enforcement notice](#enforcement-notice); off by
 default), `-client-notices-strict` (also send the notices that are held back because an
 honest, modified game build produces the same evidence),
 `-test-notice-after 30s` (send every new session a notice labelled as a test),
-`-dashboard-listen ""` (disables the dashboard), `-dashboard-secure-cookie` (behind HTTPS),
+`-dashboard-listen ""` (disables the dashboard), `-dashboard-tls-cert` / `-dashboard-tls-key`
+(the dashboard serves HTTPS itself), `-dashboard-secure-cookie` (behind a TLS-terminating
+proxy), `-dashboard-trusted-proxy` (the proxy's address, so sign-in limits and the audit log
+see the real client), `-dashboard-session-ttl` / `-dashboard-idle-timeout` (12 h / 30 min),
 `-hb-interval` / `-hb-timeout`, `-max-handshakes` / `-max-handshakes-per-ip` (raise the
 per-address limit behind a proxy or load balancer, where every player shares one address),
 and `-dashboard-host` (the host names the dashboard answers to). For `wss://`, pass `-tls-cert` / `-tls-key` or
 `-tls-dev-cert` (a self-signed certificate kept in `-data`), plus `-tls-backup-pin` for the next
 key. The pins are published in `public-keys.json` as `tls_spki_sha256`; the gateway refuses
-plaintext on non-loopback addresses, and it does not start there with the demo keys or with a
-dashboard that is served without `-dashboard-secure-cookie`. `-ek-roots-dir` adds extra EK
+plaintext on non-loopback addresses, and it does not start there with the demo keys, with a
+`-dashboard-key`, or with a dashboard that is served in plain HTTP (it needs
+`-dashboard-tls-cert` and `-dashboard-tls-key`, or `-dashboard-secure-cookie` behind a proxy). `-ek-roots-dir` adds extra EK
 root CAs (for example a development swtpm CA); a TPM certified by such a root reaches trust 2
 and 3 exactly like one certified by a manufacturer, so keep test roots off production gateways.
 
@@ -428,12 +461,22 @@ observer that can be lied to, never as an authority.
 **Tenancy.**
 - Game servers authenticate with a per-tenant server key, and their gameplay can only link
   to sessions of the same tenant.
-- Dashboard logins are per tenant. The tenant comes from an HMAC-signed, `HttpOnly`,
-  `SameSite=Strict` cookie, and every query is scoped to it.
+- Dashboard accounts belong to one tenant. A sign-in is a random session id in an
+  `HttpOnly`, `SameSite=Strict` cookie (`Secure` and `__Host-` over HTTPS); the session
+  itself is kept by the gateway, which stores only a hash of the id, so it can be revoked.
+  The tenant and the role are read from the account on every request, and every query is
+  scoped to that tenant.
+- Passwords are stored as argon2id hashes. Two-factor sign-in is TOTP (RFC 6238) with
+  one-time recovery codes; the authenticator secret is stored encrypted with a key kept in
+  a file next to the database, the recovery codes as keyed hashes.
+- Roles are checked on the server for every route, every form that changes something
+  carries a CSRF token, and sign-ins, failures and changes are written to an append-only,
+  hash-chained audit log that admins can read.
 - The dashboard has no JavaScript and sends a strict `Content-Security-Policy`; its
   stylesheet, logo and fonts are served from the dashboard itself and nothing is loaded
   from another host.
-- Failed logins are throttled per client IP.
+- Failed sign-ins are limited per address and per account, with a lockout that doubles, and
+  an unknown user gets the same answer as a wrong password.
 
 **What user mode can't see, and the answer.** Kernel, DMA and hardware cheats can hide from
 an in-process scanner. They can't hide their effects on gameplay, so they are caught by the

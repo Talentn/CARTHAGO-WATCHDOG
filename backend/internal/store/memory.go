@@ -7,6 +7,7 @@ import (
 
 type Memory struct {
 	mu           sync.Mutex
+	auth         *memAuth
 	devices      map[string]Device
 	sessions     map[string]Session
 	attestations []Attestation
