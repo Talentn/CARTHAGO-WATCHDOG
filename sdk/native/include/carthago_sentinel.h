@@ -76,10 +76,11 @@ typedef void (*CarthagoKickCb)(const char* reason, void* user);
 /* CarthagoNotice.category: why the session was flagged, as a broad category. Which rule
  * fired and its thresholds stay on the server. Treat values not listed here as "flagged". */
 #define CARTHAGO_NOTICE_TEST 1u              /* sent on an operator's request; nothing was detected */
-#define CARTHAGO_NOTICE_GAME_INTEGRITY 2u    /* the game's code or memory was modified */
+#define CARTHAGO_NOTICE_GAME_INTEGRITY 2u    /* the game's code, memory or libraries were tampered with */
 #define CARTHAGO_NOTICE_DEBUGGER 3u          /* a debugger is attached to the game */
 #define CARTHAGO_NOTICE_TIME_MANIPULATION 4u /* the game's clocks were manipulated */
 #define CARTHAGO_NOTICE_AIM_ASSISTANCE 5u    /* aiming in the match was not that of a person */
+#define CARTHAGO_NOTICE_VISIBILITY 6u        /* the renderer was replaced or changed, or a program read the game and drew over it */
 
 /* CarthagoNotice.severity */
 #define CARTHAGO_NOTICE_SEVERITY_NOTICE 1u /* no detection behind it (a test) */

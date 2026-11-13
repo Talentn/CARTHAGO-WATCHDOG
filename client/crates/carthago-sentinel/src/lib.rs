@@ -49,6 +49,7 @@ pub const CARTHAGO_NOTICE_GAME_INTEGRITY: u32 = carthago_core::notice::CATEGORY_
 pub const CARTHAGO_NOTICE_DEBUGGER: u32 = carthago_core::notice::CATEGORY_DEBUGGER;
 pub const CARTHAGO_NOTICE_TIME_MANIPULATION: u32 = carthago_core::notice::CATEGORY_TIME_MANIPULATION;
 pub const CARTHAGO_NOTICE_AIM_ASSISTANCE: u32 = carthago_core::notice::CATEGORY_AIM_ASSISTANCE;
+pub const CARTHAGO_NOTICE_VISIBILITY: u32 = carthago_core::notice::CATEGORY_VISIBILITY;
 
 pub const CARTHAGO_NOTICE_SEVERITY_NOTICE: u32 = carthago_core::notice::SEVERITY_NOTICE;
 pub const CARTHAGO_NOTICE_SEVERITY_HIGH: u32 = carthago_core::notice::SEVERITY_HIGH;
@@ -443,8 +444,15 @@ mod tests {
         assert_eq!(std::mem::offset_of!(CarthagoNotice, notice_id), 24);
         assert_eq!(std::mem::offset_of!(CarthagoNotice, session_id), 40);
         assert_eq!(
-            [CARTHAGO_NOTICE_TEST, CARTHAGO_NOTICE_GAME_INTEGRITY, CARTHAGO_NOTICE_DEBUGGER, CARTHAGO_NOTICE_TIME_MANIPULATION, CARTHAGO_NOTICE_AIM_ASSISTANCE],
-            [1, 2, 3, 4, 5]
+            [
+                CARTHAGO_NOTICE_TEST,
+                CARTHAGO_NOTICE_GAME_INTEGRITY,
+                CARTHAGO_NOTICE_DEBUGGER,
+                CARTHAGO_NOTICE_TIME_MANIPULATION,
+                CARTHAGO_NOTICE_AIM_ASSISTANCE,
+                CARTHAGO_NOTICE_VISIBILITY
+            ],
+            [1, 2, 3, 4, 5, 6]
         );
         assert_eq!([CARTHAGO_NOTICE_SEVERITY_NOTICE, CARTHAGO_NOTICE_SEVERITY_HIGH, CARTHAGO_NOTICE_SEVERITY_CRITICAL], [1, 2, 3]);
         let n = carthago_core::Notice {

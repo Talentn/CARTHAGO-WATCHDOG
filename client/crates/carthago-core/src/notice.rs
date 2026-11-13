@@ -12,6 +12,7 @@ pub const CATEGORY_GAME_INTEGRITY: u32 = pb::EnforcementCategory::GameIntegrity 
 pub const CATEGORY_DEBUGGER: u32 = pb::EnforcementCategory::Debugger as u32;
 pub const CATEGORY_TIME_MANIPULATION: u32 = pb::EnforcementCategory::TimeManipulation as u32;
 pub const CATEGORY_AIM_ASSISTANCE: u32 = pb::EnforcementCategory::AimAssistance as u32;
+pub const CATEGORY_VISIBILITY: u32 = pb::EnforcementCategory::Visibility as u32;
 
 pub const SEVERITY_NOTICE: u32 = pb::EnforcementSeverity::Notice as u32;
 pub const SEVERITY_HIGH: u32 = pb::EnforcementSeverity::High as u32;
@@ -92,6 +93,7 @@ impl Notice {
             CATEGORY_DEBUGGER => "debugger",
             CATEGORY_TIME_MANIPULATION => "time_manipulation",
             CATEGORY_AIM_ASSISTANCE => "aim_assistance",
+            CATEGORY_VISIBILITY => "visibility",
             _ => "other",
         }
     }
@@ -109,10 +111,11 @@ impl Notice {
     pub fn reason(&self) -> &'static str {
         match self.category {
             CATEGORY_TEST => "Test of the alert screen. Nothing was detected.",
-            CATEGORY_GAME_INTEGRITY => "The game's code or memory was modified while it was running.",
+            CATEGORY_GAME_INTEGRITY => "The game's code, memory or libraries were tampered with.",
             CATEGORY_DEBUGGER => "A debugger is attached to the game.",
             CATEGORY_TIME_MANIPULATION => "The game's clocks were manipulated.",
             CATEGORY_AIM_ASSISTANCE => "Aim assistance was detected in this match.",
+            CATEGORY_VISIBILITY => "A visibility cheat (wallhack) was detected on this game.",
             _ => "This session was flagged by the anti-cheat service.",
         }
     }
