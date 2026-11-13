@@ -1034,6 +1034,20 @@ function IntegrityReport {
         }
     }
     if ($held.Count) { Note "-AlertOnIntegrity raises the alert for these as well." }
+    # A renderer library of the game's own in the first recorded run: said plainly, because
+    # the first run cannot tell a build that ships one from a wallhack that replaces it.
+    $said = @{}
+    foreach ($line in $held) {
+        if ($line -match 'rule=renderer_replaced .*summary="renderer library (\S+) is not the Windows one.*this run is the first recorded start' -and -not $said[$Matches[1]]) {
+            $lib = $Matches[1]
+            $said[$lib] = $true
+            $at = J $script:GameDir $lib
+            $where = if (Test-Path -LiteralPath $at) { "sits in the game folder ($at)" } else { "was loaded from outside the Windows system folder" }
+            Write-Host "NOTE  an unsigned $lib $where and the game loaded it in place of the Windows renderer library." -ForegroundColor Yellow
+            Write-Host "      It is excused only because this is the first recorded run. Unless this game build ships that file, it is a wallhack." -ForegroundColor Yellow
+            Note "      If it does not belong to the build: remove it and run once with -ResetStartProfile. As long as it is recorded as part of the build, only -AlertOnIntegrity alerts on it."
+        }
+    }
     $comp = @(Get-Content -LiteralPath $script:compLog -ErrorAction SilentlyContinue)
     if ($comp | Where-Object { $_ -match 'START PROFILE written' }) {
         if ($script:firstStart) { Note "the first start of this game was recorded in $(StartProfilePath); later runs are compared with it" }
@@ -1044,7 +1058,10 @@ function IntegrityReport {
         Note "the game was closed before the companion had looked at everything a clean start shows (about $($BaselineSecs + 25) seconds after the game opens); the next run still records the rest, so keep that one clean as well"
     }
     if (-not ($comp | Where-Object { $_ -match 'BASELINE taken' })) {
-        Note "the game closed before the companion had taken its picture of the started game (about $BaselineSecs seconds after the engine loads): changes were not looked for"
+        Note "the game closed before the companion had taken its picture of the started game (about $BaselineSecs seconds after the engine loads, $(4 * $BaselineSecs) seconds after the game opens at the latest): changes were not looked for"
+    }
+    if ($comp | Where-Object { $_ -match 'BASELINE was taken by the clock' }) {
+        Note "the picture of the started game was taken by the clock: the companion's module scan had not got through the game's module list by then. Please send the BASELINE and JOB lines of $script:compLog"
     }
 }
 # What the bridge and the gateway said about the map and the information-leak scores.

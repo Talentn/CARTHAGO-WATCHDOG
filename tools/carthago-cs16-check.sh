@@ -496,7 +496,8 @@ WRAP
   integ first -- -ResetStartProfile -GameArgs:"-game cstrike -secs 25"
   has first '^OK    no alert: the gateway did not flag this session'
   has first 'the first start of this game was recorded in '
-  has first 'BASELINE taken [0-9]* s after pid=[0-9]* started, [0-9]* modules loaded (first recorded start)'
+  has first 'BASELINE taken [0-9]* s after pid=[0-9]* started, [0-9]* modules loaded (first recorded start). Engine modules the module scan has listed: hw.dll (of '
+  hasnt first 'BASELINE was taken by the clock'
   # The stand-in maps an image itself at every start, as build 4554 does with its engine:
   # part of the build, named in the result, never alerted on by default.
   has first '^NOTE  no alert by default for: an image of 256 KB was mapped by hand'
@@ -541,7 +542,11 @@ WRAP
   step "wallhack delivery: a build that has always shipped its own renderer library, and that library hooked while the game runs"
   integ shipped "$late" FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b FAKE_CS16_LATE_REWRITE=opengl32.dll:unbacked -- -ResetStartProfile -GameArgs:"-game cstrike -secs 45"
   has shipped '^NOTE  no alert by default for: renderer library opengl32.dll is not the Windows one'
-  has shipped 'why: it was already there at the first recorded start of this game'
+  has shipped 'opengl32.dll is not the Windows one: .* (present at start; this run is the first recorded start, so there is nothing to compare it with)'
+  has shipped 'why: this run is the first recorded start of this game, so it has not been compared with anything'
+  hasnt shipped 'as at the first recorded start'
+  has shipped '^NOTE  an unsigned opengl32.dll sits in the game folder (.*opengl32.dll) and the game loaded it in place of the Windows renderer library'
+  has shipped 'It is excused only because this is the first recorded run. Unless this game build ships that file, it is a wallhack'
   has shipped "$visibility_alert"
   has shipped 'evidence  code_changed (high): code of opengl32.dll was rewritten at 0x[0-9a-f]* after the game had finished starting: a jump to 0x[0-9a-f]*, memory that no file backs'
   hasnt shipped 'evidence  renderer_replaced'
@@ -552,7 +557,8 @@ WRAP
   has strict "$visibility_alert"
   has strict '-AlertOnIntegrity: the alert is also raised for what a modified but honest game build shows'
   hasnt strict '^NOTE  no alert by default'
-  has strict 'raised by renderer_replaced: renderer library opengl32.dll is not the Windows one'
+  has strict 'raised by renderer_replaced: renderer library opengl32.dll is not the Windows one.*(present at start, as at the first recorded start)'
+  hasnt strict 'It is excused only because this is the first recorded run'
   grep -q -- '-client-notices-strict' "$root/tools/carthago-cs16.ps1" || fail "the script does not pass the opt-in to the gateway"
   rm "$game/opengl32.dll"
   ! grep -qi 'kick' "$run"/carthago-scratch/logs/*/gateway.log || fail "the gateway kicked a session"
