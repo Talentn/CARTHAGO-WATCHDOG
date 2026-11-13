@@ -75,6 +75,7 @@ type Explanation struct {
 	Score      float64         `json:"score_z"`
 	AimAssist  bool            `json:"aim_assist,omitempty"`
 	Map        string          `json:"map"`
+	MapNote    string          `json:"map_note,omitempty"` // where the geometry came from and whether it is pinned
 	Features   []FeatureResult `json:"features"`
 	Moments    []MomentText    `json:"moments"`
 	Replay     *Replay         `json:"replay,omitempty"`

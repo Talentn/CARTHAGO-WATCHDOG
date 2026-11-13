@@ -29,7 +29,8 @@ func (g *Gateway) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.CloseNow()
-	ws.SetReadLimit(1 << 20)
+	// A match's first batch may carry the map's solid tree (knowledge.MaxTreeBytes).
+	ws.SetReadLimit(4 << 20)
 	ctx := r.Context()
 	g.log.Info("gameplay stream connected", "tenant", tenant, "remote", r.RemoteAddr)
 	for {

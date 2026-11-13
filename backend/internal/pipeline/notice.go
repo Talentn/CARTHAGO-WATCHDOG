@@ -42,7 +42,12 @@ type Notifier interface {
 // loaded file of the game folder, a handle that can only read, engine code rewritten
 // while server add-ons are loaded, and a jump into a file of the game folder.
 //
-// Never on their own or in combination: information_leak and any other rule that exists to
+//   - information_leak_live, only when the operator turned the live rule on
+//     (Config.LeakAlert): a strong information-leak score in several separate windows of
+//     one match, for a slot bound to a verified session. Visibility category.
+//
+// Never on their own or in combination: information_leak (the end-of-match review flag)
+// and any other rule that exists to
 // flag a player for review (decoy reactions, command rate, input timing), unsigned files
 // as such, overlays as such, handles of signed programs, vulnerable drivers, a kernel
 // debugger setting, executable memory without a PE header seen from outside, scheduler

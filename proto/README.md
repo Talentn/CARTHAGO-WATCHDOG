@@ -166,9 +166,9 @@ is v1). `buf breaking` against the v1 schema passes.
 | --- | --- |
 | `MatchPlayer.team`, `input_device`, `aim_assist` | Team membership; mouse and keyboard, controller or touch; whether the game assists this player's aim |
 | `MatchPlayer.bot` | The slot is controlled by the game itself (a bot). Its telemetry is analysed and shown, labelled, and never counted toward a player's risk; ignored for a slot that names a verified session |
-| `mode` | `GAME_MODE_COMPETITIVE_SHOOTER` or `GAME_MODE_EXTRACTION` |
+| `mode` | `GAME_MODE_COMPETITIVE_SHOOTER`, `GAME_MODE_EXTRACTION` or `GAME_MODE_ROUND_SHOOTER` (rounds from fixed spawns, as in Counter-Strike) |
 | `map` (`MapRef`) | `map_id` and `version` of the geometry the match is played on |
-| `map_geometry` | The geometry itself (occluder prisms, named zones, loot spawns), sent once with a match's first batch |
+| `map_geometry` | The geometry itself, sent once with a match's first batch: occluder prisms, named zones and loot spawns, or, for maps that are a solid tree (GoldSrc and Quake family), `solid` (`SolidTree`: planes and the nodes of the solid/empty tree) with `source_sha256`, the hash of the map file it was read from |
 | `motion` (`MotionTrack`) | Eye position (cm) and velocity (cm/s) per slot every `stride` ticks; within a track the first value is absolute and the rest are deltas (zigzag varints). View direction comes from the existing view-angle tracks |
 | `sounds` (`SoundEvent`) | Footsteps, gunshots, reloads, abilities and interactions with their position and audible `radius_cm` |
 | `team_info` (`TeamInfo`) | Pings, game-spotted enemies and radar reveals, with the team they were shared with and how long they last |
@@ -179,7 +179,12 @@ is v1). `buf breaking` against the v1 schema passes.
 the first time it sees it and refuses different geometry under the same key; ship a new
 version instead. Later matches may send only the `MapRef`. The gateway rejects version 0,
 non-convex occluders, empty height ranges, and geometry over its limits (4,096 occluders of at
-most 32 vertices, 256 zones, 1,024 loot spawns, 512 KiB encoded).
+most 32 vertices, 256 zones, 1,024 loot spawns, 512 KiB encoded; 3 MiB with a solid tree,
+whose nodes may only link to later nodes, to a bounded depth, and must name planes with unit
+normals). An operator
+can pin geometries by hash (`-map-pins`); geometry for a pinned map with another hash is
+refused. With a solid tree the gateway also counts the player positions that lie inside
+solid space and withholds the match's scores above 2 %, with a warning.
 
 **Warnings.** A v2 problem never rejects the batch: v1 rules still run on it. Instead the ack
 carries `IngestAck.warning` (field 5), for example an unknown map reference, conflicting

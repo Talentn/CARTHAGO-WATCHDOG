@@ -55,6 +55,18 @@ type Config struct {
 	// Leak configures the information-leak scorer for telemetry v2 matches. Its evidence is
 	// behavioural: it is never integrity evidence and never kicks.
 	Leak knowledge.Config
+	// MapPins names, per map id, the geometry hash (knowledge.Map.Hash, hex) the operator
+	// trusts. A geometry uploaded for a pinned map with another hash is refused and the
+	// match is not scored for information leaks. With MapPinsRequired a map without a pin
+	// is refused too; otherwise it is used and marked as not pinned in the evidence.
+	MapPins         map[string]string
+	MapPinsRequired bool
+	// LeakAlert turns on the opt-in live rule (knowledge.AlertConfig): a player whose
+	// information-leak score is strong in several separate windows of one match gets
+	// evidence during the match and, with Notices, a notice of the visibility category
+	// when the slot is bound to a verified session. Nil: off, and information_leak stays
+	// what it is by default, evidence for review at the end of a match.
+	LeakAlert *knowledge.AlertConfig
 	// GameplayRetention is how long raw v2 batches are kept for re-scoring and review.
 	GameplayRetention time.Duration
 	Now               func() time.Time

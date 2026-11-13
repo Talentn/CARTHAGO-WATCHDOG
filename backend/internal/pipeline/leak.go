@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -18,6 +19,16 @@ import (
 
 // RuleInformationLeak is the evidence rule of the knowledge-aware wallhack scorer.
 const RuleInformationLeak = "information_leak"
+
+// RuleInformationLeakLive is the opt-in live rule's evidence (Config.LeakAlert).
+const RuleInformationLeakLive = "information_leak_live"
+
+// A map whose walls contain more than this share of the players' positions is not the map
+// being played. Positions are eyes of living players, which the game never puts in a wall.
+const (
+	maxInSolid        = 0.02
+	minSolidPositions = 400
+)
 
 // maxCachedMaps bounds compiled maps held in memory; a miss reloads from the store.
 const maxCachedMaps = 64
@@ -39,6 +50,11 @@ type v2State struct {
 	batches   uint64
 	dropped   uint64
 	summaries map[uint32]*store.GameplaySummary
+	mapNote   string // where the geometry came from and whether it is pinned
+	alerter   *knowledge.Alerter
+	positions uint64 // player positions tested against the map's solid world
+	inSolid   uint64
+	mismatch  bool
 }
 
 // v2 handles the telemetry v2 part of a fresh batch: map geometry, raw storage,
@@ -79,9 +95,20 @@ func (p *Pipeline) v2(ctx context.Context, tenant string, ms *matchState, b *pb.
 	}
 	if v.scorer == nil && v.ref != nil {
 		m, err := p.loadMap(ctx, tenant, v.ref)
+		var note string
+		if err == nil {
+			note, err = p.mapPin(m)
+		}
 		switch {
 		case err == nil:
-			v.scorer = knowledge.NewScorer(p.cfg.Leak, m, v.mode, b.TickRate)
+			v.scorer, v.mapNote = knowledge.NewScorer(p.cfg.Leak, m, v.mode, b.TickRate), note
+			if p.cfg.LeakAlert != nil {
+				v.alerter = knowledge.NewAlerter(*p.cfg.LeakAlert, v.scorer)
+			}
+			p.log.Info("map in use", "match", b.MatchId, "map", m.ID, "version", m.Version, "geometry", m.Describe(), "note", note)
+		case warning == "" && v.warned == "" && errors.Is(err, errMapPin):
+			warning = err.Error() + "; information-leak scoring is off for this match"
+			p.log.Warn("map geometry refused", "tenant", tenant, "match", b.MatchId, "map", v.ref.MapId, "err", err)
 		case warning == "" && v.warned == "":
 			warning = fmt.Sprintf("map %s v%d unknown: upload its geometry; information-leak scoring is off for this match", v.ref.MapId, v.ref.Version)
 		}
@@ -94,12 +121,18 @@ func (p *Pipeline) v2(ctx context.Context, tenant string, ms *matchState, b *pb.
 		}
 	}
 	if v.scorer != nil {
+		if w := p.checkPositions(v, b); w != "" && warning == "" {
+			warning = w
+		}
 		v.scorer.Add(b)
 	}
 	p.countV2(tenant, ms, v, b, at)
 
+	if v.alerter != nil && !v.mismatch {
+		evs = p.leakAlerts(tenant, ms, v, b, at)
+	}
 	if b.MatchOver && v.scorer != nil {
-		evs = p.leakEvidence(tenant, ms, v, b, at)
+		evs = append(evs, p.leakEvidence(tenant, ms, v, b, at)...)
 	}
 	if b.MatchOver || v.batches == 1 || v.batches%summaryEvery == 0 {
 		rows := make([]store.GameplaySummary, 0, len(v.summaries))
@@ -186,15 +219,34 @@ func (p *Pipeline) leakEvidence(tenant string, ms *matchState, v *v2State, b *pb
 		}
 		return fmt.Sprintf("slot %d", slot)
 	}
+	if v.mismatch {
+		p.log.Warn("leak scores withheld: the map geometry does not match where the players were", "match", b.MatchId, "map", v.scorer.Map().ID,
+			"positions", v.positions, "inside_walls", v.inSolid)
+		return nil
+	}
 	var evs []store.Evidence
 	for _, r := range v.scorer.Finish() {
 		if s := v.summaries[r.Slot]; s != nil {
 			s.LeakScored, s.LeakScore, s.LeakFlagged = true, math.Round(r.Score*100)/100, r.Flagged
 		}
+		_, bound := ms.sessions[r.Slot]
+		scored := 0
+		for _, f := range r.Features {
+			if f.Scored {
+				scored++
+			}
+		}
+		live := "off"
+		if v.alerter != nil {
+			live = fmt.Sprintf("%d/%d", v.alerter.Strong(r.Slot), v.alerter.Windows())
+		}
+		p.log.Info("leak score", "match", b.MatchId, "slot", r.Slot, "player", name(r.Slot), "bound", bound, "score", math.Round(r.Score*100)/100,
+			"flag_at", r.Threshold.Z, "flagged", r.Flagged, "scored_features", scored, "strong_windows", live, "segment", r.Segment.String(), "features", featureText(r))
 		if !r.Flagged {
 			continue
 		}
 		ex := r.Explain(v.scorer.Map(), name)
+		ex.MapNote = v.mapNote
 		raw, err := json.Marshal(struct {
 			Slot     uint32 `json:"slot"`
 			BatchSeq uint64 `json:"batch_seq"`
@@ -222,9 +274,112 @@ func (p *Pipeline) leakEvidence(tenant string, ms *matchState, v *v2State, b *pb
 	return evs
 }
 
+func featureText(r knowledge.Result) string {
+	var parts []string
+	for _, f := range r.Features {
+		if f.Samples == 0 {
+			continue
+		}
+		scored := ""
+		if !f.Scored {
+			scored = ", not scored"
+		}
+		parts = append(parts, fmt.Sprintf("%s z=%.2f true=%.3f control=%.3f blocks=%d%s", f.Name, f.Z, f.RateTrue, f.RateNull, f.Blocks, scored))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// checkPositions counts the batch's player positions that lie inside the map's walls and
+// decides, once enough were seen, whether the geometry is the map being played. It returns
+// a warning for the game server the first time it is not.
+func (p *Pipeline) checkPositions(v *v2State, b *pb.GameplayBatch) string {
+	m := v.scorer.Map()
+	if !m.HasSolid() {
+		return ""
+	}
+	for _, t := range b.Motion {
+		var x, y, z int64
+		for i := range min(len(t.XCm), len(t.YCm), len(t.ZCm)) {
+			x, y, z = x+int64(t.XCm[i]), y+int64(t.YCm[i]), z+int64(t.ZCm[i])
+			v.positions++
+			if m.Solid(knowledge.Vec3{X: float64(x) / 100, Y: float64(y) / 100, Z: float64(z) / 100}) {
+				v.inSolid++
+			}
+		}
+	}
+	was := v.mismatch
+	v.mismatch = v.positions >= minSolidPositions && float64(v.inSolid) > maxInSolid*float64(v.positions)
+	if v.mismatch && !was {
+		return fmt.Sprintf("map %s v%d does not match the match: %d of %d player positions are inside its walls; information-leak scoring is off for this match",
+			m.ID, m.Version, v.inSolid, v.positions)
+	}
+	return ""
+}
+
+// leakAlerts runs the opt-in live rule after a batch.
+func (p *Pipeline) leakAlerts(tenant string, ms *matchState, v *v2State, b *pb.GameplayBatch, at time.Time) []store.Evidence {
+	var evs []store.Evidence
+	cfg := *p.cfg.LeakAlert
+	for _, h := range v.alerter.Step() {
+		var scores []string
+		for _, s := range h.Scores {
+			scores = append(scores, fmt.Sprintf("%.1f", s))
+		}
+		summary := fmt.Sprintf("Opt-in live wallhack rule: %d of %d windows of %.0f s were strong (scores %s; a window is strong at %.2f with %.0f%% more alignment than the controls). "+
+			"The crosshair or shots followed enemies the player's team could not see, hear or be told about. A behaviour score, not proof.",
+			h.Strong, h.Windows, cfg.WindowSec, strings.Join(scores, ", "), cfg.Z, cfg.MinExcess*100)
+		raw, _ := json.Marshal(map[string]any{"slot": h.Slot, "batch_seq": b.BatchSeq, "strong_windows": h.Strong, "windows": h.Windows, "window_sec": cfg.WindowSec,
+			"window_z": cfg.Z, "window_min_excess": cfg.MinExcess, "scores": h.Scores, "last_window": featureText(h.Last), "map": v.scorer.Map().ID, "map_note": v.mapNote})
+		ev := store.Evidence{
+			TenantID: tenant, MatchID: b.MatchId, Source: store.SourceGameplay, Rule: RuleInformationLeakLive, Severity: int(analyzer.SeverityHigh),
+			Score: 1, Integrity: false, Summary: summary, Raw: string(raw), ObservedAt: at,
+		}
+		s, bound := ms.sessions[h.Slot]
+		switch pl, ok := ms.m.Players[h.Slot]; {
+		case bound:
+			ev.SessionID, ev.PlayerHash = s.SessionID, s.PlayerHash
+		case ok:
+			ev.PlayerHash, ev.Bot = pl.PlayerHash, pl.Bot
+		}
+		if ev.PlayerHash == "" {
+			ev.PlayerHash = fmt.Sprintf("slot-%d", h.Slot)
+		}
+		evs = append(evs, ev)
+		if bound && p.cfg.Notices && p.notify != nil {
+			p.notify.Notice(s.SessionID, pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY, pb.EnforcementSeverity_ENFORCEMENT_SEVERITY_HIGH)
+			p.log.Info("notice raised by", "session", s.SessionID, "rule", RuleInformationLeakLive, "category",
+				noticeCategoryName(pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY), "summary", summary)
+		}
+	}
+	return evs
+}
+
+var errMapPin = errors.New("map pin")
+
+// mapPin checks a compiled map against the operator's pins and words where it stands.
+func (p *Pipeline) mapPin(m *knowledge.Map) (string, error) {
+	source := ""
+	if m.Source != "" {
+		source = ", read by the game server from a map file with SHA-256 " + m.Source
+	}
+	want, pinned := p.cfg.MapPins[m.ID]
+	switch {
+	case pinned && !strings.EqualFold(want, m.Hash):
+		return "", fmt.Errorf("%w: the geometry sent for %s (hash %s) is not the pinned one (%s)", errMapPin, m.ID, m.Hash, want)
+	case pinned:
+		return "geometry " + m.Hash + ", pinned by the operator" + source, nil
+	case p.cfg.MapPinsRequired:
+		return "", fmt.Errorf("%w: %s has no pinned geometry (hash %s) and the gateway accepts pinned maps only", errMapPin, m.ID, m.Hash)
+	}
+	return "geometry " + m.Hash + ", not pinned: taken as the game server sent it" + source, nil
+}
+
 func (p *Pipeline) putMap(ctx context.Context, tenant string, g *pb.MapGeometry, at time.Time) error {
 	m, err := knowledge.Compile(g)
 	if err != nil {
+		return err
+	}
+	if _, err := p.mapPin(m); err != nil {
 		return err
 	}
 	_, raw, err := knowledge.GeometryHash(g)
