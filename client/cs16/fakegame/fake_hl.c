@@ -17,6 +17,10 @@
  *                                (1: while the plugin loads), with exit code 0 as after a
  *                                game error
  *   FAKE_CS16_IGNORE_EXTRA_INI=1 only configs\plugins.ini is read, not plugins-*.ini
+ *
+ * With FAKE_CS16_WINDOW=1 it has a visible window, as the game has, and ends with code 0
+ * when that window is asked to close. With FAKE_CS16_WINDOW=2 the window ignores the
+ * request, as a game that hangs does.
  */
 #include <windows.h>
 #include <stdio.h>
@@ -129,6 +133,27 @@ static int plugin(const char *map) {
     return 0;
 }
 
+static int window_mode;
+static int closed;
+
+static LRESULT CALLBACK wndproc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_CLOSE) {
+        if (window_mode == 1) closed = 1;
+        return 0;
+    }
+    return DefWindowProcA(w, msg, wp, lp);
+}
+
+static void open_window(void) {
+    WNDCLASSA wc = {0};
+    wc.lpfnWndProc = wndproc;
+    wc.hInstance = GetModuleHandleA(NULL);
+    wc.lpszClassName = "Valve001";
+    RegisterClassA(&wc);
+    HWND w = CreateWindowExA(0, "Valve001", "Counter-Strike", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 40, 40, 640, 480, NULL, NULL, wc.hInstance, NULL);
+    printf("stand-in game window %s\n", w ? "open" : "could not be opened");
+}
+
 int main(int argc, char **argv) {
     int secs = 20;
     const char *map = NULL;
@@ -155,9 +180,15 @@ int main(int argc, char **argv) {
         Sleep(1500);
         if (plugin(map) < 0) return 0;
     }
-    for (int i = 0; i < secs * 10; i++) {
+    window_mode = env_int("FAKE_CS16_WINDOW");
+    if (window_mode) open_window();
+    fflush(stdout);
+    for (int i = 0; i < secs * 10 && !closed; i++) {
+        MSG msg;
+        while (window_mode && PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
         if (GetFileAttributesA("fake_hl.quit") != INVALID_FILE_ATTRIBUTES) break;
         Sleep(100);
     }
+    if (closed) printf("stand-in game: closed by its window\n");
     return 0;
 }
