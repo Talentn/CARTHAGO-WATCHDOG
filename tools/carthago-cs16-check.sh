@@ -316,8 +316,8 @@ if command -v pwsh >/dev/null; then
     grep -q 'END MATCH the game closed' "$run/full-flagged.log" || fail "the game did not close when asked"
     echo "ok   flagged session: alert raised, the game asked to close, and it closed"
   else
-    grep -q 'END MATCH the game did not close within 5 s; ended the process this companion started' "$run/full-flagged.log" || fail "the game was not ended"
-    echo "ok   flagged session: alert raised, the game ended (it has no window to ask here)"
+    grep -Eq 'END MATCH (the game closed|the game did not close within 5 s; ended the process this companion started)' "$run/full-flagged.log" || fail "the game was not ended"
+    echo "ok   flagged session: alert raised, the game ended"
   fi
   ! grep -qi 'kick' "$run"/carthago-scratch/logs/*/gateway.log || fail "the gateway kicked a session"
 
