@@ -34,6 +34,7 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameDir "E:\Counter-Strike WaRzOnE Edition"
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameDir "E:\Games\CS" -GameExe cstrike.exe
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Map de_dust2
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameArgs:"-game cstrike -nomaster"
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -DashboardOnly
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Uninstall
@@ -46,6 +47,8 @@ param(
     # Where to look for the game when -GameDir is not given.
     [string]$SearchRoot = "E:\",
     [string]$Scratch = $(if (Test-Path E:\) { "E:\carthago-cs16-scratch" } else { Join-Path ([IO.Path]::GetTempPath()) "carthago-cs16" }),
+    # Options for the game program. From cmd.exe write them as one value joined to the name
+    # with a colon:  -GameArgs:"-game cstrike -nomaster"
     [string[]]$GameArgs = @("-game", "cstrike"),
     # Start a listen server on this map straight away (otherwise use New Game in the menu).
     [string]$Map,
@@ -63,6 +66,8 @@ param(
     [switch]$Purge
 )
 $ErrorActionPreference = "Continue"
+# powershell -File passes a list as one string; accept "a b" and "a,b" as well as a list.
+$GameArgs = @($GameArgs | ForEach-Object { $_ -split '[\s,]+' } | Where-Object { $_ })
 $root = Split-Path -Parent $PSScriptRoot
 $gatewayPort = 8750
 $dashboardPort = 8751
@@ -493,7 +498,7 @@ if (-not $SkipBuild -and -not $InstallOnly) {
     if (-not $DashboardOnly) {
         Step "build the companion and the bridge (cargo, release; the first build takes a few minutes)"
         Push-Location (J $root "client")
-        cargo build --release -p carthago-cs16-companion -p carthago-cs16-bridge 2>&1 | Tee-Object -FilePath (J $logs "build-client.log")
+        cargo build --release -p carthago-cs16-companion -p carthago-cs16-bridge 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath (J $logs "build-client.log")
         $code = $LASTEXITCODE
         Pop-Location
         if ($code) { Die "cargo build (see $(J $logs 'build-client.log'))" }
@@ -501,7 +506,7 @@ if (-not $SkipBuild -and -not $InstallOnly) {
     Step "build the gateway (go)"
     StopGateway
     Push-Location (J $root "backend")
-    go build -o $gatewayExe ./cmd/carthago-gateway 2>&1 | Tee-Object -FilePath (J $logs "build-gateway.log")
+    go build -o $gatewayExe ./cmd/carthago-gateway 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath (J $logs "build-gateway.log")
     $code = $LASTEXITCODE
     Pop-Location
     if ($code) { Die "go build carthago-gateway (see $(J $logs 'build-gateway.log'))" }
