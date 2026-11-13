@@ -129,3 +129,36 @@
   </table>
 </section>
 {{end}}
+
+{{define "bancard"}}{{$csrf := .CSRF}}{{$id := .SessionID}}
+<section class="card" id="ban">
+  <div class="card-head"><h2>Ban</h2><span class="muted">account and device key · <a href="/bans">all bans</a></span></div>
+  {{if .Saved}}<p class="saved">Ban saved</p>{{end}}
+  {{with .Standing}}
+  <dl class="kv okv">
+    <dt>State</dt><dd>{{if $.Pending}}<span class="mark ban-pending">Pending</span> <span class="muted">takes effect {{when .EffectiveAt}}</span>{{else}}<span class="mark ban-active">Banned</span>{{end}} <span class="mono">{{.Ref}}</span></dd>
+    <dt>By</dt><dd>{{.BannedBy}} <span class="muted">· {{when .BannedAt}}</span></dd>
+    {{if .Rule}}<dt>Rule</dt><dd class="mono">{{.Rule}}</dd>{{end}}
+    {{if .Reason}}<dt>Reason</dt><dd>{{.Reason}}</dd>{{end}}
+  </dl>
+  {{else}}
+  <p class="empty">Not banned</p>
+  {{end}}
+  {{if .CanBan}}{{if or (not .Standing) .Pending}}
+  <form method="post" action="/sessions/{{path $id}}/ban" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Category <small class="muted">optional</small>
+      <select name="category">
+        <option value="">Not specified</option>
+        {{range .Types}}<option value="{{.}}">{{cheatName .}}</option>{{end}}
+      </select>
+    </label>
+    <label class="grow">Reason <small class="muted">for your studio only, 280 characters</small>
+      <input type="text" name="reason" maxlength="280" autocomplete="off">
+    </label>
+    <button type="submit" class="primary">Ban player</button>
+  </form>
+  <p class="note">Bans this player's account and the device key of this session at once, and ends their session if one is running. The player is told only that they are banned.</p>
+  {{end}}{{else}}<p class="note">Banning a player needs the reviewer role.</p>{{end}}
+</section>
+{{end}}

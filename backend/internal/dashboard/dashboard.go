@@ -32,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	"carthago/backend/internal/bans"
 	"carthago/backend/internal/protocol"
 	"carthago/backend/internal/store"
 )
@@ -46,7 +47,9 @@ var staticFS embed.FS
 type Store interface {
 	store.EvidenceStore
 	store.OracleStore
+	store.BanStore
 	GetSession(ctx context.Context, id string) (*store.Session, error)
+	GetDevice(ctx context.Context, id string) (*store.Device, error)
 }
 
 type Config struct {
@@ -67,6 +70,9 @@ type Config struct {
 	Now          func() time.Time
 	// Oracle names the Carthago Oracle this gateway runs; nil when it is off.
 	Oracle *OracleInfo
+	// Bans makes and lifts bans. The gateway passes the service that also ends a banned
+	// player's live sessions; nil gives the dashboard one of its own over the store.
+	Bans *bans.Service
 }
 
 type Server struct {
@@ -81,6 +87,7 @@ type Server struct {
 	lim          limiter
 	hosts        map[string]bool
 	oracle       *OracleInfo
+	bans         *bans.Service
 }
 
 func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
@@ -90,7 +97,11 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 	if cfg.OnlineWindow == 0 {
 		cfg.OnlineWindow = 2 * time.Minute
 	}
-	s := &Server{st: st, keys: cfg.Keys, secureCookie: cfg.SecureCookie, online: cfg.OnlineWindow, now: cfg.Now, log: log, oracle: cfg.Oracle}
+	s := &Server{st: st, keys: cfg.Keys, secureCookie: cfg.SecureCookie, online: cfg.OnlineWindow, now: cfg.Now, log: log, oracle: cfg.Oracle, bans: cfg.Bans}
+	if s.bans == nil {
+		s.bans = bans.New(st, log)
+		s.bans.Now = cfg.Now
+	}
 	if len(cfg.AllowedHosts) > 0 {
 		s.hosts = map[string]bool{}
 		for _, h := range cfg.AllowedHosts {
@@ -168,6 +179,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /sessions", s.auth(s.sessions))
 	mux.HandleFunc("GET /sessions/{id}", s.auth(s.session))
 	mux.HandleFunc("POST /sessions/{id}/label", s.require(RoleReviewer, s.setLabel))
+	mux.HandleFunc("POST /sessions/{id}/ban", s.require(RoleReviewer, s.banSession))
+	mux.HandleFunc("GET /bans", s.auth(s.bansPage))
+	mux.HandleFunc("POST /bans/delay", s.require(RoleAdmin, s.setBanDelay))
+	mux.HandleFunc("POST /bans/{id}/lift", s.require(RoleReviewer, s.liftBan))
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
@@ -322,6 +337,7 @@ type sessionData struct {
 	Decoys    []*decoyView
 	Oracle    *oracleView
 	Label     labelCard
+	Ban       banCard
 }
 
 type labelCard struct {
@@ -379,6 +395,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 		return
 	}
 	d.Label = labelCard{View: lv, CSRF: s.csrfToken(r), SessionID: id}
+	if d.Ban, err = s.banCardFor(r, tenant, sess); err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, http.StatusOK, "session", page{Title: "Session " + short(id), Nav: "sessions", Tenant: tenant, Data: d})
 }
 

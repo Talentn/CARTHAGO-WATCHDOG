@@ -36,6 +36,7 @@
 </div>
 {{with $d.Oracle}}{{template "oraclecard" .}}{{end}}
 {{template "labelcard" $d.Label}}
+{{template "bancard" $d.Ban}}
 {{if $d.Coverage}}
 <section class="card">
   <h2>Scan coverage</h2>

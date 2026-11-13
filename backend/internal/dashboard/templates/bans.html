@@ -1,0 +1,57 @@
+{{define "content"}}
+{{$d := .Data}}{{$csrf := .CSRF}}
+<div class="head">
+  <h1>Bans</h1>
+  <span class="muted">{{$d.Active}} active · {{$d.Pending}} pending · {{$d.Lifted}} lifted</span>
+</div>
+<section class="card" id="automatic">
+  <div class="card-head"><h2>Automatic bans</h2><span class="muted">certain evidence only</span></div>
+  {{if $d.Saved}}<p class="saved">Delay saved</p>{{end}}
+  <dl class="kv">
+    <dt>Bans by itself</dt><dd>Hard integrity evidence about the game process: an unsigned renderer library, an unsigned DLL injected from outside the game folder, rewritten code of the renderer or client library, an image mapped by hand, an unsigned outside program holding a handle that writes the game's memory.</dd>
+    <dt>Never bans by itself</dt><dd>Anything statistical or advisory: aim rules, information leak, decoy reactions, the Oracle's score and opinion, overlays, readers and debuggers. These stay review flags; a reviewer bans from the session page.</dd>
+    <dt>Delay</dt><dd><b>{{$d.DelayMinutes}} min</b> <small class="muted">{{if $d.DelayMinutes}}an automatic ban is listed as pending and takes effect that long after the detection{{else}}an automatic ban takes effect at once{{end}}</small></dd>
+  </dl>
+  {{if $d.CanSet}}
+  <form method="post" action="/bans/delay" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Automatic ban delay, minutes
+      <input type="number" name="minutes" min="0" max="10080" value="{{$d.DelayMinutes}}" required>
+    </label>
+    <button type="submit" class="secondary">Save delay</button>
+  </form>
+  {{else}}<p class="note">Changing the delay needs the admin role.</p>{{end}}
+</section>
+<section class="card">
+{{if $d.Lifted1}}<p class="saved">Ban lifted</p>{{end}}
+{{if $d.Rows}}
+<table class="bans">
+  <thead><tr><th>Reference</th><th>State</th><th>Player</th><th>Device key</th><th>Reason</th><th>Rule</th><th>Session</th><th>Banned by</th><th>When</th><th>Lifted</th></tr></thead>
+  <tbody>
+  {{range $d.Rows}}
+  <tr>
+    <td class="mono">{{.Ref}}</td>
+    <td>{{if eq .State "active"}}<span class="mark ban-active">Active</span>{{else if eq .State "pending"}}<span class="mark ban-pending" title="Takes effect {{when .EffectiveAt}}">Pending</span><br><small class="muted">until {{.EffectiveAt.UTC.Format "15:04"}}</small>{{else}}<span class="mark ban-lifted">Lifted</span>{{end}}</td>
+    <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
+    <td>{{if .DeviceID}}<span class="mono" title="{{.DeviceID}}">{{short .DeviceID}}</span> <span class="tag">{{if .DeviceTPM}}TPM{{else}}software key{{end}}</span>{{else}}<span class="muted">none</span>{{end}}</td>
+    <td class="reason">{{if .Reason}}{{.Reason}}{{else}}<span class="muted">none given</span>{{end}}</td>
+    <td class="mono">{{if .Rule}}{{.Rule}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td>{{if .SessionID}}<a class="mono" href="/sessions/{{path .SessionID}}">{{short .SessionID}}</a>{{end}}</td>
+    <td>{{.BannedBy}}</td>
+    <td class="when" title="{{when .BannedAt}}"><span class="mono">{{.BannedAt.UTC.Format "01-02 15:04"}}</span> <span class="muted">{{ago .BannedAt}}</span></td>
+    <td>{{if eq .State "lifted"}}{{.LiftedBy}} <span class="muted">{{ago .LiftedAt}}</span>{{if .LiftNote}}<br><small class="muted">{{.LiftNote}}</small>{{end}}
+      {{else if $d.CanAct}}
+      <form method="post" action="/bans/{{.ID}}/lift" class="liftform">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <input type="text" name="note" maxlength="280" placeholder="Note" aria-label="Note for lifting ban {{.Ref}}" autocomplete="off">
+        <button type="submit" class="secondary">Lift ban</button>
+      </form>
+      {{else}}<span class="muted">–</span>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}<p class="empty">Nobody is banned</p>{{end}}
+</section>
+<p class="note">A ban refuses the account and the device key of the session it was made from, so a new account on the same PC is refused too. The player's client is told only that it is banned, with the reference; what was detected never leaves the server.{{if not $d.CanAct}} Lifting a ban needs the reviewer role.{{end}}</p>
+{{end}}
