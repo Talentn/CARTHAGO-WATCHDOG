@@ -4,14 +4,16 @@
   beside the game, and match data from your own game server.
 
 .DESCRIPTION
-  1. finds the game (-GameDir, else searches E:\ for hl.exe next to a cstrike folder);
+  1. finds the game: a folder with a cstrike folder and the game program, which is hl.exe
+     or, in builds that have no hl.exe, cstrike.exe. -GameDir names the folder and -GameExe
+     the program; without them E:\ is searched, folders with likely names first;
   2. builds the companion, the telemetry bridge (cargo, release) and the gateway (go);
   3. installs the server plugin into the game's AMX Mod X, reversibly (see below);
   4. starts the gateway and the dashboard on this PC only (127.0.0.1), auto-kick off, and
      the bridge that receives the plugin's data on 127.0.0.1;
   5. opens the dashboard in the browser and prints its address and login;
   6. starts the game through the companion, which opens an attested session (TPM where
-     available, pinned TLS) and watches hl.exe from outside with read-only access;
+     available, pinned TLS) and watches the game from outside with read-only access;
   7. when the game closes, keeps the dashboard up until Enter is pressed.
 
   What is changed in the game folder, and only there:
@@ -29,7 +31,8 @@
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1
-  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameDir "E:\Games\Counter-Strike 1.6"
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameDir "E:\Counter-Strike WaRzOnE Edition"
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameDir "E:\Games\CS" -GameExe cstrike.exe
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Map de_dust2
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -DashboardOnly
@@ -37,6 +40,11 @@
 #>
 param(
     [string]$GameDir,
+    # The program that starts the game, when it is not hl.exe or cstrike.exe: a file name in
+    # -GameDir, or a full path.
+    [string]$GameExe,
+    # Where to look for the game when -GameDir is not given.
+    [string]$SearchRoot = "E:\",
     [string]$Scratch = $(if (Test-Path E:\) { "E:\carthago-cs16-scratch" } else { Join-Path ([IO.Path]::GetTempPath()) "carthago-cs16" }),
     [string[]]$GameArgs = @("-game", "cstrike"),
     # Start a listen server on this map straight away (otherwise use New Game in the menu).
@@ -88,7 +96,7 @@ $script:bridge = $null
 function StopProc($p) { if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
 function StopGateway {
     StopProc $script:gateway
-    if (Test-Path $pidFile) {
+    if (Test-Path -LiteralPath $pidFile) {
         $old = Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($old -match '^\d+$') {
             $p = Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue
@@ -109,26 +117,101 @@ function PortOpen($port) {
     try { $c.Connect("127.0.0.1", $port); return $true } catch { return $false } finally { $c.Close() }
 }
 
+# The game program is hl.exe; builds without one name the same program cstrike.exe.
+$engineNames = @("hl.exe", "cstrike.exe")
+# Programs that sit in a game folder and are never the game.
+$notGame = '^(crashpad_handler|hltv|hlds|hlds_run|unins\d*|uninst.*|setup.*|install.*)\.exe$'
+$likelyFolder = 'counter.?strike|warzone|cs.?1\.?6|cstrike|half.?life'
+function IsDir($p) { Test-Path -LiteralPath $p -PathType Container }
+function IsFile($p) { Test-Path -LiteralPath $p -PathType Leaf }
+function EngineExe($dir) {
+    foreach ($n in $engineNames) { if (IsFile (J $dir $n)) { return $n } }
+    return $null
+}
+function ExeNames($dir) {
+    $n = @(Get-ChildItem -LiteralPath $dir -Filter *.exe -File -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    if ($n.Count) { return ($n -join ", ") }
+    return "none"
+}
+function SubDirs($dir) {
+    @(Get-ChildItem -LiteralPath $dir -Directory -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch '^(\$Recycle\.Bin|System Volume Information|carthago-cs16.*)$' })
+}
+# Folders on the drive that have a cstrike folder. Folders with likely names are looked at
+# first (two levels down, and one level inside them); the whole drive is scanned only when
+# none of those holds a game.
+function SearchGame($drive) {
+    $seen = @()
+    $top = @(SubDirs $drive)
+    $second = @($top | ForEach-Object { SubDirs $_.FullName })
+    $likely = @(@($top + $second) | Where-Object { $_.Name -match $likelyFolder })
+    foreach ($d in $likely) {
+        foreach ($c in @($d) + @(SubDirs $d.FullName)) {
+            if ((IsDir (J $c.FullName "cstrike")) -and ($seen -notcontains $c.FullName)) { $seen += $c.FullName }
+        }
+    }
+    if (-not @($seen | Where-Object { EngineExe $_ }).Count) {
+        Note "no game in the folders with likely names; scanning all of $drive (this can take a minute)"
+        Get-ChildItem -LiteralPath $drive -Directory -Filter cstrike -Recurse -Depth 6 -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch 'carthago-cs16|\$Recycle\.Bin' } |
+            ForEach-Object { $p = Split-Path -Parent $_.FullName; if ($seen -notcontains $p) { $seen += $p } }
+    }
+    $script:likelySeen = @($likely | ForEach-Object { $_.FullName } | Where-Object { $seen -notcontains $_ })
+    return $seen
+}
+function GameRunning {
+    $names = @("hl", "cstrike")
+    if ($script:GameExePath) { $names += [IO.Path]::GetFileNameWithoutExtension($script:GameExePath) }
+    foreach ($p in @(Get-Process -Name $names -ErrorAction SilentlyContinue)) {
+        $path = $null
+        try { $path = $p.Path } catch {}
+        if (-not $path -or $path.StartsWith($script:GameDir, [StringComparison]::OrdinalIgnoreCase)) { return $p.ProcessName }
+    }
+    return $null
+}
+
 function FindGame {
-    if ($GameDir) {
-        if (-not (Test-Path (J $GameDir "hl.exe"))) { Die "no hl.exe in -GameDir '$GameDir'" }
-        if (-not (Test-Path (J $GameDir "cstrike"))) { Die "no cstrike folder in -GameDir '$GameDir'" }
+    $why = ""
+    if ($GameExe -and [IO.Path]::IsPathRooted($GameExe) -and -not $GameDir) { $script:GameDir = Split-Path -Parent $GameExe }
+    if ($script:GameDir) {
+        if (-not (IsDir $script:GameDir)) { Die "-GameDir '$script:GameDir' is not a folder" }
+        if (-not (IsDir (J $script:GameDir "cstrike"))) { Die "no cstrike folder in '$script:GameDir' (programs there: $(ExeNames $script:GameDir))" }
     } else {
-        if (-not (Test-Path E:\)) { Die "no E: drive; pass -GameDir `"<folder that contains hl.exe>`"" }
-        Note "searching E:\ for hl.exe next to a cstrike folder (this can take a minute)"
-        $found = @(Get-ChildItem -Path E:\ -Filter hl.exe -File -Recurse -Depth 6 -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path (J $_.DirectoryName "cstrike") } | ForEach-Object { $_.DirectoryName })
-        if ($found.Count -eq 0) { Die "hl.exe with a cstrike folder was not found on E:\; pass -GameDir `"<folder that contains hl.exe>`"" }
-        if ($found.Count -gt 1) {
-            Write-Host "More than one game folder found:" -ForegroundColor Yellow
-            $found | ForEach-Object { Write-Host "    $_" }
-            Die "run again with -GameDir `"<one of the folders above>`""
+        if (-not (IsDir $SearchRoot)) { Die "$SearchRoot does not exist; pass -GameDir `"<folder that contains the game program and the cstrike folder>`"" }
+        Note "searching $SearchRoot for a folder with a cstrike folder and hl.exe or cstrike.exe"
+        $seen = @(SearchGame $SearchRoot)
+        $found = @($seen | Where-Object { if ($GameExe) { IsFile (J $_ $GameExe) } else { EngineExe $_ } })
+        if ($found.Count -ne 1) {
+            if ($found.Count) { Write-Host "More than one game folder found:" -ForegroundColor Yellow }
+            else { Write-Host "No folder on $SearchRoot has both a cstrike folder and hl.exe or cstrike.exe." -ForegroundColor Yellow }
+            if ($seen.Count) { Write-Host "Folders with a cstrike folder:" }
+            foreach ($d in $seen) { Write-Host "    $d    (programs: $(ExeNames $d))" }
+            if ($script:likelySeen.Count) { Write-Host "Folders with a likely name but no cstrike folder:" }
+            foreach ($d in $script:likelySeen) { Write-Host "    $d" }
+            if ($found.Count) { Die "run again with -GameDir `"<one of the folders above>`"" }
+            Die "run again with -GameDir `"<the game folder>`"; if its game program has another name, add -GameExe <name>.exe"
         }
         $script:GameDir = $found[0]
     }
-    $script:GameDir = (Resolve-Path $script:GameDir).Path.TrimEnd('\', '/')
-    Note "game folder: $script:GameDir"
-    if (Get-Process -Name hl -ErrorAction SilentlyContinue) { Die "hl.exe is running; close the game first" }
+    $script:GameDir = (Resolve-Path -LiteralPath $script:GameDir).Path.TrimEnd('\', '/')
+    if ($GameExe) {
+        $exe = $GameExe
+        if (-not [IO.Path]::IsPathRooted($exe)) { $exe = J $script:GameDir $exe }
+        if (-not (IsFile $exe)) { Die "-GameExe: '$exe' does not exist (programs in the game folder: $(ExeNames $script:GameDir))" }
+        if ((Split-Path -Leaf $exe) -match $notGame) { Die "-GameExe: $(Split-Path -Leaf $exe) is not the game (it is a crash reporter, a TV proxy, a server or an installer)" }
+        if ((Split-Path -Leaf $exe) -notmatch '\.exe$') { Die "-GameExe: '$exe' is not an .exe file" }
+        $why = "named with -GameExe"
+    } else {
+        $name = EngineExe $script:GameDir
+        if (-not $name) { Die "no hl.exe or cstrike.exe in '$script:GameDir' (programs there: $(ExeNames $script:GameDir)). If one of them starts the game, add -GameExe <name>.exe" }
+        $exe = J $script:GameDir $name
+        if ($name -ieq "hl.exe") { $why = "the usual name" } else { $why = "this folder has no hl.exe; this build names the game program $name" }
+    }
+    $script:GameExePath = (Resolve-Path -LiteralPath $exe).Path
+    Note "game folder : $script:GameDir"
+    Note "game program: $(Split-Path -Leaf $script:GameExePath)  ($why)"
+    $running = GameRunning
+    if ($running) { Die "the game ($running) is running; close it first" }
 }
 
 # ---- reversible changes in the game folder -------------------------------------------------
@@ -138,7 +221,7 @@ function BackupDir { J $script:GameDir "carthago-cs16-backup" }
 function ManifestPath { J (BackupDir) "manifest.json" }
 function LoadManifest {
     $script:created = @(); $script:modified = @(); $script:dirs = @()
-    if (Test-Path (ManifestPath)) {
+    if (Test-Path -LiteralPath (ManifestPath)) {
         $m = Get-Content (ManifestPath) -Raw | ConvertFrom-Json
         $script:created = @($m.created | Where-Object { $_ })
         $script:modified = @($m.modified | Where-Object { $_ })
@@ -160,7 +243,7 @@ function InGame($path) {
 function EnsureDir($dir) {
     $missing = @()
     $d = $dir
-    while ($d -and -not (Test-Path $d)) { $missing += $d; $d = Split-Path -Parent $d }
+    while ($d -and -not (Test-Path -LiteralPath $d)) { $missing += $d; $d = Split-Path -Parent $d }
     [array]::Reverse($missing)
     foreach ($m in $missing) {
         $rel = InGame $m
@@ -173,7 +256,7 @@ function EnsureDir($dir) {
 function Track($path) {
     $rel = InGame $path
     if (($script:created -contains $rel) -or ($script:modified -contains $rel)) { return }
-    if (Test-Path $path) {
+    if (Test-Path -LiteralPath $path) {
         $copy = J (BackupDir) "files" $rel
         New-Item -ItemType Directory -Force (Split-Path -Parent $copy) | Out-Null
         Copy-Item -LiteralPath $path -Destination $copy -Force
@@ -189,12 +272,12 @@ $latin1 = [Text.Encoding]::GetEncoding(28591)
 function ReadText($path) { [IO.File]::ReadAllText($path, $latin1) }
 function WriteText($path, $text) {
     Track $path
-    if (Test-Path $path) { Set-ItemProperty -LiteralPath $path -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $path) { Set-ItemProperty -LiteralPath $path -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
     [IO.File]::WriteAllText($path, $text, $latin1)
 }
 function CopyIn($from, $to) {
     Track $to
-    if (Test-Path $to) { Set-ItemProperty -LiteralPath $to -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $to) { Set-ItemProperty -LiteralPath $to -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
     Copy-Item -LiteralPath $from -Destination $to -Force
 }
 
@@ -202,7 +285,7 @@ function Fetch($pkg) {
     $dl = J $Scratch "downloads"
     New-Item -ItemType Directory -Force $dl | Out-Null
     $zip = J $dl (Split-Path -Leaf $pkg.url)
-    $ok = (Test-Path $zip) -and ((Get-FileHash $zip -Algorithm SHA256).Hash -ieq $pkg.sha256)
+    $ok = (Test-Path -LiteralPath $zip) -and ((Get-FileHash $zip -Algorithm SHA256).Hash -ieq $pkg.sha256)
     if (-not $ok) {
         Note "downloading $($pkg.url)"
         try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
@@ -215,7 +298,7 @@ function Fetch($pkg) {
     }
     Note "verified    $($pkg.name)  sha256 $($pkg.sha256)"
     $out = J $dl ([IO.Path]::GetFileNameWithoutExtension($zip))
-    if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+    if (Test-Path -LiteralPath $out) { Remove-Item -Recurse -Force $out }
     Expand-Archive -LiteralPath $zip -DestinationPath $out
     return $out
 }
@@ -229,7 +312,7 @@ function AddMissing($extracted) {
         $rel = $_.FullName.Substring($src.Length + 1)
         if ($rel -match '\.(so|dylib)$') { return }
         $to = J $cs $rel
-        if (-not (Test-Path $to)) { CopyIn $_.FullName $to; $n++ }
+        if (-not (Test-Path -LiteralPath $to)) { CopyIn $_.FullName $to; $n++ }
     }
     Note "added $n files from $(Split-Path -Leaf $src)"
 }
@@ -241,18 +324,18 @@ function InstallPlugin {
     $amxDll = J $amx "dlls" "amxmodx_mm.dll"
     $modules = @("fakemeta_amxx.dll", "hamsandwich_amxx.dll", "sockets_amxx.dll")
     $prebuilt = J $root "client" "cs16" "plugin" "carthago_cs16.amxx"
-    if (-not (Test-Path $prebuilt)) { Die "missing $prebuilt" }
+    if (-not (Test-Path -LiteralPath $prebuilt)) { Die "missing $prebuilt" }
     if ((Get-FileHash $prebuilt -Algorithm SHA256).Hash -ine $pluginSha256) { Die "$prebuilt does not match the hash pinned in this script" }
     LoadManifest
 
-    $needMm = -not (Test-Path $mmDll)
-    $missingModules = @($modules | Where-Object { -not (Test-Path (J $amx "modules" $_)) })
-    $needAmx = (-not (Test-Path $amxDll)) -or ($missingModules.Count -gt 0)
+    $needMm = -not (Test-Path -LiteralPath $mmDll)
+    $missingModules = @($modules | Where-Object { -not (Test-Path -LiteralPath (J $amx "modules" $_)) })
+    $needAmx = (-not (Test-Path -LiteralPath $amxDll)) -or ($missingModules.Count -gt 0)
     if ($needMm -or $needAmx) {
         Write-Host ""
         Write-Host "The game folder lacks:" -ForegroundColor Yellow
         if ($needMm) { Write-Host "    Metamod (cstrike\addons\metamod\dlls\metamod.dll)" }
-        if (-not (Test-Path $amxDll)) { Write-Host "    AMX Mod X (cstrike\addons\amxmodx\dlls\amxmodx_mm.dll)" }
+        if (-not (Test-Path -LiteralPath $amxDll)) { Write-Host "    AMX Mod X (cstrike\addons\amxmodx\dlls\amxmodx_mm.dll)" }
         elseif ($missingModules.Count) { Write-Host "    AMX Mod X modules: $($missingModules -join ', ')" }
         Write-Host "They can be downloaded from the official release site, checked against pinned SHA-256 hashes:"
         if ($needMm) { Write-Host "    $($official.metamod.url)" }
@@ -276,7 +359,7 @@ function InstallPlugin {
     # The engine loads the game DLL named in liblist.gam; Metamod sits in that place and
     # loads the real game DLL itself.
     $liblist = J $cs "liblist.gam"
-    if (-not (Test-Path $liblist)) { Die "no $liblist" }
+    if (-not (Test-Path -LiteralPath $liblist)) { Die "no $liblist" }
     $text = ReadText $liblist
     $re = New-Object Text.RegularExpressions.Regex('(?im)^([ \t]*gamedll[ \t]+)"([^"\r\n]*)"')
     $m = $re.Match($text)
@@ -288,7 +371,7 @@ function InstallPlugin {
         Note "changed     cstrike\liblist.gam: gamedll `"$gamedll`" -> `"addons\metamod\dlls\metamod.dll`""
         if (($gamedll -replace '/', '\') -ine 'dlls\mp.dll') {
             $cfg = J $cs "addons" "metamod" "config.ini"
-            if (-not (Test-Path $cfg)) {
+            if (-not (Test-Path -LiteralPath $cfg)) {
                 WriteText $cfg "gamedll $gamedll`r`n"
                 Note "added       cstrike\addons\metamod\config.ini (tells Metamod the game DLL is $gamedll)"
             }
@@ -300,7 +383,7 @@ function InstallPlugin {
     $mmPlugins = J $cs "addons" "metamod" "plugins.ini"
     $line = 'win32 addons\amxmodx\dlls\amxmodx_mm.dll'
     $have = ""
-    if (Test-Path $mmPlugins) { $have = ReadText $mmPlugins }
+    if (Test-Path -LiteralPath $mmPlugins) { $have = ReadText $mmPlugins }
     $active = @($have -split "`r?`n" | Where-Object { ($_ -match 'amxmodx_mm\.dll') -and ($_ -notmatch '^\s*(;|#|//)') })
     if ($active.Count -eq 0) {
         $sep = ""
@@ -320,7 +403,7 @@ function InstallPlugin {
 
 function UninstallPlugin {
     LoadManifest
-    if (-not (Test-Path (ManifestPath))) {
+    if (-not (Test-Path -LiteralPath (ManifestPath))) {
         Note "nothing of this kit is installed in $script:GameDir"
         return
     }
@@ -328,8 +411,8 @@ function UninstallPlugin {
         $copy = J (BackupDir) "files" $rel
         $to = J $script:GameDir $rel
         InGame $to | Out-Null
-        if (Test-Path $copy) {
-            if (Test-Path $to) { Set-ItemProperty -LiteralPath $to -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $copy) {
+            if (Test-Path -LiteralPath $to) { Set-ItemProperty -LiteralPath $to -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue }
             Copy-Item -LiteralPath $copy -Destination $to -Force
             Note "restored    $rel"
         } else {
@@ -340,7 +423,7 @@ function UninstallPlugin {
     foreach ($rel in $script:created) {
         $p = J $script:GameDir $rel
         InGame $p | Out-Null
-        if (Test-Path $p) {
+        if (Test-Path -LiteralPath $p) {
             Set-ItemProperty -LiteralPath $p -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $p -Force
             $n++
@@ -350,7 +433,7 @@ function UninstallPlugin {
     foreach ($rel in ($script:dirs | Sort-Object { $_.Length } -Descending)) {
         $p = J $script:GameDir $rel
         InGame $p | Out-Null
-        if ((Test-Path $p) -and -not (Get-ChildItem -LiteralPath $p -Force | Select-Object -First 1)) { Remove-Item -LiteralPath $p -Force }
+        if ((Test-Path -LiteralPath $p) -and -not (Get-ChildItem -LiteralPath $p -Force | Select-Object -First 1)) { Remove-Item -LiteralPath $p -Force }
     }
     Remove-Item -Recurse -Force (BackupDir)
     Note "the game folder is as it was before the kit"
@@ -361,10 +444,15 @@ if ($Uninstall) {
     Step "stop the gateway and dashboard started by this script"
     StopGateway
     Step "undo the changes in the game folder"
-    if (-not $GameDir -and (Test-Path $lastGameFile)) { $GameDir = (Get-Content $lastGameFile | Select-Object -First 1) }
-    if ($GameDir -and (Test-Path (J $GameDir "carthago-cs16-backup"))) {
-        $GameDir = (Resolve-Path $GameDir).Path.TrimEnd('\', '/')
-        if (Get-Process -Name hl -ErrorAction SilentlyContinue) { Die "hl.exe is running; close the game first" }
+    if (-not $GameDir -and (Test-Path -LiteralPath $lastGameFile)) {
+        $last = @(Get-Content $lastGameFile)
+        $GameDir = $last[0]
+        if ($last.Count -gt 1) { $script:GameExePath = $last[1] }
+    }
+    if ($GameDir -and (Test-Path -LiteralPath (J $GameDir "carthago-cs16-backup"))) {
+        $GameDir = (Resolve-Path -LiteralPath $GameDir).Path.TrimEnd('\', '/')
+        $running = GameRunning
+        if ($running) { Die "the game ($running) is running; close it first" }
         UninstallPlugin
     } elseif ($GameDir) {
         Note "nothing of this kit is installed in $GameDir"
@@ -372,7 +460,7 @@ if ($Uninstall) {
         Note "no game folder known; if the plugin was installed, run again with -GameDir `"<game folder>`""
     }
     if ($Purge) {
-        if ((Test-Path $Scratch) -and ((Split-Path -Leaf $Scratch) -like "carthago*")) {
+        if ((Test-Path -LiteralPath $Scratch) -and ((Split-Path -Leaf $Scratch) -like "carthago*")) {
             Remove-Item -Recurse -Force $Scratch
             Note "deleted $Scratch"
         } else {
@@ -395,7 +483,7 @@ $bridgeExe = J $env:CARGO_TARGET_DIR "release" "carthago-cs16-bridge$exeSuffix"
 if (-not $DashboardOnly) {
     Step "find Counter-Strike 1.6"
     FindGame
-    Set-Content -Path $lastGameFile -Value $GameDir
+    Set-Content -Path $lastGameFile -Value @($GameDir, $script:GameExePath)
 }
 
 if (-not $SkipBuild -and -not $InstallOnly) {
@@ -426,10 +514,10 @@ if (-not $DashboardOnly -and -not $NoPlugin) {
 }
 if ($InstallOnly) { exit 0 }
 
-if (-not (Test-Path $gatewayExe)) { Die "missing $gatewayExe (run without -SkipBuild)" }
+if (-not (Test-Path -LiteralPath $gatewayExe)) { Die "missing $gatewayExe (run without -SkipBuild)" }
 if (-not $DashboardOnly) {
-    if (-not (Test-Path $companionExe)) { Die "missing $companionExe (run without -SkipBuild)" }
-    if ($plugin -and -not (Test-Path $bridgeExe)) { Die "missing $bridgeExe (run without -SkipBuild)" }
+    if (-not (Test-Path -LiteralPath $companionExe)) { Die "missing $companionExe (run without -SkipBuild)" }
+    if ($plugin -and -not (Test-Path -LiteralPath $bridgeExe)) { Die "missing $bridgeExe (run without -SkipBuild)" }
 }
 
 # ---- gateway, dashboard, bridge -------------------------------------------------------------
@@ -448,7 +536,7 @@ $script:gateway = Start-Process $gatewayExe -ArgumentList $gwArgs -RedirectStand
 Set-Content -Path $pidFile -Value $script:gateway.Id
 for ($i = 0; $i -lt 150; $i++) {
     if ($script:gateway.HasExited) { break }
-    if ((Test-Path $keys) -and (PortOpen $gatewayPort) -and (PortOpen $dashboardPort)) { break }
+    if ((Test-Path -LiteralPath $keys) -and (PortOpen $gatewayPort) -and (PortOpen $dashboardPort)) { break }
     Start-Sleep -Milliseconds 100
 }
 if ($script:gateway.HasExited -or -not (PortOpen $dashboardPort)) {
@@ -487,11 +575,12 @@ if (-not $NoBrowser) { Start-Process $dashboardUrl }
 $exit = 0
 if (-not $DashboardOnly) {
     Step "start the game through the companion"
-    Note "The companion opens the session first, then starts hl.exe. Leave this window open."
+    $exeName = Split-Path -Leaf $script:GameExePath
+    Note "The companion opens the session first, then starts $exeName. Leave this window open."
     if ($plugin -and -not $Map) { Note "In the game: New Game, pick a map, Start. Add bots from the menu (or console: bot_add)." }
     Note "After about 20 seconds in the game, open Sessions in the dashboard."
     $compLog = J $logs "companion.log"
-    $compArgs = @("--keys", $keys, "--gateway", "wss://127.0.0.1:$gatewayPort/v1/client", "--game-dir", $GameDir,
+    $compArgs = @("--keys", $keys, "--gateway", "wss://127.0.0.1:$gatewayPort/v1/client", "--exe", $script:GameExePath,
         "--player", $Player, "--session-file", $session, "--log", $compLog)
     if ($NoTpm) { $compArgs += "--no-tpm" }
     if ($InputMonitor) { $compArgs += "--input-monitor" }
@@ -513,7 +602,7 @@ if (-not $DashboardOnly) {
     switch ($exit) {
         0 { Write-Host "OK    the session stayed up while the game ran" -ForegroundColor Green }
         2 { Write-Host "FAIL  no session with the gateway; the game was not started (see $compLog)" -ForegroundColor Red }
-        3 { Write-Host "FAIL  the session opened but hl.exe could not be started (see $compLog)" -ForegroundColor Red }
+        3 { Write-Host "FAIL  the session opened but $exeName could not be started (see $compLog)" -ForegroundColor Red }
         4 { Write-Host "FAIL  the session was lost and could not be re-established (see $compLog)" -ForegroundColor Red }
         default { Write-Host "FAIL  the companion exited with code $exit (see $compLog)" -ForegroundColor Red }
     }
