@@ -124,6 +124,9 @@ func (o *dashAuthOptions) configure(d *dashboard.Server, addr string) error {
 		if c.SecretKey, err = loadOrCreateDashboardKey(o.dataDir); err != nil {
 			return err
 		}
+		if abs, err := filepath.Abs(o.dataDir); err == nil {
+			c.DataDir = abs
+		}
 	}
 	return d.ConfigureAuth(c)
 }
@@ -175,10 +178,13 @@ func dashboardUserCommand(args []string, stdin io.Reader, stdout, stderr io.Writ
 	if *tenant == "" || (*name == "" && cmd != "list") {
 		return fail(errors.New("-tenant and -name are required (list needs only -tenant)"))
 	}
-	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
-		return fail(err)
+	// The usual mistake is the wrong directory, and a new empty database there would take
+	// the account without a word while the running dashboard never sees it.
+	dbPath := filepath.Join(*dataDir, "gateway.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return fail(fmt.Errorf("no gateway database at %s: give -data the data directory the gateway runs with (it creates the database at its first start)", dbPath))
 	}
-	st, err := store.OpenSQLite(filepath.Join(*dataDir, "gateway.db"))
+	st, err := store.OpenSQLite(dbPath)
 	if err != nil {
 		return fail(err)
 	}

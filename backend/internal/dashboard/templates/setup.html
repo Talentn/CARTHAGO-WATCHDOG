@@ -26,7 +26,7 @@
         <form method="post" action="/account/two-factor/setup" class="stack form">
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <input type="hidden" name="pending" value="{{$d.Pending}}">
-          {{if $d.NeedPassword}}<label>Your password<input name="password" type="password" autocomplete="current-password" required></label>{{end}}
+          {{if $d.NeedPassword}}<input class="pm-user" type="text" name="username" value="{{$d.User}}" autocomplete="username" readonly><label>Your password<input name="password" type="password" autocomplete="current-password" required></label>{{end}}
           <label>6-digit code<input name="code" class="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="12" required{{if not $d.NeedPassword}} autofocus{{end}}></label>
           <button type="submit" class="primary">{{if $d.Replace}}Replace authenticator app{{else}}Turn on two-factor sign-in{{end}}</button>
         </form>

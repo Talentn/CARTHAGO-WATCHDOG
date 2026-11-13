@@ -18,6 +18,7 @@
   <h2>Password</h2>
   <form method="post" action="/account/password" class="stack form">
     <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <input class="pm-user" type="text" name="username" value="{{.Name}}" autocomplete="username" readonly>
     <label>Current password<input name="current" type="password" autocomplete="current-password" required></label>
     <label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
     <label>New password again<input name="repeat" type="password" autocomplete="new-password" minlength="12" required></label>
@@ -35,6 +36,7 @@
       <div><p>New recovery codes</p><p class="hint">The old ones stop working</p></div>
       <form method="post" action="/account/recovery-codes">
         <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <input class="pm-user" type="text" name="username" value="{{.Name}}" autocomplete="username" readonly>
         <input name="password" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
         <input name="code" class="otp short" inputmode="numeric" autocomplete="one-time-code" placeholder="Code" aria-label="Two-factor code" maxlength="24" required>
         <button type="submit" class="secondary">Make new codes</button>
@@ -45,6 +47,7 @@
       <div><p>Turn off</p><p class="hint">Sign in with the password alone</p></div>
       <form method="post" action="/account/two-factor/disable">
         <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <input class="pm-user" type="text" name="username" value="{{.Name}}" autocomplete="username" readonly>
         <input name="password" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" required>
         <input name="code" class="otp short" inputmode="numeric" autocomplete="one-time-code" placeholder="Code" aria-label="Two-factor code" maxlength="24" required>
         <button type="submit" class="secondary">Turn off</button>
@@ -83,7 +86,7 @@
   <p><span class="mark mark-watch">Demo login</span></p>
   <p class="lead">You are signed in with the shared studio key, not as a person</p>
   <p class="note">This login exists for testing on the PC that runs the gateway. It can read every page and act as a reviewer, it cannot manage users or read the audit log, and it stops working for this studio as soon as the studio has its first admin account. Create that account on the gateway PC:</p>
-  <pre>carthago-gateway dashboard-user add-admin -tenant {{.Tenant}} -name YOUR-NAME</pre>
+  <pre class="wrapall">carthago-gateway dashboard-user add-admin{{with $d.DataDir}} -data "{{.}}"{{end}} -tenant {{.Tenant}} -name YOUR-NAME</pre>
   <p class="note foot-note">The command prints a one-time link. Open it on this PC to choose the password.</p>
 </section>
 {{end}}

@@ -20,7 +20,7 @@
     </dl>
     <form method="post" action="/invite/{{$d.Token}}" class="stack">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <input type="hidden" name="username" value="{{$d.Name}}" autocomplete="username">
+      <input class="pm-user" type="text" name="username" value="{{$d.Name}}" autocomplete="username" readonly>
       <label>{{if $d.Reset}}New password{{else}}Password{{end}}<input name="password" type="password" autocomplete="new-password" minlength="12" required autofocus></label>
       <label>The same password again<input name="repeat" type="password" autocomplete="new-password" minlength="12" required></label>
       <p class="hint">At least 12 characters. A few unrelated words work well</p>

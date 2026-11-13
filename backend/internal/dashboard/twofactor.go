@@ -32,6 +32,7 @@ type setupData struct {
 	// NeedPassword: the form asks for the current password (not right after signing in).
 	NeedPassword bool
 	Account      string
+	User         string
 	QRPath       string
 	QRSide       int
 	Key          string // the secret in base32, in groups of four, for typing by hand
@@ -104,7 +105,7 @@ func (s *Server) renderSetup(w http.ResponseWriter, r *http.Request, status int,
 		return
 	}
 	d := setupData{Error: errMsg, Replace: len(u.TOTPSecret) > 0, Forced: st.sess.Kind == store.DashSessionEnrol || st.mustEnrol,
-		NeedPassword: st.sess.Kind == store.DashSessionFull, Account: account, Key: groupsOf4(b32.EncodeToString(secret)), Pending: pending}
+		NeedPassword: st.sess.Kind == store.DashSessionFull, Account: account, User: u.Name, Key: groupsOf4(b32.EncodeToString(secret)), Pending: pending}
 	d.QRPath, d.QRSide = qr.svgPath()
 	p := page{Title: "Two-factor sign-in", Nav: "account", Data: d}
 	if st.sess.Kind == store.DashSessionFull && !st.mustEnrol {

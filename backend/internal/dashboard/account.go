@@ -27,6 +27,8 @@ type accountData struct {
 	Sessions []sessionLine
 	// IdleText and TTLText say when a session ends, in words.
 	IdleText, TTLText string
+	// DataDir, when known, completes the command the demo login's page prints.
+	DataDir string
 }
 
 // spanText writes a duration the way the pages say it: "30 minutes", "12 hours".
@@ -101,7 +103,7 @@ func browserName(ua string) string {
 func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, status int, notice, errMsg string) {
 	st := stateOf(r)
 	ctx := r.Context()
-	d := accountData{Error: errMsg, User: st.user, IdleText: spanText(s.idleTTL), TTLText: spanText(s.sessionTTL)}
+	d := accountData{Error: errMsg, User: st.user, IdleText: spanText(s.idleTTL), TTLText: spanText(s.sessionTTL), DataDir: s.dataDir}
 	if u := st.user; u != nil {
 		set, err := s.au.GetTenantSettings(ctx, u.TenantID)
 		if err != nil {

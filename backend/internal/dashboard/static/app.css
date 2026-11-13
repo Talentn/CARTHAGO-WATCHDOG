@@ -202,6 +202,10 @@ button.tall { height: 40px; font-size: 14px; padding: 0 16px; }
 .form { max-width: 376px; }
 .head h1 .mono { margin-left: 8px; }
 .card > p:last-child, .foot-note { margin-bottom: 0; }
+.foot-note { margin-top: 12px; }
+/* The user name next to a password field, for password managers; people do not see it. */
+.pm-user { display: none; }
+.top nav a { white-space: nowrap; }
 .card > p:first-child { margin-top: 0; }
 dl.spaced { margin-top: 16px; }
 dl.tight { grid-template-columns: 96px minmax(0, 1fr); margin-bottom: 24px; }
@@ -237,6 +241,7 @@ select, button.secondary { transition: border-color 140ms var(--ease); }
 @media (prefers-reduced-motion: reduce) { select, button.secondary { transition: none; } }
 @media (max-width: 720px) {
   .codes { grid-template-columns: max-content; }
+  .top nav { overflow-x: auto; }
   .row form { flex: 1 1 100%; }
 }
 

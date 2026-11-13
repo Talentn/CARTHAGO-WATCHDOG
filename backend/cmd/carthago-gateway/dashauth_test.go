@@ -40,6 +40,18 @@ func TestDashboardUserCommand(t *testing.T) {
 		return st
 	}
 
+	// Without the gateway's database in that directory nothing is created there.
+	if code, out, errOut := dashUser(t, "", "add-admin", "-data", dir, "-tenant", "demo", "-name", "ala"); code != 1 || out != "" || !strings.Contains(errOut, "no gateway database at") {
+		t.Fatalf("add-admin in a directory without a database: %d %q %q", code, out, errOut)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Fatal("the command created the directory")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	open().Close() // what the gateway's first start does
+
 	// add-admin prints a one-time link and creates no account by itself.
 	code, out, errOut := dashUser(t, "", "add-admin", "-data", dir, "-tenant", "demo", "-name", "Ala")
 	link := regexp.MustCompile(`(?m)^  http://127\.0\.0\.1:8751/invite/([A-Za-z0-9_-]{43})$`).FindStringSubmatch(out)

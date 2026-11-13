@@ -37,6 +37,9 @@ type AuthConfig struct {
 	// TrustedProxies are the reverse proxies whose X-Forwarded-For header names the real
 	// client. Without them the address in rate limits and the audit log is the peer's.
 	TrustedProxies []netip.Prefix
+	// DataDir is the gateway's data directory, shown in the command that creates the
+	// first admin so it can be copied as it stands. Display only.
+	DataDir string
 }
 
 const (
@@ -65,6 +68,7 @@ type authState struct {
 	sessionTTL time.Duration
 	idleTTL    time.Duration
 	proxies    []netip.Prefix
+	dataDir    string
 	argon      argonParams
 	// hashing bounds how many password hashes run at once: each takes argon.MemoryKiB.
 	hashing chan struct{}
@@ -101,7 +105,7 @@ func (s *Server) ConfigureAuth(c AuthConfig) error {
 	if err != nil {
 		return err
 	}
-	s.box, s.loopback, s.proxies = box, c.Loopback, c.TrustedProxies
+	s.box, s.loopback, s.proxies, s.dataDir = box, c.Loopback, c.TrustedProxies, c.DataDir
 	s.sessionTTL, s.idleTTL = c.SessionTTL, c.IdleTimeout
 	if s.sessionTTL <= 0 {
 		s.sessionTTL = defaultSessionTTL

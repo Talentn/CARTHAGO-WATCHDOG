@@ -178,7 +178,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, st *reqState, min
 	}
 	h(rw, r, st.viewer)
 	if unsafe && !st.audited {
-		s.Audit(r, "request."+strings.ToLower(r.Method), r.URL.Path, "status "+strconv.Itoa(rw.status))
+		outcome := "accepted"
+		if rw.status >= 400 {
+			outcome = "refused"
+		}
+		s.Audit(r, "request."+strings.ToLower(r.Method), r.URL.Path, outcome+" ("+strconv.Itoa(rw.status)+")")
 	}
 }
 
