@@ -69,6 +69,8 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60 -EndMatchOnDetect
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -AlertOnIntegrity
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -ResetStartProfile
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -Unban
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -NoAutoBan
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Map de_dust2 -AlertOnWallhackScore
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Diagnose
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Stage 2
@@ -129,6 +131,15 @@ param(
     # wallhack is delivered. With this switch such a file is excused when the first
     # recorded start had it.
     [switch]$AllowRendererLibrary,
+    # Automatic bans are on: evidence that is certain (an unsigned renderer library, an
+    # unsigned DLL injected from outside the game folder, rewritten code of opengl32.dll or
+    # client.dll, an image mapped by hand, an unsigned outside program with a handle that
+    # writes the game's memory) bans the test player and this PC's device key in the local
+    # gateway. The alert still shows first; the next start shows the BANNED screen instead
+    # of the game. Statistical evidence never bans. This switch turns automatic bans off.
+    [switch]$NoAutoBan,
+    # Lift every ban in the local test gateway before this run, so you can keep testing.
+    [switch]$Unban,
     # Opt-in, for a test on your own server: also raise the alert when the information-leak
     # (wallhack) score of the player on this PC is strong in two separate four-minute
     # stretches of one match. Without it that score is evidence for review only. It is a
@@ -921,11 +932,21 @@ foreach ($port in $gatewayPort, $dashboardPort) {
 $keys = J $data "public-keys.json"
 $gwLog = J $logs "gateway.log"
 # Loopback only, self-signed development certificate kept in the scratch folder, and no
-# -auto-kick: nothing the gateway sees can end the session. -client-notices lets it tell
-# the companion that the session was flagged, which is what raises the alert.
+# -auto-kick. -client-notices lets the gateway tell the companion that the session was
+# flagged, which is what raises the alert. A ban ends the banned player's session and
+# refuses the next one; it never closes the game.
+if ($Unban) {
+    $lifted = @(& $gatewayExe bans lift -data $data -tenant demo -all -note "carthago-cs16.ps1 -Unban" 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE) { Die "-Unban: $($lifted -join ' ')" }
+    $n = @($lifted | Where-Object { $_ -match '^lifted ' }).Count
+    if ($n) { Write-Host "UNBAN $n ban$(if ($n -ne 1) { 's' }) lifted in the local test gateway: $((($lifted | Where-Object { $_ -match '^lifted ' }) -replace '^lifted ', '') -join ', ')" -ForegroundColor Green }
+    else { Note "-Unban: nobody was banned in the local test gateway" }
+}
 $gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
 if ($AlertOnIntegrity) { $gwArgs += "-client-notices-strict" }
 if ($AllowRendererLibrary) { $gwArgs += "-allow-renderer-library" }
+# The staged check starts the game several times in a row; a ban would refuse the later ones.
+if ($NoAutoBan -or $Diagnose) { $gwArgs += "-auto-ban=false" }
 $script:mapDirs = @()
 if ($plugin -and -not $DashboardOnly) {
     $script:mapDirs = @(MapDirs)
@@ -1141,6 +1162,42 @@ function LeakReport($matchData) {
     if ($AlertOnWallhackScore) { Note "-AlertOnWallhackScore was on: a strong score in two four-minute stretches of one match raises the alert (opt-in, your own server; a behaviour score, not proof)." }
     else { Note "The score raises no alert by default; -AlertOnWallhackScore lets it (opt-in, for a test on your own server)." }
 }
+# The companion's own line about a ban, if it logged one: the reference, and whether the
+# game was started at all.
+function BannedLine {
+    $line = @(Get-Content -LiteralPath $script:compLog -ErrorAction SilentlyContinue | Where-Object { $_ -match 'BANNED reference=(\S+)' }) | Select-Object -Last 1
+    if ($line -and $line -match 'BANNED reference=(\S+)') { return @{ Ref = $Matches[1]; AtStart = ($line -match 'The game was not started') } }
+    return $null
+}
+$script:unbanHint = "To lift it and keep testing: run the same command with -Unban added. The dashboard's Bans page lifts it too."
+# What the gateway banned in this run, from its log, and how to lift it.
+function BanReport {
+    $text = '"((?:[^"\\]|\\.)*)"'
+    $made = $false
+    foreach ($line in @(Get-Content -LiteralPath $gwLog -ErrorAction SilentlyContinue)) {
+        if ($line -notmatch "^time=(\S+) .* msg=ban ref=(\S+) tenant=\S+ player=(?:$text|(\S+)) device=\S* device_tpm=(\w+) by=(?:$text|(\S+)) rule=(\S*) session=\S* effective_in=(\S+)") { continue }
+        $made = $true
+        $at = $Matches[1]
+        try { $at = ([datetime]::Parse($Matches[1])).ToString("HH:mm:ss") } catch { }
+        $who = "$($Matches[3])$($Matches[4])"
+        $by = "$($Matches[6])$($Matches[7])"
+        $key = $(if ($Matches[5] -eq 'true') { "this PC's device key (in its TPM)" } else { "this PC's device key (a software key: this run had no TPM key)" })
+        $how = $(if ($by -eq 'automatic') { "automatically, on rule $($Matches[8])" } else { "by $by in the dashboard" })
+        if ($Matches[9] -eq '0s') {
+            Write-Host "BANNED at ${at}: player $who and $key were banned $how. Reference $($Matches[2])." -ForegroundColor Red
+            Note "      The session was ended; the game was left running. The next start shows the BANNED screen and does not start the game."
+        } else {
+            Write-Host "BAN PENDING since ${at}: player $who and $key will be banned $how in $($Matches[9]) (the automatic ban delay). Reference $($Matches[2])." -ForegroundColor Yellow
+            Note "      Until then the player can play; after that the next start shows the BANNED screen and does not start the game."
+        }
+    }
+    if ($made) {
+        Note "      $script:unbanHint"
+        Note "      With the cheat still in place the next run bans again; -NoAutoBan runs without automatic bans."
+    } elseif ($NoAutoBan) {
+        Note "-NoAutoBan: nobody is banned automatically in this run; Ban player on the session page of the dashboard still works."
+    }
+}
 function CompanionVerdict($code, $exeName) {
     switch ($code) {
         0 { Write-Host "OK    the session stayed up while the game ran" -ForegroundColor Green }
@@ -1148,6 +1205,16 @@ function CompanionVerdict($code, $exeName) {
         3 { Write-Host "FAIL  the session opened but $exeName could not be started (see $script:compLog)" -ForegroundColor Red }
         4 { Write-Host "FAIL  the session was lost and could not be re-established (see $script:compLog)" -ForegroundColor Red }
         5 { Write-Host "FAIL  $exeName ended within seconds and no game appeared; the game did not start (see $script:compLog)" -ForegroundColor Red }
+        6 {
+            $b = BannedLine
+            if ($b -and $b.AtStart) {
+                Write-Host "BANNED the gateway refused the session: this player or this PC's device key is banned (reference $($b.Ref)). The game was not started." -ForegroundColor Red
+                Note "      The gateway tells a banned player only that, never why. The reason is on the dashboard's Bans page."
+                Note "      $script:unbanHint"
+            } else {
+                Write-Host "BANNED the session was ended by a ban and a new one is refused; the game was left running" -ForegroundColor Red
+            }
+        }
         default { Write-Host "FAIL  the companion exited with code $code (see $script:compLog)" -ForegroundColor Red }
     }
 }
@@ -1262,6 +1329,8 @@ if ($AlertOnWallhackScore) {
     if ($plugin) { Note "-AlertOnWallhackScore: a strong information-leak score in two four-minute stretches of one match raises the alert. Opt-in, for your own server: it is a behaviour score, not proof. Play one map for 20 to 30 minutes." }
     else { Note "-AlertOnWallhackScore needs the plugin's match data, which is off in this run: it does nothing." }
 }
+if ($NoAutoBan) { Note "-NoAutoBan: automatic bans are off in this run." }
+else { Note "Automatic bans are on: evidence that is certain bans this test player and this PC's device key (-NoAutoBan turns that off, -Unban lifts a ban)." }
 if ($AlertOnIntegrity) { Note "-AlertOnIntegrity: the alert is also raised for what a modified but honest game build shows. Expect alerts on a clean game." }
 $elevated = $false
 try { $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { }
@@ -1283,8 +1352,12 @@ if ($plugin) { $matchData = StopBridge }
 
 Step "result"
 CompanionVerdict $exit $exeName
-AlertVerdict
-IntegrityReport
+$refused = BannedLine
+if (-not ($refused -and $refused.AtStart)) {
+    AlertVerdict
+    IntegrityReport
+    BanReport
+}
 if ($plugin) {
     $info = CollectGame $logs $since $from $stamp
     $status = $matchData | Where-Object { $_ -match 'STATUS' } | Select-Object -Last 1

@@ -462,6 +462,8 @@ WRAP
   # What the companion sees change in the started game. $1 names the case, variables for
   # the stand-in game follow up to "--", then options of the script. The picture of the
   # started game is taken early (-BaselineSecs 2) and the stand-in changes itself 22 s in.
+  # These cases are about the alert; automatic bans are off in them (-NoAutoBan) and have
+  # their own cases at the end.
   integ() {
     local name="$1" vars=()
     shift
@@ -469,7 +471,7 @@ WRAP
     shift
     (
       for v in "${vars[@]}"; do export "$v"; done
-      full -NoPlugin -AlertSecs 2 -BaselineSecs 2 "$@"
+      full -NoPlugin -NoAutoBan -AlertSecs 2 -BaselineSecs 2 "$@"
     ) >"$run/integ-$name.log" 2>&1 || { cat "$run/integ-$name.log"; fail "integrity case $name: the run failed"; }
     grep -E '^(OK|FAIL|NOTE|ALERT)|^ +(evidence|raised by) ' "$run/integ-$name.log" | cut -c1-230
   }
@@ -575,6 +577,64 @@ WRAP
   echo "ok   an unsigned renderer library raises the visibility alert by default, in the first recorded run and when the record lists it"
   rm "$game/opengl32.dll"
   ! grep -qi 'kick' "$run"/carthago-scratch/logs/*/gateway.log || fail "the gateway kicked a session"
+  ! grep -q 'msg=ban ' "$run"/carthago-scratch/logs/*/gateway.log || fail "somebody was banned in a run with -NoAutoBan"
+
+  # Automatic bans, which are on unless -NoAutoBan is given. $1 names the case, the rest
+  # are options of the script; the exit code is left in $code.
+  banrun() {
+    local name="$1"
+    shift
+    code=0
+    (
+      export FAKE_CS16_OPENGL=1 WINEDLLOVERRIDES=opengl32=n,b
+      full -NoPlugin -AlertSecs 2 -BaselineSecs 2 -GameArgs:"-game cstrike -secs 20" "$@"
+    ) >"$run/integ-$name.log" 2>&1 || code=$?
+    grep -E '^(OK|FAIL|NOTE|ALERT|BANNED|BAN PENDING|UNBAN)' "$run/integ-$name.log" | cut -c1-230
+  }
+  ban_log() { echo "$(ls -d "$run"/carthago-scratch/logs/*/ | tail -1)gateway.log"; }
+  refused='^BANNED the gateway refused the session: this player or this PC.s device key is banned (reference CW-[A-Z2-9]\{4\}-[A-Z2-9]\{4\}). The game was not started.'
+
+  step "bans: an unsigned renderer library raises the alert, then bans the test player and this PC's device key"
+  cp "$run/bin/opengl32.dll" "$game/opengl32.dll"
+  banrun ban
+  [[ $code == 6 ]] || { cat "$run/integ-ban.log"; fail "a run that ends in a ban should exit with 6, got $code"; }
+  has ban 'Automatic bans are on: evidence that is certain bans this test player'
+  has ban "$visibility_alert"
+  has ban '^BANNED at [0-9:]*: player cs16-local-player and this PC.s device key (a software key: this run had no TPM key) were banned automatically, on rule renderer_replaced. Reference CW-'
+  has ban 'The next start shows the BANNED screen and does not start the game'
+  has ban 'run the same command with -Unban added'
+  grep -q 'msg="handshake refused: banned" .* matched=account' "$(ban_log)" || fail "the banned player's new session was not refused"
+  [[ $(grep -c 'msg="enforcement notice"' "$(ban_log)") == 1 ]] || fail "the notice did not go out before the ban"
+  ! grep -q 'END MATCH' "$run/integ-ban.log" || fail "a ban closed the game"
+  echo "ok   certain evidence: the alert first, then an automatic ban of the account and the device key; the game is left running"
+  sleep 20
+
+  step "bans: the next start is refused with the BANNED screen and the game is not started; so is a new account on this PC"
+  banrun banned
+  [[ $code == 6 ]] || { cat "$run/integ-banned.log"; fail "a refused start should exit with 6, got $code"; }
+  has banned "$refused"
+  has banned 'The gateway tells a banned player only that, never why'
+  hasnt banned 'GAME pid='
+  hasnt banned 'starting .*cstrike'
+  hasnt banned '^ALERT'
+  hasnt banned 'renderer'
+  banrun newaccount -Player another-account
+  [[ $code == 6 ]] || { cat "$run/integ-newaccount.log"; fail "a new account on a banned device key should be refused with 6, got $code"; }
+  has newaccount "$refused"
+  hasnt newaccount 'GAME pid='
+  grep -q 'msg="handshake refused: banned" .* matched="device key"' "$(ban_log)" || fail "the new account was not refused for the device key"
+  echo "ok   a banned account, and a new account on the banned device key: BANNED, no game, no word about why"
+
+  step "bans: -Unban lifts the test ban, and with -NoAutoBan the same cheat raises the alert and bans nobody"
+  banrun unban -Unban -NoAutoBan
+  [[ $code == 0 ]] || { cat "$run/integ-unban.log"; fail "the run after -Unban failed with $code"; }
+  has unban '^UNBAN 1 ban lifted in the local test gateway: CW-'
+  has unban "$visibility_alert"
+  has unban '-NoAutoBan: nobody is banned automatically in this run'
+  hasnt unban '^BANNED'
+  ! grep -q 'msg=ban ' "$(ban_log)" || fail "-NoAutoBan banned somebody"
+  rm "$game/opengl32.dll"
+  echo "ok   -Unban lifts the ban; -NoAutoBan leaves the alert and bans nobody"
 
   ps1 -Uninstall >"$run/uninstall2.log" 2>&1 || { cat "$run/uninstall2.log"; fail "uninstall after the staged check"; }
   diff -r "$run/game.before" "$game" || fail "the game folder differs after the staged check and -Uninstall"
