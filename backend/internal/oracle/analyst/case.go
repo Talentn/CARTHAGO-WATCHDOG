@@ -120,6 +120,19 @@ var ruleFamily = map[string]string{
 	"external_handle": FamilyEnvironment, "overlay_window": FamilyEnvironment, "vulnerable_driver": FamilyEnvironment,
 	"module_signature": FamilyEnvironment, "external_exec_regions": FamilyEnvironment,
 	"scanner_stalled": FamilyScanner, "scan_quarantined": FamilyScanner, "scan_coverage": FamilyScanner, "evidence_flood": FamilyScanner,
+
+	// The companion that watches a game from outside (analyzer/companion.go). A change
+	// inside the game process is tampering, as is a program that can write its memory. A
+	// program that reads the game and draws over it is the shape of a wallhack. What a
+	// patch, a mod or an ordinary tool also produces is context.
+	"renderer_replaced": FamilyTampering, "system_library_replaced": FamilyTampering, "foreign_module": FamilyTampering,
+	"mapped_image": FamilyTampering, "code_changed": FamilyTampering,
+	"external_writer": FamilyTampering, "memory_tool": FamilyTampering,
+	"overlay_reader":          FamilyInformation,
+	"system_library_shadowed": FamilyEnvironment, "game_file_changed": FamilyEnvironment, "new_game_module": FamilyEnvironment,
+	"external_reader": FamilyEnvironment,
+	// The opt-in live rule of the wallhack scorer (pipeline.RuleInformationLeakLive).
+	"information_leak_live": FamilyInformation,
 }
 
 var (

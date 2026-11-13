@@ -28,7 +28,9 @@ detected (`-client-notices`, the "detected" screen of the CS 1.6 kit). That noti
 the rules' own short list of evidence and from nothing else. An Oracle score, an analyst
 opinion and a reviewer label never raise it, lower it or delay it; with the Oracle on or off,
 the same heartbeats produce the same notices. A test runs both ways and compares
-(`TestOracleNeverRaisesTheClientNotice`).
+(`TestOracleNeverRaisesTheClientNotice`). The same holds for the kit's opt-in wallhack alert
+(`-leak-alert`): it is raised by the scorer's own rule, `information_leak_live`, which the
+Oracle reads as evidence afterwards like any other.
 
 ## Quick start
 
@@ -191,6 +193,16 @@ the session and the player, the model's score, band and top signals, the trust l
 16 most severe evidence rows (the rest are counted), each with an id (`E1`, `E2`, …), the rule's name, its family, severity,
 confidence, a weight (`strong`, `weak` or `context`) and, for cheat families, the kind of
 cheat it points to. Every string in a case file comes from a fixed vocabulary in the gateway.
+
+The rules of the Counter-Strike 1.6 kit are in that vocabulary. A change inside the game
+process or a program that can write its memory (`renderer_replaced`,
+`system_library_replaced`, `foreign_module`, `mapped_image`, `code_changed`,
+`external_writer`, `memory_tool`) points to a modified client. A program that reads the game
+and draws over it (`overlay_reader`) and the opt-in live wallhack score
+(`information_leak_live`) point to hidden information. What a patch, a mod or an ordinary
+tool also produces (`system_library_shadowed`, `game_file_changed`, `new_game_module`,
+`external_reader`) is context and never names a cheat. A rule the gateway does not list is
+shown as `other`, as context.
 
 **What never enters a case file.** Player names, chat, player ids, device ids, IP addresses,
 file paths, module names, window titles and any other string a client supplied. The player

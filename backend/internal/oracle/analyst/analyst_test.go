@@ -99,6 +99,49 @@ func TestVocabularyGateStopsFreeText(t *testing.T) {
 	}
 }
 
+// The rules of the Counter-Strike 1.6 kit reach the analyst by name: what changes the game
+// process or can write to it points at a modified client, an overlay that reads the game
+// and the live wallhack score at knowing where hidden enemies are, and what a patch or an
+// ordinary tool also produces stays context.
+func TestCompanionAndLiveLeakRules(t *testing.T) {
+	for _, tc := range []struct {
+		rule, source     string
+		severity         int
+		weight, pointsTo string
+	}{
+		{"renderer_replaced", store.SourceClient, 3, WeightStrong, TypeTampering},
+		{"system_library_replaced", store.SourceClient, 3, WeightStrong, TypeTampering},
+		{"foreign_module", store.SourceClient, 3, WeightStrong, TypeTampering},
+		{"mapped_image", store.SourceClient, 3, WeightStrong, TypeTampering},
+		{"code_changed", store.SourceClient, 3, WeightStrong, TypeTampering},
+		{"code_changed", store.SourceClient, 1, WeightWeak, TypeTampering},
+		{"external_writer", store.SourceClient, 3, WeightStrong, TypeTampering},
+		{"memory_tool", store.SourceClient, 3, WeightStrong, TypeTampering},
+		{"overlay_reader", store.SourceClient, 3, WeightStrong, TypeInformation},
+		{"information_leak_live", store.SourceGameplay, 3, WeightStrong, TypeInformation},
+		{"system_library_shadowed", store.SourceClient, 1, WeightContext, ""},
+		{"game_file_changed", store.SourceClient, 2, WeightContext, ""},
+		{"new_game_module", store.SourceClient, 2, WeightContext, ""},
+		{"external_reader", store.SourceClient, 2, WeightContext, ""},
+	} {
+		c := Build(NewPseudonymiser(testKey), Input{TenantID: "t", PlayerHash: "p", SessionID: "s",
+			Evidence: []store.Evidence{{ID: 1, Source: tc.source, Rule: tc.rule, Severity: tc.severity, Score: 0.8, Integrity: true}}})
+		if err := c.CheckVocabulary(); err != nil {
+			t.Fatalf("%s: %v", tc.rule, err)
+		}
+		if len(c.Evidence) != 1 {
+			t.Fatalf("%s: %d evidence", tc.rule, len(c.Evidence))
+		}
+		if e := c.Evidence[0]; e.Rule != tc.rule || e.Weight != tc.weight || e.PointsTo != tc.pointsTo {
+			t.Errorf("%s at severity %d: rule %q weight %q points to %q, want weight %q points to %q", tc.rule, tc.severity, e.Rule, e.Weight, e.PointsTo, tc.weight, tc.pointsTo)
+		}
+		v := StubVerdict(c)
+		if named := v.CheatType != TypeNone && v.CheatType != TypeInconclusive; named != (tc.weight == WeightStrong) || (named && v.CheatType != tc.pointsTo) {
+			t.Errorf("%s at severity %d: the fixed reading is %q", tc.rule, tc.severity, v.CheatType)
+		}
+	}
+}
+
 func TestCaseEvidenceCap(t *testing.T) {
 	in := Input{Evidence: []store.Evidence{}}
 	rules := []string{"angle_snap", "headshot_rate", "time_to_damage", "information_leak", "decoy_reaction", "macro_interval", "command_rate"}
