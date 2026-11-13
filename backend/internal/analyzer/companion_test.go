@@ -42,8 +42,8 @@ func check(t *testing.T, name string, e Evidence, w want) {
 	if e.NoticeOptIn && e.Held == "" {
 		t.Errorf("%s: a held notice must say why", name)
 	}
-	if e.Notice != none && !e.Integrity {
-		t.Errorf("%s: evidence that may tell the player must be integrity evidence", name)
+	if e.Notice != none && !e.NoticeOptIn && (!e.Integrity || e.Severity < SeverityHigh) {
+		t.Errorf("%s: evidence that tells the player by default must be integrity evidence of high severity", name)
 	}
 }
 
@@ -67,19 +67,19 @@ func TestModulesByWhenTheyWereSeen(t *testing.T) {
 		// The wallhack delivery: a renderer library that is not the Windows one.
 		{"renderer proxy, new at this start", module(sigNone, clsGame, atStart|shadows), "OpenGL32.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
 		{"renderer proxy loaded late", module(sigNone, clsGame, after|shadows), "opengl32.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
-		{"renderer proxy the build has always had", module(sigNone, clsGame, atStart|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityHigh, visibility, true}},
+		{"renderer proxy the build has always had", module(sigNone, clsGame, atStart|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityInfo, visibility, true}},
 		{"direct3d proxy", module(sigNone, clsGame, atStart|shadows), "d3d9.dll", want{"renderer_replaced", SeverityHigh, visibility, false}},
 		{"another search-order spot", module(sigNone, clsGame, atStart|shadows), "winmm.dll", want{"system_library_replaced", SeverityHigh, integrity, false}},
-		{"search-order spot the build has always used", module(sigNone, clsGame, after|shadows|known), "dinput.dll", want{"system_library_replaced", SeverityHigh, integrity, true}},
+		{"search-order spot the build has always used", module(sigNone, clsGame, after|shadows|known), "dinput.dll", want{"system_library_replaced", SeverityInfo, integrity, true}},
 
 		// An injected library.
 		{"unsigned module from elsewhere, after start", module(sigNone, clsOther, after), "hack.dll", want{"foreign_module", SeverityHigh, integrity, false}},
 		{"unsigned module from elsewhere, new at start", module(sigNone, clsOther, atStart), "hack.dll", want{"foreign_module", SeverityHigh, integrity, false}},
-		{"unsigned module from elsewhere, always there", module(sigNone, clsOther, atStart|known), "ime.dll", want{"foreign_module", SeverityHigh, integrity, true}},
+		{"unsigned module from elsewhere, always there", module(sigNone, clsOther, atStart|known), "ime.dll", want{"foreign_module", SeverityInfo, integrity, true}},
 
 		// Files of the game folder look like the game's own: opt-in only.
 		{"game file replaced", module(sigNone, clsGame, atStart|known|changed), "client.dll", want{"game_file_changed", SeverityMedium, integrity, true}},
-		{"renderer file replaced", module(sigNone, clsGame, atStart|known|changed|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityHigh, visibility, true}},
+		{"renderer file replaced", module(sigNone, clsGame, atStart|known|changed|shadows|known), "opengl32.dll", want{"renderer_replaced", SeverityInfo, visibility, true}},
 		{"new unsigned game-folder module after start", module(sigNone, clsGame, after|newFile), "extra.dll", want{"new_game_module", SeverityMedium, integrity, true}},
 		{"new game-folder module at start", module(sigNone, clsGame, atStart|known|newFile), "extra.dll", want{"module_signature", SeverityInfo, none, false}},
 	} {
@@ -105,7 +105,7 @@ func TestMappedImages(t *testing.T) {
 	}{
 		{"appeared after start", after, want{"mapped_image", SeverityHigh, integrity, false}},
 		{"new at this start", atStart, want{"mapped_image", SeverityHigh, integrity, false}},
-		{"the build's own loader", atStart | known, want{"mapped_image", SeverityHigh, integrity, true}},
+		{"the build's own loader", atStart | known, want{"mapped_image", SeverityInfo, integrity, true}},
 	} {
 		e, _ := c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_EXTERNAL_MAPPED_IMAGE), 0x3000000, 0x40000|tc.flags<<32, "0123456789abcdef")
 		check(t, tc.name, e, tc.want)
@@ -181,7 +181,7 @@ func TestHandleHolders(t *testing.T) {
 
 		{"unsigned writer arriving after start", holder(all, sigNone, clsOther+1, after), "trainer.exe", want{"external_writer", SeverityHigh, integrity, false}},
 		{"unsigned writer, new at this start", holder(0x38, sigNone, clsOther+1, atStart), "trainer.exe", want{"external_writer", SeverityHigh, integrity, false}},
-		{"unsigned writer that has always been there", holder(all, sigNone, clsOther+1, atStart|known), "starter.exe", want{"external_writer", SeverityHigh, integrity, true}},
+		{"unsigned writer that has always been there", holder(all, sigNone, clsOther+1, atStart|known), "starter.exe", want{"external_writer", SeverityInfo, integrity, true}},
 		{"unsigned reader", holder(read, sigNone, clsOther+1, after), "radar.exe", want{"external_reader", SeverityMedium, integrity, true}},
 
 		// Signed, so named.
@@ -212,7 +212,7 @@ func TestOverlayReader(t *testing.T) {
 	}
 	f.B = holder(0x1410, sigNone, clsOther+1, atStart|known)
 	h, _ = HolderOf(f)
-	check(t, "reading overlay that has always been there", OverlayReader(h), want{"overlay_reader", SeverityHigh, visibility, true})
+	check(t, "reading overlay that has always been there", OverlayReader(h), want{"overlay_reader", SeverityInfo, visibility, true})
 	f.B = holder(0x1410, sigValid, clsOther+1, after)
 	if h, _ = HolderOf(f); h.Suspect {
 		t.Error("a signed program with a read handle is not singled out")

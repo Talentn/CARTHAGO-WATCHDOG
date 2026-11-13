@@ -16,8 +16,8 @@ import (
 //   - what is there at start, and was not there at the first recorded start of the same
 //     game folder, is new;
 //   - what has been there since the first recorded start is taken to be the build. It is
-//     still evidence, and it may tell the player only when the operator opts in
-//     (Evidence.NoticeOptIn).
+//     recorded as information, carries no risk, and may tell the player only when the
+//     operator opts in (Evidence.NoticeOptIn).
 //
 // A valid signature always excuses a file. A name never does: a file can be called
 // anything.
@@ -89,12 +89,18 @@ func whenSeen(flags uint64, secs uint64) string {
 }
 
 // tell marks evidence that may raise a notice. Something known since the first recorded
-// start needs the operator's opt-in.
+// start is information, and needs the operator's opt-in to tell the player.
 func tell(e Evidence, cat pb.EnforcementCategory, flags uint64) Evidence {
 	e.Notice = cat
 	if observed(flags, pb.ObservedFlags_OBSERVED_FLAGS_KNOWN_START) {
-		e.NoticeOptIn, e.Held = true, heldKnown
+		return partOfBuild(e)
 	}
+	return e
+}
+
+func partOfBuild(e Evidence) Evidence {
+	e.Severity, e.Score, e.Integrity = SeverityInfo, 0.1, false
+	e.NoticeOptIn, e.Held = true, heldKnown
 	return e
 }
 
@@ -286,7 +292,7 @@ func OverlayReader(h Holder) Evidence {
 		fmt.Sprintf("%s (pid %d) holds a handle that reads the game's memory (access %#x) and draws a transparent topmost window over the game", h.Name, h.Pid, h.Access))
 	e.Notice = pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY
 	if h.Known {
-		e.NoticeOptIn, e.Held = true, heldKnown
+		return partOfBuild(e)
 	}
 	return e
 }

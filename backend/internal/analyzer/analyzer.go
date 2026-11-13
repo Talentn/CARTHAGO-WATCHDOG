@@ -60,7 +60,7 @@ type Evidence struct {
 	// that read a companion's findings; for the older rules the pipeline keeps a list.
 	Notice pb.EnforcementCategory
 	// NoticeOptIn holds the notice back unless the operator opted in, because the guard
-	// named in Held applies.
+	// named in Held applies. Such evidence need not be integrity evidence.
 	NoticeOptIn bool
 	Held        string
 }

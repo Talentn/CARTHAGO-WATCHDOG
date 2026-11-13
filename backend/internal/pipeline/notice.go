@@ -22,6 +22,7 @@ type Notifier interface {
 //     list (game integrity); a debugger attached to the game process itself; the game's
 //     clocks disagreeing with each other. Each must be integrity evidence of high or
 //     critical severity.
+//
 //   - gameplay evidence: angle_snap together with headshot_rate or time_to_damage, for the
 //     same player in the same match, and only for a slot bound to a verified session.
 //
@@ -75,11 +76,11 @@ func noticeSeverity(s analyzer.Severity) pb.EnforcementSeverity {
 // have told the player but for a guard that optIn lifts.
 func clientNotice(e analyzer.Evidence, f *pb.Finding, optIn bool) (cat pb.EnforcementCategory, sev pb.EnforcementSeverity, send bool, held string) {
 	if e.Notice != pb.EnforcementCategory_ENFORCEMENT_CATEGORY_UNSPECIFIED {
-		if !e.Integrity {
-			return 0, 0, false, ""
-		}
 		if e.NoticeOptIn && !optIn {
 			return e.Notice, 0, false, e.Held
+		}
+		if !e.NoticeOptIn && (!e.Integrity || e.Severity < analyzer.SeverityHigh) {
+			return 0, 0, false, ""
 		}
 		return e.Notice, noticeSeverity(e.Severity), true, ""
 	}

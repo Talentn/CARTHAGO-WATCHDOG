@@ -85,6 +85,10 @@ func companionCases() []companionCase {
 		{"overlay of one program, handle of another", []*pb.Heartbeat{
 			hb(finding(pb.FindingCode_FINDING_CODE_OVERLAY_WINDOW, 204, 0, "overlay.exe"), handleOf(205, 0x1410, uint64(pb.ModuleSignature_MODULE_SIGNATURE_VALID), elsewhere+1, obsAfter, "monitor.exe")),
 		}, nil, nil},
+		{"reader that later opens the game for writing", []*pb.Heartbeat{
+			hb(handleOf(207, 0x1410, unsigned, elsewhere+1, obsAfter, "tool.exe")),
+			hb(handleOf(207, 0x1438, unsigned, elsewhere+1, obsAfter, "tool.exe")),
+		}, []sentNotice{integ}, []sentNotice{integ, integ}},
 		{"memory editor", []*pb.Heartbeat{hb(handleOf(206, 0x1fffff, uint64(pb.ModuleSignature_MODULE_SIGNATURE_VALID), 3, obsAfter, "cheatengine-x86_64.exe"))}, []sentNotice{integ}, []sentNotice{integ}},
 	}
 }

@@ -260,6 +260,7 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		cat, sev, send, held := clientNotice(e, f, p.cfg.NoticesOptIn)
 		if send {
 			notices = append(notices, notice{cat, sev})
+			p.log.Info("notice raised by", "session", sess.SessionID, "rule", e.Rule, "category", noticeCategoryName(cat), "summary", e.Summary)
 		} else if held != "" && p.cfg.Notices {
 			p.log.Info("notice withheld", "session", sess.SessionID, "rule", e.Rule, "category", noticeCategoryName(cat), "why", held, "summary", e.Summary)
 		}
@@ -280,7 +281,12 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			continue
 		}
 		raw, _ := json.Marshal(map[string]any{"job": f.Job, "code": pb.FindingCode(f.Code).String(), "a": fmt.Sprintf("%#x", f.A), "b": fmt.Sprintf("%#x", f.B), "detail": f.Detail})
-		add(fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail), e, string(raw), f)
+		key := fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail)
+		if pb.FindingCode(f.Code) == pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE {
+			// The same program may come back with more access than it had at first.
+			key += fmt.Sprintf("|%x", uint32(f.B))
+		}
+		add(key, e, string(raw), f)
 		// One program that reads the game's memory and also draws over the game.
 		switch pb.FindingCode(f.Code) {
 		case pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE:
