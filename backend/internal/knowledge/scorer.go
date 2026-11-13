@@ -455,7 +455,7 @@ func (s *Scorer) couldSee(eye, dir, target Vec3) bool {
 	if v.Len() > s.cfg.ViewRange || angleTo(dir, v) > s.cfg.FOVDeg/2 {
 		return false
 	}
-	return s.m.LineOfSight(eye, target) || s.m.LineOfSight(eye, aimPoint(target))
+	return s.m.LineOfSight(eye, target) || s.m.LineOfSight(eye, aimPoint(target)) || s.m.bodySight(eye, target)
 }
 
 func (s *Scorer) applyEvents(t uint32) {
@@ -1025,6 +1025,9 @@ func (s *Scorer) capture(p *pstate, m Moment) *Replay {
 			continue
 		}
 		r.Viewer = append(r.Viewer, Vec2{vs.pos.X, vs.pos.Y})
+		if t <= int64(m.Tick) || r.EyeZ == 0 {
+			r.EyeZ = vs.pos.Z
+		}
 		if tgt != nil {
 			if ts, ok := tgt.at(t, step); ok {
 				r.Target = append(r.Target, Vec2{ts.pos.X, ts.pos.Y})

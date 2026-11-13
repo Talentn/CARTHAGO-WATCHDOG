@@ -149,6 +149,7 @@ enum SoundKind {
   SOUND_KIND_RELOAD = 3;
   SOUND_KIND_ABILITY = 4;
   SOUND_KIND_INTERACT = 5; // doors, looting, equipment
+  SOUND_KIND_VOICE = 6;    // pain, death and other sounds a character makes
 }
 
 // A sound the game played. radius_cm is the game's own audibility rule for it: anyone within
@@ -223,6 +224,20 @@ message LootSpawn {
   sint32 z_cm = 4;
 }
 
+// The solid world of a map as a binary space partition, for games whose maps are one (GoldSrc
+// and the rest of the Quake family) and whose walls are not a few convex prisms. Only what a
+// line-of-sight test needs is sent: no textures, faces, entities or visibility sets.
+message SolidTree {
+  // Four values per plane: the unit normal (x, y, z) and the distance from the origin in
+  // centimetres. A point p is in front of a plane when normal·p - distance >= 0.
+  repeated float planes = 1;
+  // Three values per node: the plane index, the child in front and the child behind. A child
+  // that is zero or more is the index of another node and must be greater than the index of
+  // the node that names it, so the tree cannot loop; -1 is open space and -2 is solid. Node
+  // 0 is the root.
+  repeated sint32 nodes = 2;
+}
+
 // Simplified visibility geometry of one map version, uploaded by the game server. A version
 // is immutable: the gateway refuses different geometry under a (map_id, version) it already
 // holds.
@@ -233,6 +248,11 @@ message MapGeometry {
   repeated Occluder occluders = 4;
   repeated Zone zones = 5;
   repeated LootSpawn loot_spawns = 6;
+  // Blocks sight wherever it is solid, in addition to the occluders.
+  SolidTree solid = 7;
+  // SHA-256 of the map file the solid tree was read from, as the game server saw it. The
+  // gateway cannot check it; it is kept so a reviewer can compare it with a known file.
+  bytes source_sha256 = 8;
 }
 
 message GameplayBatch {

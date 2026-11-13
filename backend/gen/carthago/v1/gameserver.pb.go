@@ -135,6 +135,7 @@ const (
 	SoundKind_SOUND_KIND_RELOAD      SoundKind = 3
 	SoundKind_SOUND_KIND_ABILITY     SoundKind = 4
 	SoundKind_SOUND_KIND_INTERACT    SoundKind = 5 // doors, looting, equipment
+	SoundKind_SOUND_KIND_VOICE       SoundKind = 6 // pain, death and other sounds a character makes
 )
 
 // Enum value maps for SoundKind.
@@ -146,6 +147,7 @@ var (
 		3: "SOUND_KIND_RELOAD",
 		4: "SOUND_KIND_ABILITY",
 		5: "SOUND_KIND_INTERACT",
+		6: "SOUND_KIND_VOICE",
 	}
 	SoundKind_value = map[string]int32{
 		"SOUND_KIND_UNSPECIFIED": 0,
@@ -154,6 +156,7 @@ var (
 		"SOUND_KIND_RELOAD":      3,
 		"SOUND_KIND_ABILITY":     4,
 		"SOUND_KIND_INTERACT":    5,
+		"SOUND_KIND_VOICE":       6,
 	}
 )
 
@@ -1727,24 +1730,90 @@ func (x *LootSpawn) GetZCm() int32 {
 	return 0
 }
 
+// The solid world of a map as a binary space partition, for games whose maps are one (GoldSrc
+// and the rest of the Quake family) and whose walls are not a few convex prisms. Only what a
+// line-of-sight test needs is sent: no textures, faces, entities or visibility sets.
+type SolidTree struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Four values per plane: the unit normal (x, y, z) and the distance from the origin in
+	// centimetres. A point p is in front of a plane when normal·p - distance >= 0.
+	Planes []float32 `protobuf:"fixed32,1,rep,packed,name=planes,proto3" json:"planes,omitempty"`
+	// Three values per node: the plane index, the child in front and the child behind. A child
+	// that is zero or more is the index of another node and must be greater than the index of
+	// the node that names it, so the tree cannot loop; -1 is open space and -2 is solid. Node
+	// 0 is the root.
+	Nodes         []int32 `protobuf:"zigzag32,2,rep,packed,name=nodes,proto3" json:"nodes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SolidTree) Reset() {
+	*x = SolidTree{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SolidTree) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SolidTree) ProtoMessage() {}
+
+func (x *SolidTree) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SolidTree.ProtoReflect.Descriptor instead.
+func (*SolidTree) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SolidTree) GetPlanes() []float32 {
+	if x != nil {
+		return x.Planes
+	}
+	return nil
+}
+
+func (x *SolidTree) GetNodes() []int32 {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
 // Simplified visibility geometry of one map version, uploaded by the game server. A version
 // is immutable: the gateway refuses different geometry under a (map_id, version) it already
 // holds.
 type MapGeometry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MapId         string                 `protobuf:"bytes,1,opt,name=map_id,json=mapId,proto3" json:"map_id,omitempty"`
-	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
-	Mode          GameMode               `protobuf:"varint,3,opt,name=mode,proto3,enum=carthago.v1.GameMode" json:"mode,omitempty"` // the map's default mode
-	Occluders     []*Occluder            `protobuf:"bytes,4,rep,name=occluders,proto3" json:"occluders,omitempty"`
-	Zones         []*Zone                `protobuf:"bytes,5,rep,name=zones,proto3" json:"zones,omitempty"`
-	LootSpawns    []*LootSpawn           `protobuf:"bytes,6,rep,name=loot_spawns,json=lootSpawns,proto3" json:"loot_spawns,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	MapId      string                 `protobuf:"bytes,1,opt,name=map_id,json=mapId,proto3" json:"map_id,omitempty"`
+	Version    uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Mode       GameMode               `protobuf:"varint,3,opt,name=mode,proto3,enum=carthago.v1.GameMode" json:"mode,omitempty"` // the map's default mode
+	Occluders  []*Occluder            `protobuf:"bytes,4,rep,name=occluders,proto3" json:"occluders,omitempty"`
+	Zones      []*Zone                `protobuf:"bytes,5,rep,name=zones,proto3" json:"zones,omitempty"`
+	LootSpawns []*LootSpawn           `protobuf:"bytes,6,rep,name=loot_spawns,json=lootSpawns,proto3" json:"loot_spawns,omitempty"`
+	// Blocks sight wherever it is solid, in addition to the occluders.
+	Solid *SolidTree `protobuf:"bytes,7,opt,name=solid,proto3" json:"solid,omitempty"`
+	// SHA-256 of the map file the solid tree was read from, as the game server saw it. The
+	// gateway cannot check it; it is kept so a reviewer can compare it with a known file.
+	SourceSha256  []byte `protobuf:"bytes,8,opt,name=source_sha256,json=sourceSha256,proto3" json:"source_sha256,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MapGeometry) Reset() {
 	*x = MapGeometry{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1756,7 +1825,7 @@ func (x *MapGeometry) String() string {
 func (*MapGeometry) ProtoMessage() {}
 
 func (x *MapGeometry) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1769,7 +1838,7 @@ func (x *MapGeometry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MapGeometry.ProtoReflect.Descriptor instead.
 func (*MapGeometry) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{20}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *MapGeometry) GetMapId() string {
@@ -1814,6 +1883,20 @@ func (x *MapGeometry) GetLootSpawns() []*LootSpawn {
 	return nil
 }
 
+func (x *MapGeometry) GetSolid() *SolidTree {
+	if x != nil {
+		return x.Solid
+	}
+	return nil
+}
+
+func (x *MapGeometry) GetSourceSha256() []byte {
+	if x != nil {
+		return x.SourceSha256
+	}
+	return nil
+}
+
 type GameplayBatch struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	MatchId    string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
@@ -1842,7 +1925,7 @@ type GameplayBatch struct {
 
 func (x *GameplayBatch) Reset() {
 	*x = GameplayBatch{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1854,7 +1937,7 @@ func (x *GameplayBatch) String() string {
 func (*GameplayBatch) ProtoMessage() {}
 
 func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1867,7 +1950,7 @@ func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameplayBatch.ProtoReflect.Descriptor instead.
 func (*GameplayBatch) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{21}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GameplayBatch) GetMatchId() string {
@@ -2018,7 +2101,7 @@ type IngestAck struct {
 
 func (x *IngestAck) Reset() {
 	*x = IngestAck{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2030,7 +2113,7 @@ func (x *IngestAck) String() string {
 func (*IngestAck) ProtoMessage() {}
 
 func (x *IngestAck) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2043,7 +2126,7 @@ func (x *IngestAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IngestAck.ProtoReflect.Descriptor instead.
 func (*IngestAck) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{22}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *IngestAck) GetMatchId() string {
@@ -2212,7 +2295,10 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\bspawn_id\x18\x01 \x01(\rR\aspawnId\x12\x11\n" +
 	"\x04x_cm\x18\x02 \x01(\x11R\x03xCm\x12\x11\n" +
 	"\x04y_cm\x18\x03 \x01(\x11R\x03yCm\x12\x11\n" +
-	"\x04z_cm\x18\x04 \x01(\x11R\x03zCm\"\x80\x02\n" +
+	"\x04z_cm\x18\x04 \x01(\x11R\x03zCm\"9\n" +
+	"\tSolidTree\x12\x16\n" +
+	"\x06planes\x18\x01 \x03(\x02R\x06planes\x12\x14\n" +
+	"\x05nodes\x18\x02 \x03(\x11R\x05nodes\"\xd3\x02\n" +
 	"\vMapGeometry\x12\x15\n" +
 	"\x06map_id\x18\x01 \x01(\tR\x05mapId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12)\n" +
@@ -2220,7 +2306,9 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\toccluders\x18\x04 \x03(\v2\x15.carthago.v1.OccluderR\toccluders\x12'\n" +
 	"\x05zones\x18\x05 \x03(\v2\x11.carthago.v1.ZoneR\x05zones\x127\n" +
 	"\vloot_spawns\x18\x06 \x03(\v2\x16.carthago.v1.LootSpawnR\n" +
-	"lootSpawns\"\xdf\x06\n" +
+	"lootSpawns\x12,\n" +
+	"\x05solid\x18\a \x01(\v2\x16.carthago.v1.SolidTreeR\x05solid\x12#\n" +
+	"\rsource_sha256\x18\b \x01(\fR\fsourceSha256\"\xdf\x06\n" +
 	"\rGameplayBatch\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1b\n" +
@@ -2259,14 +2347,15 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\bGameMode\x12\x19\n" +
 	"\x15GAME_MODE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dGAME_MODE_COMPETITIVE_SHOOTER\x10\x01\x12\x18\n" +
-	"\x14GAME_MODE_EXTRACTION\x10\x02*\xa0\x01\n" +
+	"\x14GAME_MODE_EXTRACTION\x10\x02*\xb6\x01\n" +
 	"\tSoundKind\x12\x1a\n" +
 	"\x16SOUND_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13SOUND_KIND_FOOTSTEP\x10\x01\x12\x16\n" +
 	"\x12SOUND_KIND_GUNSHOT\x10\x02\x12\x15\n" +
 	"\x11SOUND_KIND_RELOAD\x10\x03\x12\x16\n" +
 	"\x12SOUND_KIND_ABILITY\x10\x04\x12\x17\n" +
-	"\x13SOUND_KIND_INTERACT\x10\x05*}\n" +
+	"\x13SOUND_KIND_INTERACT\x10\x05\x12\x14\n" +
+	"\x10SOUND_KIND_VOICE\x10\x06*}\n" +
 	"\fTeamInfoKind\x12\x1e\n" +
 	"\x1aTEAM_INFO_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13TEAM_INFO_KIND_PING\x10\x01\x12\x1a\n" +
@@ -2286,7 +2375,7 @@ func file_carthago_v1_gameserver_proto_rawDescGZIP() []byte {
 }
 
 var file_carthago_v1_gameserver_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_carthago_v1_gameserver_proto_goTypes = []any{
 	(InputDevice)(0),        // 0: carthago.v1.InputDevice
 	(GameMode)(0),           // 1: carthago.v1.GameMode
@@ -2312,9 +2401,10 @@ var file_carthago_v1_gameserver_proto_goTypes = []any{
 	(*Occluder)(nil),        // 21: carthago.v1.Occluder
 	(*Zone)(nil),            // 22: carthago.v1.Zone
 	(*LootSpawn)(nil),       // 23: carthago.v1.LootSpawn
-	(*MapGeometry)(nil),     // 24: carthago.v1.MapGeometry
-	(*GameplayBatch)(nil),   // 25: carthago.v1.GameplayBatch
-	(*IngestAck)(nil),       // 26: carthago.v1.IngestAck
+	(*SolidTree)(nil),       // 24: carthago.v1.SolidTree
+	(*MapGeometry)(nil),     // 25: carthago.v1.MapGeometry
+	(*GameplayBatch)(nil),   // 26: carthago.v1.GameplayBatch
+	(*IngestAck)(nil),       // 27: carthago.v1.IngestAck
 }
 var file_carthago_v1_gameserver_proto_depIdxs = []int32{
 	4,  // 0: carthago.v1.GsClientMsg.watch:type_name -> carthago.v1.WatchSession
@@ -2328,24 +2418,25 @@ var file_carthago_v1_gameserver_proto_depIdxs = []int32{
 	21, // 8: carthago.v1.MapGeometry.occluders:type_name -> carthago.v1.Occluder
 	22, // 9: carthago.v1.MapGeometry.zones:type_name -> carthago.v1.Zone
 	23, // 10: carthago.v1.MapGeometry.loot_spawns:type_name -> carthago.v1.LootSpawn
-	10, // 11: carthago.v1.GameplayBatch.players:type_name -> carthago.v1.MatchPlayer
-	11, // 12: carthago.v1.GameplayBatch.aim:type_name -> carthago.v1.AimTrack
-	12, // 13: carthago.v1.GameplayBatch.shots:type_name -> carthago.v1.ShotEvent
-	13, // 14: carthago.v1.GameplayBatch.visibility:type_name -> carthago.v1.VisibilityEvent
-	14, // 15: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
-	15, // 16: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
-	1,  // 17: carthago.v1.GameplayBatch.mode:type_name -> carthago.v1.GameMode
-	20, // 18: carthago.v1.GameplayBatch.map:type_name -> carthago.v1.MapRef
-	24, // 19: carthago.v1.GameplayBatch.map_geometry:type_name -> carthago.v1.MapGeometry
-	16, // 20: carthago.v1.GameplayBatch.motion:type_name -> carthago.v1.MotionTrack
-	17, // 21: carthago.v1.GameplayBatch.sounds:type_name -> carthago.v1.SoundEvent
-	18, // 22: carthago.v1.GameplayBatch.team_info:type_name -> carthago.v1.TeamInfo
-	19, // 23: carthago.v1.GameplayBatch.items:type_name -> carthago.v1.ItemEvent
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	24, // 11: carthago.v1.MapGeometry.solid:type_name -> carthago.v1.SolidTree
+	10, // 12: carthago.v1.GameplayBatch.players:type_name -> carthago.v1.MatchPlayer
+	11, // 13: carthago.v1.GameplayBatch.aim:type_name -> carthago.v1.AimTrack
+	12, // 14: carthago.v1.GameplayBatch.shots:type_name -> carthago.v1.ShotEvent
+	13, // 15: carthago.v1.GameplayBatch.visibility:type_name -> carthago.v1.VisibilityEvent
+	14, // 16: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
+	15, // 17: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
+	1,  // 18: carthago.v1.GameplayBatch.mode:type_name -> carthago.v1.GameMode
+	20, // 19: carthago.v1.GameplayBatch.map:type_name -> carthago.v1.MapRef
+	25, // 20: carthago.v1.GameplayBatch.map_geometry:type_name -> carthago.v1.MapGeometry
+	16, // 21: carthago.v1.GameplayBatch.motion:type_name -> carthago.v1.MotionTrack
+	17, // 22: carthago.v1.GameplayBatch.sounds:type_name -> carthago.v1.SoundEvent
+	18, // 23: carthago.v1.GameplayBatch.team_info:type_name -> carthago.v1.TeamInfo
+	19, // 24: carthago.v1.GameplayBatch.items:type_name -> carthago.v1.ItemEvent
+	25, // [25:25] is the sub-list for method output_type
+	25, // [25:25] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_carthago_v1_gameserver_proto_init() }
@@ -2367,7 +2458,7 @@ func file_carthago_v1_gameserver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_gameserver_proto_rawDesc), len(file_carthago_v1_gameserver_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   23,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
