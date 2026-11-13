@@ -16,6 +16,7 @@ import (
 	"carthago/backend/internal/oracle"
 	"carthago/backend/internal/oracle/analyst"
 	"carthago/backend/internal/oracle/train"
+	"carthago/backend/internal/oracle/tune"
 )
 
 func init() {
@@ -116,6 +117,8 @@ func runTrain(args []string) error {
 	p := train.DefaultParams()
 	fs.IntVar(&p.Rounds, "rounds", p.Rounds, "boosting rounds")
 	fs.Float64Var(&p.LearningRate, "learning-rate", p.LearningRate, "learning rate")
+	labelled := fs.String("labelled", "", "also train on reviewer-labelled sessions: a behaviour.jsonl written by `carthago-oracle export`")
+	repeat := fs.Int("labelled-repeat", 1, "count each labelled session this many times")
 	local := localModelFlags(fs)
 	fs.Parse(args)
 	if *out == "" {
@@ -125,12 +128,26 @@ func runTrain(args []string) error {
 	if err != nil {
 		return err
 	}
+	source := "synthetic (knowledge/synth with behaviour profiles)"
+	if *labelled != "" {
+		// A studio's own reviewed sessions join the synthetic ones. They are few next to
+		// the simulation, so each can be counted more than once.
+		own, err := readLabelled(*labelled)
+		if err != nil {
+			return err
+		}
+		for range max(1, *repeat) {
+			rows = append(rows, own...)
+		}
+		source = fmt.Sprintf("synthetic plus %d reviewer-labelled sessions (each counted %d times)", len(own), max(1, *repeat))
+		fmt.Printf("%d reviewer-labelled sessions added from %s\n", len(own), *labelled)
+	}
 	tr, calib, test := train.Split(rows)
 	m, err := train.Fit(tr, p)
 	if err != nil {
 		return err
 	}
-	m.Training = oracle.Training{Tool: "carthago-oracle train", Data: "synthetic (knowledge/synth with behaviour profiles)", Seed: opt.Seed,
+	m.Training = oracle.Training{Tool: "carthago-oracle train", Data: source, Seed: opt.Seed,
 		Matches: opt.Matches, MatchSeconds: opt.MaxSeconds, Rows: len(tr), Rounds: p.Rounds, LearningRate: p.LearningRate}
 	for i := range tr {
 		if tr[i].Cheating {
@@ -168,6 +185,15 @@ func runTrain(args []string) error {
 	return nil
 }
 
+func readLabelled(path string) ([]train.Row, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return tune.ReadBehaviour(f)
+}
+
 func writeImportance(w io.Writer, m *oracle.Model, rows []train.Row) {
 	fmt.Fprintln(w, "\nMean absolute contribution per signal (log-odds):")
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
@@ -182,10 +208,22 @@ func runEval(args []string) error {
 	d := addDataFlags(fs, 120, 1009)
 	dir := fs.String("bundle", "", "bundle directory")
 	profiles := fs.Bool("features", false, "also print each profile's feature medians")
+	labelled := fs.String("labelled", "", "evaluate on reviewer-labelled sessions (a behaviour.jsonl written by `carthago-oracle export`) instead of synthetic ones")
 	fs.Parse(args)
 	b, err := oracle.LoadBundle(*dir)
 	if err != nil {
 		return err
+	}
+	if *labelled != "" {
+		// A studio's own reviewed sessions, all of them: the check that matters most,
+		// because it is the only one on real play.
+		own, err := readLabelled(*labelled)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("bundle %s, behaviour model %s, on %d reviewer-labelled sessions\n\n", b.Manifest.BundleID, b.Manifest.Behaviour.ID, len(own))
+		train.Evaluate(b.Model, b.Manifest.Thresholds, own).Write(os.Stdout)
+		return nil
 	}
 	rows, opt, err := d.rows(false)
 	if err != nil {

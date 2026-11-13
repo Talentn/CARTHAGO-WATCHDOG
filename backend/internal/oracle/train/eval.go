@@ -111,7 +111,21 @@ func Evaluate(m *oracle.Model, t oracle.Thresholds, rows []Row) Report {
 	rep.HonestWatchBound = synth.FPRBound(rep.HonestWatch, rep.Honest)
 	rep.HonestReviewBound = synth.FPRBound(rep.HonestReview, rep.Honest)
 	rep.HonestRulesBound = synth.FPRBound(rep.HonestRules, rep.Honest)
-	for _, name := range CheatProfiles {
+	// The synthetic profiles in their usual order, then any others (reviewer-labelled
+	// sessions carry their own profile names) by name.
+	names := append([]string(nil), CheatProfiles...)
+	var extra []string
+	for name := range by {
+		known := false
+		for _, n := range CheatProfiles {
+			known = known || n == name
+		}
+		if !known {
+			extra = append(extra, name)
+		}
+	}
+	sort.Strings(extra)
+	for _, name := range append(names, extra...) {
 		if p := by[name]; p != nil {
 			p.MeanScore /= float64(p.N)
 			rep.Profiles = append(rep.Profiles, *p)
