@@ -104,14 +104,59 @@ mod worker {
         base: u64,
         class: ModulePathClass,
         path: String,
+        system_copy: Option<String>,
     }
 
-    /// One verified module.
+    /// One verified file.
     pub struct Checked {
         pub base: u64,
         pub class: ModulePathClass,
         pub state: ModuleSignature,
         pub name: String,
+        pub path: String,
+        /// Identity of the file's content, for telling a replaced file from the one that
+        /// was there before. Empty when the file could not be read.
+        pub digest: String,
+        /// The file has the name of a system library (the request's `system_copy` exists)
+        /// and is not a copy of it.
+        pub shadows_system: bool,
+    }
+
+    #[derive(Clone)]
+    struct Fact {
+        state: ModuleSignature,
+        digest: String,
+        shadows_system: bool,
+    }
+
+    /// FNV-1a over the file plus its length. It identifies content for a comparison between
+    /// runs on the same machine; it is not a defence against a crafted collision.
+    fn digest(path: &str) -> Option<String> {
+        use std::io::Read;
+        let mut f = std::fs::File::open(path).ok()?;
+        let mut buf = vec![0u8; 64 * 1024];
+        let (mut h, mut len) = (0xcbf2_9ce4_8422_2325u64, 0u64);
+        loop {
+            let n = f.read(&mut buf).ok()?;
+            if n == 0 {
+                break;
+            }
+            for &b in &buf[..n] {
+                h = (h ^ b as u64).wrapping_mul(0x0100_0000_01b3);
+            }
+            len += n as u64;
+        }
+        Some(format!("{h:016x}{len:x}"))
+    }
+
+    fn check(r: &Request) -> Fact {
+        let state = verify_file(&r.path);
+        let digest = digest(&r.path).unwrap_or_default();
+        let shadows_system = match &r.system_copy {
+            Some(sys) if !sys.eq_ignore_ascii_case(&r.path) && std::fs::metadata(sys).is_ok_and(|m| m.is_file()) => self::digest(sys).is_none_or(|d| d != digest),
+            _ => false,
+        };
+        Fact { state, digest, shadows_system }
     }
 
     /// Handle to the signature thread; dropping it stops the thread after the file in hand.
@@ -132,25 +177,26 @@ mod worker {
             let (res, rx) = sync_channel::<Checked>(QUEUE);
             std::thread::Builder::new().name("carthago-signature".into()).spawn(move || {
                 unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST) };
-                let mut cache: HashMap<String, ModuleSignature> = HashMap::new();
+                let mut cache: HashMap<String, Fact> = HashMap::new();
                 while let Ok(r) = req.recv() {
                     let key = r.path.to_lowercase();
-                    let state = match cache.get(&key) {
-                        Some(s) => *s,
+                    let fact = match cache.get(&key) {
+                        Some(f) => f.clone(),
                         None => {
-                            let s = verify_file(&r.path);
+                            let f = check(&r);
                             if cache.len() >= CACHE {
                                 cache.clear();
                             }
-                            cache.insert(key, s);
+                            cache.insert(key, f.clone());
                             CHECKED.fetch_add(1, Relaxed);
                             CPU_NS.store(carthago_sched::clock::cycles_to_ns(carthago_sched::clock::thread_cycles()), Relaxed);
                             std::thread::sleep(PAUSE);
-                            s
+                            f
                         }
                     };
                     let name = crate::paths::base_name(&r.path).to_owned();
-                    if res.send(Checked { base: r.base, class: r.class, state, name }).is_err() {
+                    let done = Checked { base: r.base, class: r.class, state: fact.state, name, path: r.path, digest: fact.digest, shadows_system: fact.shadows_system };
+                    if res.send(done).is_err() {
                         return;
                     }
                 }
@@ -160,7 +206,13 @@ mod worker {
 
         /// Queues a file; `false` when the queue is full (ask again on a later pass).
         pub fn submit(&self, base: u64, class: ModulePathClass, path: String) -> bool {
-            !matches!(self.tx.try_send(Request { base, class, path }), Err(TrySendError::Full(_) | TrySendError::Disconnected(_)))
+            self.submit_named(base, class, path, None)
+        }
+
+        /// As [`submit`](Self::submit), and also says whether the file stands in for the
+        /// system library at `system_copy`.
+        pub fn submit_named(&self, base: u64, class: ModulePathClass, path: String, system_copy: Option<String>) -> bool {
+            !matches!(self.tx.try_send(Request { base, class, path, system_copy }), Err(TrySendError::Full(_) | TrySendError::Disconnected(_)))
         }
 
         /// A finished check, if any. Never blocks.

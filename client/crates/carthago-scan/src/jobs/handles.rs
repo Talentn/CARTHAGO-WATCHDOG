@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use carthago_proto::v1::FindingCode;
+use carthago_proto::v1::{FindingCode, HolderFlags};
 use carthago_sched::{Ctx, Job, JobBudget, Step};
 use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessHandleInformation};
 use windows_sys::Win32::Foundation::{DuplicateHandle, HANDLE};
@@ -9,8 +9,10 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
-use crate::external::TargetCell;
+use crate::external::{observed_flags, Watch};
+use crate::paths::Dirs;
 use crate::seen::Seen;
+use crate::signature;
 use crate::win::{self, NtGetNextProcess, Owned};
 
 /// PROCESS_HANDLE_TABLE_ENTRY_INFO (ntpsapi.h).
@@ -68,10 +70,20 @@ pub struct ExternalHandles {
     self_pid: u32,
     /// The process whose handles are being looked for.
     game_pid: u32,
-    cell: Option<std::sync::Arc<TargetCell>>,
+    watch: Option<std::sync::Arc<Watch>>,
     process_type: Option<u32>,
     buf: Vec<u8>,
     seen: Seen,
+    /// A companion also says what the holder is: where its program file lies and whether
+    /// it is signed. In-process the name alone is sent, as before.
+    about: Option<(std::sync::Arc<Dirs>, signature::Worker)>,
+    waiting: Vec<(u64, String)>,
+    /// Holders whose program file is being looked at, with whether they turned up after
+    /// the picture of the started game was taken.
+    pending: Vec<(u64, bool)>,
+    /// A whole pass over the processes was made for this game before its picture was taken.
+    saw_start: Option<u32>,
+    after_start: bool,
 }
 
 // SAFETY: handles owned by the job, used only on the scheduler worker.
@@ -80,13 +92,50 @@ unsafe impl Send for ExternalHandles {}
 impl ExternalHandles {
     pub fn new() -> Self {
         let self_pid = unsafe { GetCurrentProcessId() };
-        Self { cur: Owned(std::ptr::null_mut()), self_pid, game_pid: self_pid, cell: None, process_type: None, buf: vec![0; 64 * 1024], seen: Seen::new(256) }
+        Self {
+            cur: Owned(std::ptr::null_mut()),
+            self_pid,
+            game_pid: self_pid,
+            watch: None,
+            process_type: None,
+            buf: vec![0; 64 * 1024],
+            seen: Seen::new(256),
+            about: None,
+            waiting: Vec::new(),
+            pending: Vec::new(),
+            saw_start: None,
+            after_start: false,
+        }
     }
 
     /// Watches the companion's target process instead of the scanner's own. Idle until the
     /// target is set.
-    pub fn for_target(cell: std::sync::Arc<TargetCell>) -> Self {
-        Self { game_pid: 0, cell: Some(cell), ..Self::new() }
+    pub fn for_target(watch: std::sync::Arc<Watch>, dirs: std::sync::Arc<Dirs>) -> Self {
+        Self { game_pid: 0, watch: Some(watch), about: signature::Worker::start().ok().map(|w| (dirs, w)), ..Self::new() }
+    }
+
+    /// Sends the holders whose program file has been looked at.
+    fn drain(&mut self, ctx: &Ctx<'_>) {
+        let Some((dirs, worker)) = &self.about else { return };
+        if let Some((key, path)) = self.waiting.pop() {
+            if !worker.submit(key, carthago_proto::v1::ModulePathClass::Other, path.clone()) {
+                self.waiting.push((key, path));
+            }
+        }
+        for _ in 0..4 {
+            let Some(c) = worker.poll() else { break };
+            let class = dirs.classify(&c.path).map_or(0, |c| c as u64 + 1);
+            let after_start = match self.pending.iter().position(|(k, _)| *k == c.base) {
+                Some(i) => self.pending.swap_remove(i).1,
+                None => false,
+            };
+            let when = match &self.watch {
+                Some(w) => observed_flags(w, after_start, &format!("holder:{}:{}", c.name.to_lowercase(), c.digest)),
+                None => 0,
+            };
+            let about = c.state as u64 | class << 8 | HolderFlags::Known as u64 | when << 24;
+            ctx.report_detail(FindingCode::ExternalHandle as u32, c.base >> 32, c.base & 0xffff_ffff | about << 32, &c.name);
+        }
     }
 
     /// The object type index of "Process", learned from a handle we open to ourselves.
@@ -128,7 +177,20 @@ impl ExternalHandles {
             }
         }
         if worst != 0 && self.seen.first((pid as u64) << 32 | worst as u64) {
-            ctx.report_detail(FindingCode::ExternalHandle as u32, pid as u64, worst as u64, &win::process_image_name_of(holder));
+            let key = (pid as u64) << 32 | worst as u64;
+            let path = win::process_image_path_of(holder);
+            match &self.about {
+                Some((_, worker)) if !path.is_empty() => {
+                    if self.pending.len() >= 256 {
+                        self.pending.clear();
+                    }
+                    self.pending.push((key, self.after_start));
+                    if !worker.submit(key, carthago_proto::v1::ModulePathClass::Other, path.clone()) && self.waiting.len() < 64 {
+                        self.waiting.push((key, path));
+                    }
+                }
+                _ => ctx.report_detail(FindingCode::ExternalHandle as u32, pid as u64, worst as u64, crate::paths::base_name(&path)),
+            }
         }
     }
 }
@@ -155,14 +217,18 @@ impl Job for ExternalHandles {
     }
     fn begin(&mut self) {
         self.cur = Owned(std::ptr::null_mut());
-        if let Some(cell) = &self.cell {
-            self.game_pid = cell.get().filter(|t| t.alive()).map_or(0, |t| t.pid());
+        if let Some(watch) = &self.watch {
+            self.game_pid = watch.target().map_or(0, |t| t.pid());
+            // A holder counts as new only when an earlier pass, made before the picture of
+            // the started game was taken, did not show it.
+            self.after_start = self.game_pid != 0 && watch.settled(self.game_pid) && self.saw_start == Some(self.game_pid);
         }
         if self.process_type.is_none() {
             self.process_type = self.learn_process_type();
         }
     }
     fn step(&mut self, ctx: &Ctx<'_>) -> Step {
+        self.drain(ctx);
         if self.process_type.is_none() || self.game_pid == 0 {
             return Step::Done;
         }
@@ -170,6 +236,9 @@ impl Job for ExternalHandles {
         let st = unsafe { NtGetNextProcess(self.cur.0, PROCESS_QUERY_INFORMATION | PROCESS_DUP_HANDLE, 0, 0, &mut next) };
         if st < 0 {
             self.cur = Owned(std::ptr::null_mut());
+            if self.watch.as_ref().is_some_and(|w| !self.after_start && !w.settled(self.game_pid)) {
+                self.saw_start = Some(self.game_pid);
+            }
             return Step::Done;
         }
         self.cur = Owned(next);

@@ -42,9 +42,10 @@ mod win {
 
     use carthago_core::{Config, MitigationProfile, Notice, Runtime, SessionReady, State};
     use carthago_cs16_companion::{
-        alert_text, command_line, exit, never_the_game, parse_args, parse_keys, Game, Options, SessionFile, ENGINE_MODULES, USAGE,
+        alert_text, command_line, exit, never_the_game, parse_args, parse_keys, Game, Options, SessionFile, CODE_MODULES, ENGINE_MODULES, USAGE,
     };
-    use carthago_scan::external::{find_started_game, Target, TargetCell};
+    use carthago_scan::external::{find_started_game, Target, TargetCell, Watch, WatchConfig};
+    use carthago_scan::watch::{Settle, StartProfile};
     use carthago_sched::Activity;
     use windows_sys::Win32::Foundation::{CloseHandle, DuplicateHandle, HANDLE};
     use windows_sys::Win32::System::Threading::{
@@ -268,7 +269,45 @@ mod win {
 
         let cell = TargetCell::new();
         let dirs = Arc::new(carthago_scan::dirs_for(&exe_for_dirs));
-        let (job_cell, sdk_log) = (cell.clone(), log.clone());
+        let profile = match &o.start_profile {
+            Some(path) => {
+                let p = StartProfile::load(std::fs::read_to_string(path).ok().as_deref());
+                if p.learning() {
+                    log.info(&format!(
+                        "START PROFILE {} does not exist yet: this run records what a start of this game looks like, and nothing it shows at start is reported as new",
+                        path.display()
+                    ));
+                } else {
+                    log.info(&format!(
+                        "START PROFILE {}: {} items recorded at the first start, {} game files",
+                        path.display(),
+                        p.start_entries(),
+                        p.file_entries()
+                    ));
+                }
+                p
+            }
+            None => StartProfile::none(),
+        };
+        let watch = Watch::new(
+            cell.clone(),
+            WatchConfig {
+                engine_modules: ENGINE_MODULES.iter().map(|m| m.to_string()).collect(),
+                code_modules: CODE_MODULES.iter().map(|m| m.to_string()).collect(),
+                settle: Settle::after(o.baseline_secs),
+                profile,
+            },
+        );
+        let save_profile = |log: &Log| {
+            let (Some(path), Some(text)) = (&o.start_profile, watch.save_profile()) else { return };
+            let tmp = path.with_extension("tmp");
+            match std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, path)) {
+                Ok(()) => log.info(&format!("START PROFILE written to {}", path.display())),
+                Err(e) => log.warn(&format!("START PROFILE could not be written to {}: {e}", path.display())),
+            }
+        };
+        let mut baseline_logged = false;
+        let (job_watch, sdk_log) = (watch.clone(), log.clone());
         let rt = match Runtime::start(Config {
             tenant_id: o.tenant.clone(),
             build_id: o.build.clone(),
@@ -281,7 +320,7 @@ mod win {
             // not the game, so it would protect nothing that matters here.
             mitigations: MitigationProfile::Off,
             input_monitor: o.input_monitor,
-            jobs: Some(Box::new(move || carthago_scan::external::jobs(job_cell, dirs))),
+            jobs: Some(Box::new(move || carthago_scan::external::jobs(job_watch, dirs))),
         }) {
             Ok(rt) => rt,
             Err(e) => {
@@ -412,6 +451,7 @@ mod win {
                     ));
                     target = Arc::new(t);
                     cell.set(target.clone());
+                    baseline_logged = false;
                     if o.input_monitor {
                         carthago_scan::input::watch_pid(target.pid());
                     }
@@ -431,6 +471,20 @@ mod win {
                 break exit::OK;
             }
             rt.tick();
+            if !baseline_logged {
+                if let Some(secs) = watch.status().settled_after {
+                    baseline_logged = true;
+                    let st = watch.status();
+                    log.info(&format!(
+                        "BASELINE taken {secs} s after pid={} started, {} modules loaded{}. From here on a new module, an image mapped by hand and rewritten code of {} are reported as changes.",
+                        target.pid(),
+                        st.modules,
+                        if st.first_start { " (first recorded start)" } else { "" },
+                        CODE_MODULES.join(", ")
+                    ));
+                    save_profile(&log);
+                }
+            }
             while let Ok(n) = notices.try_recv() {
                 alerts_raised += 1;
                 on_notice(&log, &o, &n, &target, closer.as_ref(), &mut alerts);
@@ -472,6 +526,7 @@ mod win {
             }
             if last_status.elapsed() >= Duration::from_secs(10) {
                 last_status = Instant::now();
+                save_profile(&log);
                 if st.heartbeats_acked > 0 {
                     reconnects = 0;
                 }
@@ -501,6 +556,10 @@ mod win {
             None => log.info("leaving while the game is still running"),
         }
         cell.clear();
+        save_profile(&log);
+        if !baseline_logged {
+            log.info("the game ended before it had finished starting: no picture was taken and nothing was recorded");
+        }
         write_session(&ready, target.pid(), "ended");
         // One last heartbeat so findings from the final seconds are not lost.
         rt.heartbeat_now();

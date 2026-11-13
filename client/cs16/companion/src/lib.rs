@@ -10,7 +10,8 @@ usage: carthago-cs16 --keys public-keys.json (--game-dir DIR | --exe PATH | --at
                      [--gateway wss://127.0.0.1:8750/v1/client] [--tenant demo] [--build cs16]
                      [--player ID] [--session-file FILE] [--log FILE] [--no-tpm]
                      [--input-monitor] [--max-secs N] [--no-alert] [--alert-secs N]
-                     [--end-match-on-detect] [-- game arguments]
+                     [--end-match-on-detect] [--start-profile FILE] [--baseline-secs N]
+                     [-- game arguments]
        carthago-cs16 --test-alert [--player ID] [--alert-secs N] [--end-match-on-detect]
 
 Opens an attested session with the gateway, then starts the game (default arguments:
@@ -22,7 +23,13 @@ When the gateway reports that the session was flagged, a full-screen alert is sh
 window of this program (--no-alert: only a log line). It closes on Esc, a click, or after
 --alert-secs seconds (default 20, 0 = stays until closed). The game is left running unless
 --end-match-on-detect is given: then the game this program started is asked to close.
---test-alert shows the alert at once, without a gateway or a game, and exits.";
+--test-alert shows the alert at once, without a gateway or a game, and exits.
+
+The companion takes a picture of the game once it has finished starting: --baseline-secs
+(default 20) after the engine is loaded and no new module has arrived for a few seconds.
+What arrives later is reported as a change. --start-profile names a file in which the
+first start of this game is recorded; what a later start shows that the first did not is
+reported as new. Without the file, everything present at start counts as the game's own.";
 
 /// The game program in a GoldSrc folder: `hl.exe`, or `cstrike.exe` in builds that ship the
 /// same program under that name and no `hl.exe`. Nothing else in the folder is ever chosen.
@@ -34,6 +41,12 @@ pub fn engine_exe(dir: &Path) -> PathBuf {
 /// renderer) and the engine's file system module, which every GoldSrc client loads first
 /// and which stays in the loader's list in old builds that map the engine DLL themselves.
 pub const ENGINE_MODULES: [&str; 3] = ["hw.dll", "sw.dll", "filesystem_stdio.dll"];
+
+/// Libraries whose code is compared with the picture of the started game: the OpenGL
+/// library the hardware renderer draws through, the engine (which holds the renderer) and
+/// the client library. The game library of a listen server (`mp.dll`) is left out: server
+/// add-ons rewrite it for their hooks, and it decides nothing a client could gain from.
+pub const CODE_MODULES: [&str; 4] = ["opengl32.dll", "hw.dll", "sw.dll", "client.dll"];
 
 /// Programs found in a game folder that are never the game: the crash reporter, the TV
 /// proxy, dedicated servers and installers. Some of them load engine modules too.
@@ -82,6 +95,10 @@ pub struct Options {
     pub end_match_on_detect: bool,
     /// Show the alert screen now, as a preview, and exit.
     pub test_alert: bool,
+    /// Where the first start of this game is recorded.
+    pub start_profile: Option<PathBuf>,
+    /// Seconds after the engine is loaded before the picture of the started game is taken.
+    pub baseline_secs: u32,
 }
 
 pub fn parse_args(argv: &[String]) -> Result<Options, String> {
@@ -105,6 +122,8 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
         alert_secs: 20,
         end_match_on_detect: false,
         test_alert: false,
+        start_profile: None,
+        baseline_secs: 20,
     };
     let (mut exe, mut attach) = (None, None);
     let mut it = own.iter();
@@ -128,6 +147,8 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
             "--alert-secs" => o.alert_secs = val()?.parse().ok().filter(|s| *s <= 600).ok_or("--alert-secs: 0 to 600")?,
             "--end-match-on-detect" => o.end_match_on_detect = true,
             "--test-alert" => o.test_alert = true,
+            "--start-profile" => o.start_profile = Some(val()?.into()),
+            "--baseline-secs" => o.baseline_secs = val()?.parse().ok().filter(|s| (2..=600).contains(s)).ok_or("--baseline-secs: 2 to 600")?,
             other => return Err(format!("unknown argument {other}")),
         }
     }
