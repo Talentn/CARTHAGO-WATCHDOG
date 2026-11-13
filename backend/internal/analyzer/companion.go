@@ -68,6 +68,7 @@ func notValid(s pb.ModuleSignature) bool {
 
 const (
 	heldKnown    = "it was already there at the first recorded start of this game, so it is taken to be part of the build"
+	heldFirst    = "this run is the first recorded start of this game, so it has not been compared with anything: whatever is there at start is taken to be part of the build"
 	heldGameFile = "a file in the game folder looks like the game's own; an update or a new add-on leaves the same trace"
 	heldReader   = "a handle that can only read is also what monitoring tools hold"
 	heldAddons   = "server add-ons are loaded in this process, and they rewrite engine code of a listen server for their hooks"
@@ -82,6 +83,8 @@ func whenSeen(flags uint64, secs uint64) string {
 		return fmt.Sprintf("loaded %d s after the game started", secs)
 	case observed(flags, pb.ObservedFlags_OBSERVED_FLAGS_AFTER_START):
 		return "appeared after the game had finished starting"
+	case observed(flags, pb.ObservedFlags_OBSERVED_FLAGS_FIRST_START):
+		return "present at start; this run is the first recorded start, so there is nothing to compare it with"
 	case observed(flags, pb.ObservedFlags_OBSERVED_FLAGS_KNOWN_START):
 		return "present at start, as at the first recorded start"
 	}
@@ -93,7 +96,10 @@ func whenSeen(flags uint64, secs uint64) string {
 func tell(e Evidence, cat pb.EnforcementCategory, flags uint64) Evidence {
 	e.Notice = cat
 	if observed(flags, pb.ObservedFlags_OBSERVED_FLAGS_KNOWN_START) {
-		return partOfBuild(e)
+		e = partOfBuild(e)
+		if observed(flags, pb.ObservedFlags_OBSERVED_FLAGS_FIRST_START) {
+			e.Held = heldFirst
+		}
 	}
 	return e
 }

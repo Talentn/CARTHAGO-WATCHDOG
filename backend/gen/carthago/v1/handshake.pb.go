@@ -250,6 +250,9 @@ const (
 	// FINDING_CODE_MODULE_SIGNATURE, game folder: no file was ever seen loaded from this
 	// path before this run, and this run is not the first recorded one.
 	ObservedFlags_OBSERVED_FLAGS_NEW_FILE ObservedFlags = 32
+	// Set with KNOWN_START when this run is the first recorded start of the game folder:
+	// the thing counts as known only because there is no earlier start to compare it with.
+	ObservedFlags_OBSERVED_FLAGS_FIRST_START ObservedFlags = 64
 )
 
 // Enum value maps for ObservedFlags.
@@ -262,6 +265,7 @@ var (
 		8:  "OBSERVED_FLAGS_SHADOWS_SYSTEM",
 		16: "OBSERVED_FLAGS_FILE_CHANGED",
 		32: "OBSERVED_FLAGS_NEW_FILE",
+		64: "OBSERVED_FLAGS_FIRST_START",
 	}
 	ObservedFlags_value = map[string]int32{
 		"OBSERVED_FLAGS_NONE":           0,
@@ -271,6 +275,7 @@ var (
 		"OBSERVED_FLAGS_SHADOWS_SYSTEM": 8,
 		"OBSERVED_FLAGS_FILE_CHANGED":   16,
 		"OBSERVED_FLAGS_NEW_FILE":       32,
+		"OBSERVED_FLAGS_FIRST_START":    64,
 	}
 )
 
@@ -2995,7 +3000,7 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x1dFINDING_CODE_MODULE_SIGNATURE\x10\x0e\x12&\n" +
 	"\"FINDING_CODE_EXTERNAL_EXEC_REGIONS\x10\x0f\x12&\n" +
 	"\"FINDING_CODE_EXTERNAL_MAPPED_IMAGE\x10\x10\x12%\n" +
-	"!FINDING_CODE_EXTERNAL_CODE_CHANGE\x10\x11*\xe6\x01\n" +
+	"!FINDING_CODE_EXTERNAL_CODE_CHANGE\x10\x11*\x86\x02\n" +
 	"\rObservedFlags\x12\x17\n" +
 	"\x13OBSERVED_FLAGS_NONE\x10\x00\x12\x1e\n" +
 	"\x1aOBSERVED_FLAGS_AFTER_START\x10\x01\x12\x1b\n" +
@@ -3003,7 +3008,8 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x1aOBSERVED_FLAGS_KNOWN_START\x10\x04\x12!\n" +
 	"\x1dOBSERVED_FLAGS_SHADOWS_SYSTEM\x10\b\x12\x1f\n" +
 	"\x1bOBSERVED_FLAGS_FILE_CHANGED\x10\x10\x12\x1b\n" +
-	"\x17OBSERVED_FLAGS_NEW_FILE\x10 *>\n" +
+	"\x17OBSERVED_FLAGS_NEW_FILE\x10 \x12\x1e\n" +
+	"\x1aOBSERVED_FLAGS_FIRST_START\x10@*>\n" +
 	"\vHolderFlags\x12\x15\n" +
 	"\x11HOLDER_FLAGS_NONE\x10\x00\x12\x18\n" +
 	"\x12HOLDER_FLAGS_KNOWN\x10\x80\x80\x04*\x93\x01\n" +

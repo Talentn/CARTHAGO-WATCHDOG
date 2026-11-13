@@ -96,6 +96,25 @@ func TestModulesByWhenTheyWereSeen(t *testing.T) {
 	check(t, "no flags", e, want{"module_signature", SeverityLow, none, false})
 }
 
+// In the first recorded start nothing has been compared: the evidence says so, instead of
+// "as at the first recorded start", and stays an opt-in notice like anything known.
+func TestFirstRecordedStartIsNotCalledKnown(t *testing.T) {
+	first := uint64(pb.ObservedFlags_OBSERVED_FLAGS_FIRST_START)
+	c := Defaults()
+	e, _ := c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigNone, clsGame, atStart|shadows|known|first), "OPENGL32.dll")
+	check(t, "renderer proxy in the first recorded start", e, want{"renderer_replaced", SeverityInfo, visibility, true})
+	if strings.Contains(e.Summary, "as at the first recorded start") || !strings.Contains(e.Summary, "this run is the first recorded start") {
+		t.Errorf("summary: %s", e.Summary)
+	}
+	if e.Held != heldFirst {
+		t.Errorf("held: %s", e.Held)
+	}
+	e, _ = c.ClassifyFinding(uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), 1, module(sigNone, clsGame, atStart|shadows|known), "OPENGL32.dll")
+	if !strings.Contains(e.Summary, "as at the first recorded start") || e.Held != heldKnown {
+		t.Errorf("a later start: %s / %s", e.Summary, e.Held)
+	}
+}
+
 func TestMappedImages(t *testing.T) {
 	c := Defaults()
 	for _, tc := range []struct {

@@ -219,6 +219,9 @@ enum ObservedFlags {
   // FINDING_CODE_MODULE_SIGNATURE, game folder: no file was ever seen loaded from this
   // path before this run, and this run is not the first recorded one.
   OBSERVED_FLAGS_NEW_FILE = 32;
+  // Set with KNOWN_START when this run is the first recorded start of the game folder:
+  // the thing counts as known only because there is no earlier start to compare it with.
+  OBSERVED_FLAGS_FIRST_START = 64;
 }
 
 // FINDING_CODE_EXTERNAL_HANDLE b >> 32, bit 16.
