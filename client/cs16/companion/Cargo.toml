@@ -1,0 +1,23 @@
+[package]
+name = "carthago-cs16-companion"
+description = "Companion launcher for Counter-Strike 1.6: gateway session with TPM attestation, starts hl.exe, watches it from outside with read-only access"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "carthago-cs16"
+path = "src/main.rs"
+
+[dependencies]
+carthago-net = { path = "../../crates/carthago-net" }
+carthago-crypto = { path = "../../crates/carthago-crypto" }
+hex = "0.4.3"
+serde_json = "1.0.154"
+
+[target.'cfg(windows)'.dependencies]
+carthago-core = { path = "../../crates/carthago-core" }
+carthago-scan = { path = "../../crates/carthago-scan" }
+carthago-sched = { path = "../../crates/carthago-sched" }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }

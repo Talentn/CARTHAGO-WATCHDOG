@@ -380,9 +380,12 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 				Rule: e.Rule, Severity: int(e.Severity), Score: e.Score, Summary: e.Summary, ObservedAt: at,
 				Raw: fmt.Sprintf(`{"slot":%d,"batch_seq":%d}`, slot, b.BatchSeq),
 			}
-			// The verified session wins over whatever player hash the game server sent.
+			// The verified session wins over whatever player hash the game server sent, and a
+			// slot with a verified session is a person whatever the game server calls it.
 			if s, ok := ms.sessions[slot]; ok {
 				ev.SessionID, ev.PlayerHash = s.SessionID, s.PlayerHash
+			} else {
+				ev.Bot = player.Bot
 			}
 			if ev.PlayerHash == "" {
 				ev.PlayerHash = fmt.Sprintf("slot-%d", slot)

@@ -199,3 +199,52 @@ func TestSQLiteReopenKeepsData(t *testing.T) {
 		t.Fatalf("evidence after reopen: %+v", evs)
 	}
 }
+
+// Evidence about a bot slot is listed but never adds risk, flags a player or counts on the
+// overview.
+func TestBotEvidenceIsShownButNotCounted(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	for name, st := range backends(t) {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			seed(t, st, now)
+			err := st.AddEvidence(ctx, []Evidence{
+				{TenantID: "t1", PlayerHash: "bot:Hawk", MatchID: "m9", Source: SourceGameplay, Rule: "angle_snap", Severity: 3, Score: 0.99, Bot: true, Summary: "snaps", ObservedAt: now},
+				{TenantID: "t1", PlayerHash: "bot:Hawk", MatchID: "m9", Source: SourceGameplay, Rule: "headshot_rate", Severity: 2, Score: 0.9, Bot: true, Summary: "hs", ObservedAt: now},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			o, err := st.Overview(ctx, "t1", now.Add(-24*time.Hour), now.Add(-time.Minute))
+			if err != nil || o.FlaggedPlayers != 1 || o.Evidence != 3 {
+				t.Fatalf("overview counts bot evidence: %+v %v", o, err)
+			}
+			flagged, _ := st.ListPlayers(ctx, "t1", PlayerFilter{FlaggedOnly: true})
+			for _, p := range flagged {
+				if p.PlayerHash == "bot:Hawk" {
+					t.Fatalf("bot listed as flagged: %+v", p)
+				}
+			}
+			all, _ := st.ListPlayers(ctx, "t1", PlayerFilter{})
+			var bot *PlayerRow
+			for i := range all {
+				if all[i].Bot != (all[i].PlayerHash == "bot:Hawk") {
+					t.Fatalf("bot marker on %+v", all[i])
+				}
+				if all[i].PlayerHash == "bot:Hawk" {
+					bot = &all[i]
+				}
+			}
+			if bot == nil || bot.Risk != 0 || bot.EvidenceCount != 2 || bot.MaxSeverity != 3 || bot.TopRule != "angle_snap" {
+				t.Fatalf("bot row: %+v", bot)
+			}
+			evs, _ := st.ListEvidence(ctx, "t1", EvidenceFilter{PlayerHash: "bot:Hawk"})
+			if len(evs) != 2 || !evs[0].Bot || !evs[1].Bot {
+				t.Fatalf("bot evidence: %+v", evs)
+			}
+			if e, err := st.GetEvidence(ctx, "t1", evs[0].ID); err != nil || !e.Bot {
+				t.Fatalf("GetEvidence bot: %+v %v", e, err)
+			}
+		})
+	}
+}

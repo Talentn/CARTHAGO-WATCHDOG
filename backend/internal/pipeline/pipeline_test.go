@@ -337,3 +337,47 @@ func TestDroppedHeartbeatsAreLogged(t *testing.T) {
 		t.Fatalf("reported %d times without new drops", n)
 	}
 }
+
+// A bot slot's gameplay evidence is labelled; a slot with a verified session is a person
+// even when the game server calls it a bot.
+func TestBotSlotsAreLabelledUnlessSessionBound(t *testing.T) {
+	p, st, _ := newTest(t, Config{})
+	session(st, "sess-human", "t1", "human")
+	ctx := context.Background()
+	players := []*pb.MatchPlayer{
+		{Slot: 1, SessionId: "sess-human", Bot: true},
+		{Slot: 2, PlayerHash: "bot:Hawk", Bot: true},
+	}
+	// CmdMinTicks is 640 (about 10 s at 64 Hz); one cheaterBatch is only 320 ticks.
+	for seq := uint64(1); seq <= 3; seq++ {
+		b := cheaterBatch(seq, players, seq == 3)
+		for _, c := range b.Commands {
+			c.Commands = 85
+		}
+		if ok, _, err := p.Gameplay(ctx, "t1", b); !ok || err != nil {
+			t.Fatalf("batch %d: %v %v", seq, ok, err)
+		}
+	}
+	evs, _ := st.ListEvidence(ctx, "t1", store.EvidenceFilter{})
+	if len(evs) != 2 {
+		t.Fatalf("evidence: %+v", evs)
+	}
+	for _, e := range evs {
+		switch e.PlayerHash {
+		case "human":
+			if e.Bot || e.SessionID != "sess-human" {
+				t.Fatalf("session-bound slot treated as a bot: %+v", e)
+			}
+		case "bot:Hawk":
+			if !e.Bot || e.SessionID != "" {
+				t.Fatalf("bot slot not labelled: %+v", e)
+			}
+		default:
+			t.Fatalf("unexpected evidence: %+v", e)
+		}
+	}
+	rows, _ := st.ListPlayers(ctx, "t1", store.PlayerFilter{FlaggedOnly: true})
+	if len(rows) != 1 || rows[0].PlayerHash != "human" {
+		t.Fatalf("flagged: %+v", rows)
+	}
+}

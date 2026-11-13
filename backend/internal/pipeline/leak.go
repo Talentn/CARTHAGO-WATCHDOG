@@ -211,6 +211,8 @@ func (p *Pipeline) leakEvidence(tenant string, ms *matchState, v *v2State, b *pb
 		}
 		if s, ok := ms.sessions[r.Slot]; ok {
 			ev.SessionID = s.SessionID
+		} else if pl, ok := ms.m.Players[r.Slot]; ok {
+			ev.Bot = pl.Bot
 		}
 		evs = append(evs, ev)
 	}

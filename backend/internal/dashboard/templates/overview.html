@@ -46,7 +46,7 @@
     {{range $d.Recent}}
       <tr><td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span></td>
         <td><a class="mono" href="/evidence/{{.ID}}">{{.Rule}}</a></td>
-        <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
+        <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>{{if .Bot}} <span class="tag" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{end}}</td>
         <td>{{.Summary}}</td>
         <td class="when" title="{{when .ObservedAt}}"><span class="mono">{{.ObservedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .ObservedAt}}</span></td></tr>
     {{end}}

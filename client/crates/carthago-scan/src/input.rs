@@ -28,6 +28,14 @@ static LOWER_IL: AtomicU64 = AtomicU64::new(0);
 static FOCUSED_MS: AtomicU64 = AtomicU64::new(0);
 static THREAD_CPU_NS: AtomicU64 = AtomicU64::new(0);
 static RUNNING: AtomicBool = AtomicBool::new(false);
+/// The process whose focus arms the hook; 0 = this process.
+static WATCHED_PID: AtomicU32 = AtomicU32::new(0);
+
+/// Counts input while a window of `pid` has focus instead of this process's own (for a
+/// companion that sits beside the game). 0 restores the default.
+pub fn watch_pid(pid: u32) {
+    WATCHED_PID.store(pid, Relaxed);
+}
 
 const POLL_MS: u32 = 250;
 
@@ -91,7 +99,10 @@ fn run(tid_out: Arc<AtomicU32>) {
         if msg.message != WM_TIMER {
             continue;
         }
-        let focused = game_focused(pid);
+        let focused = game_focused(match WATCHED_PID.load(Relaxed) {
+            0 => pid,
+            other => other,
+        });
         if focused {
             FOCUSED_MS.fetch_add(POLL_MS as u64, Relaxed);
             if hook.is_null() {

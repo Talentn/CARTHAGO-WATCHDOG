@@ -452,17 +452,23 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 	if len(sess) > 0 {
 		row.TrustLevel, row.LastSeen = sess[0].TrustLevel, sess[0].CreatedAt
 	}
+	bots := 0
 	for _, e := range evs {
 		if e.Severity <= 0 {
 			continue
 		}
 		row.EvidenceCount++
-		row.Risk += store.RiskWeight[min(e.Severity, len(store.RiskWeight)-1)] * e.Score
+		if e.Bot {
+			bots++
+		} else {
+			row.Risk += store.RiskWeight[min(e.Severity, len(store.RiskWeight)-1)] * e.Score
+		}
 		row.MaxSeverity = max(row.MaxSeverity, e.Severity)
 		if e.Integrity {
 			row.Integrity++
 		}
 	}
+	row.Bot = len(sess) == 0 && bots > 0 && bots == row.EvidenceCount
 	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs}})
 }
 

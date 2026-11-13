@@ -167,6 +167,28 @@ enum FindingCode {
   FINDING_CODE_MODULE_LOADED = 12;
   // Process mitigation profile outcome (informational). a = applied bits, b = failed bits.
   FINDING_CODE_MITIGATIONS = 13;
+  // Authenticode state of a module loaded into the game process from outside the system
+  // directory, as an out-of-process companion sees it. a = base, b = ModuleSignature in the
+  // low 8 bits plus ModulePathClass << 8, detail = base name.
+  FINDING_CODE_MODULE_SIGNATURE = 14;
+  // Committed executable memory with no backing image in the game process, summarised by an
+  // out-of-process companion. a = region count, b = total bytes in the low 48 bits plus the
+  // union of UnbackedFlags << 48. Sent when the count changes. From outside, the game's own
+  // loader or a script JIT cannot be told apart from foreign code, so this is a summary and
+  // not a per-region verdict.
+  FINDING_CODE_EXTERNAL_EXEC_REGIONS = 15;
+}
+
+// FINDING_CODE_MODULE_SIGNATURE b & 0xff: what WinVerifyTrust says about the file on disk
+// (embedded Authenticode signature, no revocation or network checks).
+enum ModuleSignature {
+  MODULE_SIGNATURE_UNSPECIFIED = 0;
+  MODULE_SIGNATURE_VALID = 1;      // signed, chain trusted, file unchanged
+  MODULE_SIGNATURE_NONE = 2;       // no embedded signature
+  MODULE_SIGNATURE_BAD_DIGEST = 3; // signed, but the file was changed afterwards
+  MODULE_SIGNATURE_UNTRUSTED = 4;  // signed, signer not trusted or explicitly distrusted
+  MODULE_SIGNATURE_EXPIRED = 5;    // signed, certificate outside its validity and not timestamped
+  MODULE_SIGNATURE_ERROR = 6;      // could not be checked (file unreadable, provider error)
 }
 
 // Bits in FINDING_CODE_UNBACKED_EXEC b >> 48.

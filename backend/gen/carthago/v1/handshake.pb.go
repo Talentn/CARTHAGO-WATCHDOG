@@ -125,6 +125,16 @@ const (
 	FindingCode_FINDING_CODE_MODULE_LOADED FindingCode = 12
 	// Process mitigation profile outcome (informational). a = applied bits, b = failed bits.
 	FindingCode_FINDING_CODE_MITIGATIONS FindingCode = 13
+	// Authenticode state of a module loaded into the game process from outside the system
+	// directory, as an out-of-process companion sees it. a = base, b = ModuleSignature in the
+	// low 8 bits plus ModulePathClass << 8, detail = base name.
+	FindingCode_FINDING_CODE_MODULE_SIGNATURE FindingCode = 14
+	// Committed executable memory with no backing image in the game process, summarised by an
+	// out-of-process companion. a = region count, b = total bytes in the low 48 bits plus the
+	// union of UnbackedFlags << 48. Sent when the count changes. From outside, the game's own
+	// loader or a script JIT cannot be told apart from foreign code, so this is a summary and
+	// not a per-region verdict.
+	FindingCode_FINDING_CODE_EXTERNAL_EXEC_REGIONS FindingCode = 15
 )
 
 // Enum value maps for FindingCode.
@@ -144,6 +154,8 @@ var (
 		11: "FINDING_CODE_VULNERABLE_DRIVER",
 		12: "FINDING_CODE_MODULE_LOADED",
 		13: "FINDING_CODE_MITIGATIONS",
+		14: "FINDING_CODE_MODULE_SIGNATURE",
+		15: "FINDING_CODE_EXTERNAL_EXEC_REGIONS",
 	}
 	FindingCode_value = map[string]int32{
 		"FINDING_CODE_UNSPECIFIED":           0,
@@ -160,6 +172,8 @@ var (
 		"FINDING_CODE_VULNERABLE_DRIVER":     11,
 		"FINDING_CODE_MODULE_LOADED":         12,
 		"FINDING_CODE_MITIGATIONS":           13,
+		"FINDING_CODE_MODULE_SIGNATURE":      14,
+		"FINDING_CODE_EXTERNAL_EXEC_REGIONS": 15,
 	}
 )
 
@@ -188,6 +202,69 @@ func (x FindingCode) Number() protoreflect.EnumNumber {
 // Deprecated: Use FindingCode.Descriptor instead.
 func (FindingCode) EnumDescriptor() ([]byte, []int) {
 	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{1}
+}
+
+// FINDING_CODE_MODULE_SIGNATURE b & 0xff: what WinVerifyTrust says about the file on disk
+// (embedded Authenticode signature, no revocation or network checks).
+type ModuleSignature int32
+
+const (
+	ModuleSignature_MODULE_SIGNATURE_UNSPECIFIED ModuleSignature = 0
+	ModuleSignature_MODULE_SIGNATURE_VALID       ModuleSignature = 1 // signed, chain trusted, file unchanged
+	ModuleSignature_MODULE_SIGNATURE_NONE        ModuleSignature = 2 // no embedded signature
+	ModuleSignature_MODULE_SIGNATURE_BAD_DIGEST  ModuleSignature = 3 // signed, but the file was changed afterwards
+	ModuleSignature_MODULE_SIGNATURE_UNTRUSTED   ModuleSignature = 4 // signed, signer not trusted or explicitly distrusted
+	ModuleSignature_MODULE_SIGNATURE_EXPIRED     ModuleSignature = 5 // signed, certificate outside its validity and not timestamped
+	ModuleSignature_MODULE_SIGNATURE_ERROR       ModuleSignature = 6 // could not be checked (file unreadable, provider error)
+)
+
+// Enum value maps for ModuleSignature.
+var (
+	ModuleSignature_name = map[int32]string{
+		0: "MODULE_SIGNATURE_UNSPECIFIED",
+		1: "MODULE_SIGNATURE_VALID",
+		2: "MODULE_SIGNATURE_NONE",
+		3: "MODULE_SIGNATURE_BAD_DIGEST",
+		4: "MODULE_SIGNATURE_UNTRUSTED",
+		5: "MODULE_SIGNATURE_EXPIRED",
+		6: "MODULE_SIGNATURE_ERROR",
+	}
+	ModuleSignature_value = map[string]int32{
+		"MODULE_SIGNATURE_UNSPECIFIED": 0,
+		"MODULE_SIGNATURE_VALID":       1,
+		"MODULE_SIGNATURE_NONE":        2,
+		"MODULE_SIGNATURE_BAD_DIGEST":  3,
+		"MODULE_SIGNATURE_UNTRUSTED":   4,
+		"MODULE_SIGNATURE_EXPIRED":     5,
+		"MODULE_SIGNATURE_ERROR":       6,
+	}
+)
+
+func (x ModuleSignature) Enum() *ModuleSignature {
+	p := new(ModuleSignature)
+	*p = x
+	return p
+}
+
+func (x ModuleSignature) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ModuleSignature) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_handshake_proto_enumTypes[2].Descriptor()
+}
+
+func (ModuleSignature) Type() protoreflect.EnumType {
+	return &file_carthago_v1_handshake_proto_enumTypes[2]
+}
+
+func (x ModuleSignature) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ModuleSignature.Descriptor instead.
+func (ModuleSignature) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{2}
 }
 
 // Bits in FINDING_CODE_UNBACKED_EXEC b >> 48.
@@ -230,11 +307,11 @@ func (x UnbackedFlags) String() string {
 }
 
 func (UnbackedFlags) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[2].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[3].Descriptor()
 }
 
 func (UnbackedFlags) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[2]
+	return &file_carthago_v1_handshake_proto_enumTypes[3]
 }
 
 func (x UnbackedFlags) Number() protoreflect.EnumNumber {
@@ -243,7 +320,7 @@ func (x UnbackedFlags) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use UnbackedFlags.Descriptor instead.
 func (UnbackedFlags) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{2}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{3}
 }
 
 // Bits in FINDING_CODE_DEBUGGER a.
@@ -292,11 +369,11 @@ func (x DebugSignal) String() string {
 }
 
 func (DebugSignal) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[3].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[4].Descriptor()
 }
 
 func (DebugSignal) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[3]
+	return &file_carthago_v1_handshake_proto_enumTypes[4]
 }
 
 func (x DebugSignal) Number() protoreflect.EnumNumber {
@@ -305,7 +382,7 @@ func (x DebugSignal) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DebugSignal.Descriptor instead.
 func (DebugSignal) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{3}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{4}
 }
 
 type ModulePathClass int32
@@ -341,11 +418,11 @@ func (x ModulePathClass) String() string {
 }
 
 func (ModulePathClass) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[4].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[5].Descriptor()
 }
 
 func (ModulePathClass) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[4]
+	return &file_carthago_v1_handshake_proto_enumTypes[5]
 }
 
 func (x ModulePathClass) Number() protoreflect.EnumNumber {
@@ -354,7 +431,7 @@ func (x ModulePathClass) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ModulePathClass.Descriptor instead.
 func (ModulePathClass) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{4}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{5}
 }
 
 // Curated exports checked for inline hooks (timing APIs for speedhacks, loader and query
@@ -425,11 +502,11 @@ func (x WatchedApi) String() string {
 }
 
 func (WatchedApi) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[5].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[6].Descriptor()
 }
 
 func (WatchedApi) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[5]
+	return &file_carthago_v1_handshake_proto_enumTypes[6]
 }
 
 func (x WatchedApi) Number() protoreflect.EnumNumber {
@@ -438,7 +515,7 @@ func (x WatchedApi) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WatchedApi.Descriptor instead.
 func (WatchedApi) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{5}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{6}
 }
 
 type DeviceKey struct {
@@ -2386,7 +2463,7 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\fDeviceKeyAlg\x12\x1e\n" +
 	"\x1aDEVICE_KEY_ALG_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fDEVICE_KEY_ALG_ED25519_SOFTWARE\x10\x01\x12!\n" +
-	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02*\xda\x03\n" +
+	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02*\xa5\x04\n" +
 	"\vFindingCode\x12\x1c\n" +
 	"\x18FINDING_CODE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dFINDING_CODE_MODULE_NOT_IMAGE\x10\x01\x12$\n" +
@@ -2402,7 +2479,17 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x12\"\n" +
 	"\x1eFINDING_CODE_VULNERABLE_DRIVER\x10\v\x12\x1e\n" +
 	"\x1aFINDING_CODE_MODULE_LOADED\x10\f\x12\x1c\n" +
-	"\x18FINDING_CODE_MITIGATIONS\x10\r*\xa0\x01\n" +
+	"\x18FINDING_CODE_MITIGATIONS\x10\r\x12!\n" +
+	"\x1dFINDING_CODE_MODULE_SIGNATURE\x10\x0e\x12&\n" +
+	"\"FINDING_CODE_EXTERNAL_EXEC_REGIONS\x10\x0f*\xe5\x01\n" +
+	"\x0fModuleSignature\x12 \n" +
+	"\x1cMODULE_SIGNATURE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16MODULE_SIGNATURE_VALID\x10\x01\x12\x19\n" +
+	"\x15MODULE_SIGNATURE_NONE\x10\x02\x12\x1f\n" +
+	"\x1bMODULE_SIGNATURE_BAD_DIGEST\x10\x03\x12\x1e\n" +
+	"\x1aMODULE_SIGNATURE_UNTRUSTED\x10\x04\x12\x1c\n" +
+	"\x18MODULE_SIGNATURE_EXPIRED\x10\x05\x12\x1a\n" +
+	"\x16MODULE_SIGNATURE_ERROR\x10\x06*\xa0\x01\n" +
 	"\rUnbackedFlags\x12\x17\n" +
 	"\x13UNBACKED_FLAGS_NONE\x10\x00\x12\x1c\n" +
 	"\x18UNBACKED_FLAGS_MZ_HEADER\x10\x01\x12\x1f\n" +
@@ -2451,59 +2538,60 @@ func file_carthago_v1_handshake_proto_rawDescGZIP() []byte {
 	return file_carthago_v1_handshake_proto_rawDescData
 }
 
-var file_carthago_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_carthago_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
 var file_carthago_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_carthago_v1_handshake_proto_goTypes = []any{
 	(DeviceKeyAlg)(0),     // 0: carthago.v1.DeviceKeyAlg
 	(FindingCode)(0),      // 1: carthago.v1.FindingCode
-	(UnbackedFlags)(0),    // 2: carthago.v1.UnbackedFlags
-	(DebugSignal)(0),      // 3: carthago.v1.DebugSignal
-	(ModulePathClass)(0),  // 4: carthago.v1.ModulePathClass
-	(WatchedApi)(0),       // 5: carthago.v1.WatchedApi
-	(*DeviceKey)(nil),     // 6: carthago.v1.DeviceKey
-	(*TpmEnrollment)(nil), // 7: carthago.v1.TpmEnrollment
-	(*EnvReport)(nil),     // 8: carthago.v1.EnvReport
-	(*Hello)(nil),         // 9: carthago.v1.Hello
-	(*EkChallenge)(nil),   // 10: carthago.v1.EkChallenge
-	(*AttestRequest)(nil), // 11: carthago.v1.AttestRequest
-	(*ChallengeBody)(nil), // 12: carthago.v1.ChallengeBody
-	(*Challenge)(nil),     // 13: carthago.v1.Challenge
-	(*Pcr)(nil),           // 14: carthago.v1.Pcr
-	(*TpmEvidence)(nil),   // 15: carthago.v1.TpmEvidence
-	(*Prove)(nil),         // 16: carthago.v1.Prove
-	(*Session)(nil),       // 17: carthago.v1.Session
-	(*Finding)(nil),       // 18: carthago.v1.Finding
-	(*SchedSummary)(nil),  // 19: carthago.v1.SchedSummary
-	(*TimeSample)(nil),    // 20: carthago.v1.TimeSample
-	(*InputStats)(nil),    // 21: carthago.v1.InputStats
-	(*JobCoverage)(nil),   // 22: carthago.v1.JobCoverage
-	(*Heartbeat)(nil),     // 23: carthago.v1.Heartbeat
-	(*HeartbeatAck)(nil),  // 24: carthago.v1.HeartbeatAck
-	(*Kicked)(nil),        // 25: carthago.v1.Kicked
-	(*Error)(nil),         // 26: carthago.v1.Error
-	(*ClientMsg)(nil),     // 27: carthago.v1.ClientMsg
-	(*ServerMsg)(nil),     // 28: carthago.v1.ServerMsg
+	(ModuleSignature)(0),  // 2: carthago.v1.ModuleSignature
+	(UnbackedFlags)(0),    // 3: carthago.v1.UnbackedFlags
+	(DebugSignal)(0),      // 4: carthago.v1.DebugSignal
+	(ModulePathClass)(0),  // 5: carthago.v1.ModulePathClass
+	(WatchedApi)(0),       // 6: carthago.v1.WatchedApi
+	(*DeviceKey)(nil),     // 7: carthago.v1.DeviceKey
+	(*TpmEnrollment)(nil), // 8: carthago.v1.TpmEnrollment
+	(*EnvReport)(nil),     // 9: carthago.v1.EnvReport
+	(*Hello)(nil),         // 10: carthago.v1.Hello
+	(*EkChallenge)(nil),   // 11: carthago.v1.EkChallenge
+	(*AttestRequest)(nil), // 12: carthago.v1.AttestRequest
+	(*ChallengeBody)(nil), // 13: carthago.v1.ChallengeBody
+	(*Challenge)(nil),     // 14: carthago.v1.Challenge
+	(*Pcr)(nil),           // 15: carthago.v1.Pcr
+	(*TpmEvidence)(nil),   // 16: carthago.v1.TpmEvidence
+	(*Prove)(nil),         // 17: carthago.v1.Prove
+	(*Session)(nil),       // 18: carthago.v1.Session
+	(*Finding)(nil),       // 19: carthago.v1.Finding
+	(*SchedSummary)(nil),  // 20: carthago.v1.SchedSummary
+	(*TimeSample)(nil),    // 21: carthago.v1.TimeSample
+	(*InputStats)(nil),    // 22: carthago.v1.InputStats
+	(*JobCoverage)(nil),   // 23: carthago.v1.JobCoverage
+	(*Heartbeat)(nil),     // 24: carthago.v1.Heartbeat
+	(*HeartbeatAck)(nil),  // 25: carthago.v1.HeartbeatAck
+	(*Kicked)(nil),        // 26: carthago.v1.Kicked
+	(*Error)(nil),         // 27: carthago.v1.Error
+	(*ClientMsg)(nil),     // 28: carthago.v1.ClientMsg
+	(*ServerMsg)(nil),     // 29: carthago.v1.ServerMsg
 }
 var file_carthago_v1_handshake_proto_depIdxs = []int32{
 	0,  // 0: carthago.v1.DeviceKey.alg:type_name -> carthago.v1.DeviceKeyAlg
-	6,  // 1: carthago.v1.Hello.device_key:type_name -> carthago.v1.DeviceKey
-	8,  // 2: carthago.v1.Hello.env:type_name -> carthago.v1.EnvReport
-	7,  // 3: carthago.v1.Hello.tpm_enrollment:type_name -> carthago.v1.TpmEnrollment
-	10, // 4: carthago.v1.AttestRequest.ek_challenge:type_name -> carthago.v1.EkChallenge
-	11, // 5: carthago.v1.ChallengeBody.attest:type_name -> carthago.v1.AttestRequest
-	14, // 6: carthago.v1.TpmEvidence.pcrs:type_name -> carthago.v1.Pcr
-	15, // 7: carthago.v1.Prove.attestation:type_name -> carthago.v1.TpmEvidence
-	19, // 8: carthago.v1.Heartbeat.sched:type_name -> carthago.v1.SchedSummary
-	18, // 9: carthago.v1.Heartbeat.findings:type_name -> carthago.v1.Finding
-	20, // 10: carthago.v1.Heartbeat.time:type_name -> carthago.v1.TimeSample
-	21, // 11: carthago.v1.Heartbeat.input:type_name -> carthago.v1.InputStats
-	22, // 12: carthago.v1.Heartbeat.coverage:type_name -> carthago.v1.JobCoverage
-	16, // 13: carthago.v1.ClientMsg.prove:type_name -> carthago.v1.Prove
-	23, // 14: carthago.v1.ClientMsg.heartbeat:type_name -> carthago.v1.Heartbeat
-	17, // 15: carthago.v1.ServerMsg.session:type_name -> carthago.v1.Session
-	24, // 16: carthago.v1.ServerMsg.heartbeat_ack:type_name -> carthago.v1.HeartbeatAck
-	25, // 17: carthago.v1.ServerMsg.kicked:type_name -> carthago.v1.Kicked
-	26, // 18: carthago.v1.ServerMsg.error:type_name -> carthago.v1.Error
+	7,  // 1: carthago.v1.Hello.device_key:type_name -> carthago.v1.DeviceKey
+	9,  // 2: carthago.v1.Hello.env:type_name -> carthago.v1.EnvReport
+	8,  // 3: carthago.v1.Hello.tpm_enrollment:type_name -> carthago.v1.TpmEnrollment
+	11, // 4: carthago.v1.AttestRequest.ek_challenge:type_name -> carthago.v1.EkChallenge
+	12, // 5: carthago.v1.ChallengeBody.attest:type_name -> carthago.v1.AttestRequest
+	15, // 6: carthago.v1.TpmEvidence.pcrs:type_name -> carthago.v1.Pcr
+	16, // 7: carthago.v1.Prove.attestation:type_name -> carthago.v1.TpmEvidence
+	20, // 8: carthago.v1.Heartbeat.sched:type_name -> carthago.v1.SchedSummary
+	19, // 9: carthago.v1.Heartbeat.findings:type_name -> carthago.v1.Finding
+	21, // 10: carthago.v1.Heartbeat.time:type_name -> carthago.v1.TimeSample
+	22, // 11: carthago.v1.Heartbeat.input:type_name -> carthago.v1.InputStats
+	23, // 12: carthago.v1.Heartbeat.coverage:type_name -> carthago.v1.JobCoverage
+	17, // 13: carthago.v1.ClientMsg.prove:type_name -> carthago.v1.Prove
+	24, // 14: carthago.v1.ClientMsg.heartbeat:type_name -> carthago.v1.Heartbeat
+	18, // 15: carthago.v1.ServerMsg.session:type_name -> carthago.v1.Session
+	25, // 16: carthago.v1.ServerMsg.heartbeat_ack:type_name -> carthago.v1.HeartbeatAck
+	26, // 17: carthago.v1.ServerMsg.kicked:type_name -> carthago.v1.Kicked
+	27, // 18: carthago.v1.ServerMsg.error:type_name -> carthago.v1.Error
 	19, // [19:19] is the sub-list for method output_type
 	19, // [19:19] is the sub-list for method input_type
 	19, // [19:19] is the sub-list for extension type_name
@@ -2531,7 +2619,7 @@ func file_carthago_v1_handshake_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_handshake_proto_rawDesc), len(file_carthago_v1_handshake_proto_rawDesc)),
-			NumEnums:      6,
+			NumEnums:      7,
 			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   0,

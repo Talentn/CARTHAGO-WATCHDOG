@@ -28,6 +28,7 @@ type Player struct {
 	SessionID  string
 	PlayerHash string
 	MMR        int32
+	Bot        bool // the game server says this slot is computer-controlled
 
 	lastTick           uint32
 	lastYaw, lastPitch float64
@@ -145,7 +146,7 @@ func (m *Match) Add(b *pb.GameplayBatch) {
 	}
 	for _, mp := range b.Players {
 		if p := m.player(mp.Slot); p != nil {
-			p.SessionID, p.PlayerHash, p.MMR = mp.SessionId, mp.PlayerHash, mp.Mmr
+			p.SessionID, p.PlayerHash, p.MMR, p.Bot = mp.SessionId, mp.PlayerHash, mp.Mmr, mp.Bot
 		}
 	}
 	// The snap threshold is an angular speed: at a lower tick rate the same hand movement

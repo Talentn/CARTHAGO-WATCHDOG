@@ -2,10 +2,11 @@
 {{$e := .Data}}
 <div class="head">
   <h1>Evidence #{{$e.ID}}</h1>
-  <span class="sev sev-{{sev $e.Severity}}">{{sev $e.Severity}}</span>{{if $e.Integrity}} <span class="tag">integrity</span>{{end}}
+  <span class="sev sev-{{sev $e.Severity}}">{{sev $e.Severity}}</span>{{if $e.Integrity}} <span class="tag">integrity</span>{{end}}{{if $e.Bot}} <span class="tag" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{end}}
 </div>
 <section class="card">
   <p class="lead">{{$e.Summary}}</p>
+  {{if $e.Bot}}<p class="muted note">The game server marked this slot as a bot. The rules ran on its telemetry as they would on a person, so you can see how machine aim reads; the result is not evidence against anyone and adds nothing to any risk score.</p>{{end}}
   <dl class="kv">
     <dt>Rule</dt><dd class="mono">{{$e.Rule}}</dd>
     <dt>Source</dt><dd>{{if eq $e.Source "client"}}client integrity scan{{else}}server-side gameplay analysis{{end}}</dd>
@@ -19,7 +20,7 @@
 </section>
 {{with leak $e}}
 <section class="card">
-  <h2>Why this player was flagged</h2>
+  <h2>{{if $e.Bot}}Why this bot tripped the rule{{else}}Why this player was flagged{{end}}</h2>
   {{template "leak" .}}
   <details><summary>Raw evidence</summary><pre>{{pretty $e.Raw}}</pre></details>
 </section>

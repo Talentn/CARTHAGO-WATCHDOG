@@ -13,6 +13,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::drivers;
+use crate::external::TargetCell;
 use crate::seen::{fnv1a, Seen};
 use crate::win;
 
@@ -32,6 +33,9 @@ fn overlaps(a: &RECT, b: &RECT) -> bool {
 /// the window title (plan §10).
 pub struct OverlayWindows {
     self_pid: u32,
+    /// The process whose window is watched: the scanner's own, or a companion's target.
+    game_pid: u32,
+    cell: Option<std::sync::Arc<TargetCell>>,
     game: Option<RECT>,
     cur: usize,
     seen: Seen,
@@ -39,7 +43,13 @@ pub struct OverlayWindows {
 
 impl OverlayWindows {
     pub fn new() -> Self {
-        Self { self_pid: unsafe { GetCurrentProcessId() }, game: None, cur: 0, seen: Seen::new(128) }
+        let self_pid = unsafe { GetCurrentProcessId() };
+        Self { self_pid, game_pid: self_pid, cell: None, game: None, cur: 0, seen: Seen::new(128) }
+    }
+
+    /// Watches the windows over a companion's target process. Idle until the target is set.
+    pub fn for_target(cell: std::sync::Arc<TargetCell>) -> Self {
+        Self { game_pid: 0, cell: Some(cell), ..Self::new() }
     }
 }
 
@@ -66,8 +76,11 @@ impl Job for OverlayWindows {
     fn begin(&mut self) {
         self.game = None;
         self.cur = 0;
+        if let Some(cell) = &self.cell {
+            self.game_pid = cell.get().filter(|t| t.alive()).map_or(0, |t| t.pid());
+        }
         let fg = unsafe { GetForegroundWindow() };
-        if fg.is_null() || window_pid(fg) != self.self_pid {
+        if fg.is_null() || self.game_pid == 0 || window_pid(fg) != self.game_pid {
             return;
         }
         let mut r: RECT = unsafe { std::mem::zeroed() };
@@ -91,7 +104,7 @@ impl Job for OverlayWindows {
             }
             let pid = window_pid(h);
             let mut r: RECT = unsafe { std::mem::zeroed() };
-            if pid == self.self_pid || unsafe { GetWindowRect(h, &mut r) } == 0 || !overlaps(&r, &game) {
+            if pid == self.self_pid || pid == self.game_pid || unsafe { GetWindowRect(h, &mut r) } == 0 || !overlaps(&r, &game) {
                 continue;
             }
             if self.seen.first(pid as u64) {

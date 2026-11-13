@@ -42,7 +42,13 @@ pub struct Config {
     pub mitigations: MitigationProfile,
     /// Low-level mouse hook for injected-input statistics (plan §6.1).
     pub input_monitor: bool,
+    /// Scan jobs to run instead of the in-process Phase 1 set. `None` for a game that links
+    /// the SDK; a companion beside a game passes `carthago_scan::external::jobs`.
+    pub jobs: Option<JobFactory>,
 }
+
+/// Builds the scheduler's job set on the SDK thread.
+pub type JobFactory = Box<dyn FnOnce() -> Vec<Box<dyn carthago_sched::Job>> + Send + Sync>;
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +111,8 @@ enum Cmd {
 
 struct Inner {
     cfg: Config,
+    jobs: Mutex<Option<JobFactory>>,
+    session_id: Mutex<String>,
     sched: Mutex<Option<Scheduler>>,
     state: AtomicU32,
     token: Mutex<String>,
@@ -161,9 +169,12 @@ pub struct Runtime {
 
 impl Runtime {
     /// Returns immediately; the scheduler, TPM identity and keys are set up on the SDK thread.
-    pub fn start(cfg: Config) -> std::io::Result<Self> {
+    pub fn start(mut cfg: Config) -> std::io::Result<Self> {
+        let jobs = cfg.jobs.take();
         let inner = Arc::new(Inner {
             cfg,
+            jobs: Mutex::new(jobs),
+            session_id: Mutex::new(String::new()),
             sched: Mutex::new(None),
             state: AtomicU32::new(State::Idle as u32),
             token: Mutex::new(String::new()),
@@ -225,6 +236,13 @@ impl Runtime {
 
     pub fn token(&self) -> Option<String> {
         let t = lock(&self.inner.token);
+        (!t.is_empty()).then(|| t.clone())
+    }
+
+    /// Hex id of the established session, as a game server names it when it binds a match
+    /// slot to this client.
+    pub fn session_id(&self) -> Option<String> {
+        let t = lock(&self.inner.session_id);
         (!t.is_empty()).then(|| t.clone())
     }
 
@@ -339,8 +357,11 @@ fn start_input_monitor(inner: &Inner) {
 fn sdk_thread(inner: Arc<Inner>, rx: Receiver<Cmd>) {
     let t0 = Instant::now();
     harden(&inner);
-    let dirs = Arc::new(carthago_scan::detect_dirs());
-    match Scheduler::start(sched_config(), carthago_scan::phase1_jobs(dirs)) {
+    let jobs = match lock(&inner.jobs).take() {
+        Some(custom) => custom(),
+        None => carthago_scan::phase1_jobs(Arc::new(carthago_scan::detect_dirs())),
+    };
+    match Scheduler::start(sched_config(), jobs) {
         Ok(s) => {
             s.set_activity(Activity::from_u8(inner.activity.load(Relaxed)));
             *lock(&inner.sched) = Some(s);
@@ -480,6 +501,7 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
         }
     };
     *lock(&inner.token) = est.session.session_token.clone();
+    *lock(&inner.session_id) = est.chan.session_id().iter().map(|b| format!("{b:02x}")).collect();
     inner.trust_level.store(est.session.trust_level, Relaxed);
     inner.attest_flags.store(est.session.attest_flags, Relaxed);
     inner.set_state(State::Active);
@@ -599,6 +621,7 @@ mod tests {
                 log: None,
                 mitigations: MitigationProfile::Off,
                 input_monitor: false,
+                jobs: None,
             })
             .unwrap(),
         )

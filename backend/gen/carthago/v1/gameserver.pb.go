@@ -615,9 +615,14 @@ type MatchPlayer struct {
 	PlayerHash string                 `protobuf:"bytes,3,opt,name=player_hash,json=playerHash,proto3" json:"player_hash,omitempty"`
 	Mmr        int32                  `protobuf:"varint,4,opt,name=mmr,proto3" json:"mmr,omitempty"` // the studio's skill rating; 0 = unknown
 	// v2. Players with the same non-zero team share what they see and hear; 0 = no team (solo).
-	Team          uint32      `protobuf:"varint,5,opt,name=team,proto3" json:"team,omitempty"`
-	InputDevice   InputDevice `protobuf:"varint,6,opt,name=input_device,json=inputDevice,proto3,enum=carthago.v1.InputDevice" json:"input_device,omitempty"`
-	AimAssist     bool        `protobuf:"varint,7,opt,name=aim_assist,json=aimAssist,proto3" json:"aim_assist,omitempty"` // the game applies aim assistance to this player
+	Team        uint32      `protobuf:"varint,5,opt,name=team,proto3" json:"team,omitempty"`
+	InputDevice InputDevice `protobuf:"varint,6,opt,name=input_device,json=inputDevice,proto3,enum=carthago.v1.InputDevice" json:"input_device,omitempty"`
+	AimAssist   bool        `protobuf:"varint,7,opt,name=aim_assist,json=aimAssist,proto3" json:"aim_assist,omitempty"` // the game applies aim assistance to this player
+	// The slot is controlled by the game itself (a bot), not a person. Its telemetry is analysed like
+	// anyone's (bots are a useful reference for what machine aim looks like), but evidence
+	// about it is labelled and never counts toward a player's risk. Ignored for a slot that
+	// names a verified session.
+	Bot           bool `protobuf:"varint,8,opt,name=bot,proto3" json:"bot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -697,6 +702,13 @@ func (x *MatchPlayer) GetInputDevice() InputDevice {
 func (x *MatchPlayer) GetAimAssist() bool {
 	if x != nil {
 		return x.AimAssist
+	}
+	return false
+}
+
+func (x *MatchPlayer) GetBot() bool {
+	if x != nil {
+		return x.Bot
 	}
 	return false
 }
@@ -2208,7 +2220,7 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\vGsServerMsg\x12'\n" +
 	"\x04kick\x18\x01 \x01(\v2\x11.carthago.v1.KickH\x00R\x04kick\x124\n" +
 	"\twatch_ack\x18\x02 \x01(\v2\x15.carthago.v1.WatchAckH\x00R\bwatchAckB\x06\n" +
-	"\x04body\"\xe3\x01\n" +
+	"\x04body\"\xf5\x01\n" +
 	"\vMatchPlayer\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1d\n" +
 	"\n" +
@@ -2219,7 +2231,8 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\x04team\x18\x05 \x01(\rR\x04team\x12;\n" +
 	"\finput_device\x18\x06 \x01(\x0e2\x18.carthago.v1.InputDeviceR\vinputDevice\x12\x1d\n" +
 	"\n" +
-	"aim_assist\x18\a \x01(\bR\taimAssist\"e\n" +
+	"aim_assist\x18\a \x01(\bR\taimAssist\x12\x10\n" +
+	"\x03bot\x18\b \x01(\bR\x03bot\"e\n" +
 	"\bAimTrack\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1d\n" +
 	"\n" +

@@ -11,8 +11,11 @@ pub mod hook;
 pub mod paths;
 pub mod pe;
 pub mod seen;
+pub mod signature;
 pub mod time;
 
+#[cfg(windows)]
+pub mod external;
 #[cfg(windows)]
 pub mod input;
 #[cfg(windows)]
@@ -48,16 +51,27 @@ pub fn phase1_jobs(_dirs: Arc<Dirs>) -> Vec<Box<dyn carthago_sched::Job>> {
 /// Directories used to classify module paths: Windows dir, game exe, Program Files.
 #[cfg(windows)]
 pub fn detect_dirs() -> Dirs {
+    let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    dirs_for(&exe)
+}
+
+/// [`detect_dirs`] for a game executable other than the running one (a companion's target).
+#[cfg(windows)]
+pub fn dirs_for(exe: &str) -> Dirs {
     use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
     let mut buf = [0u16; 260];
     let n = unsafe { GetSystemWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
     let windows = String::from_utf16_lossy(&buf[..n.min(buf.len())]);
-    let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let pf = [std::env::var("ProgramFiles").unwrap_or_default(), std::env::var("ProgramFiles(x86)").unwrap_or_default()];
-    Dirs::new(&windows, &exe, &[pf[0].as_str(), pf[1].as_str()])
+    Dirs::new(&windows, exe, &[pf[0].as_str(), pf[1].as_str()])
 }
 
 #[cfg(not(windows))]
 pub fn detect_dirs() -> Dirs {
+    Dirs::default()
+}
+
+#[cfg(not(windows))]
+pub fn dirs_for(_exe: &str) -> Dirs {
     Dirs::default()
 }
