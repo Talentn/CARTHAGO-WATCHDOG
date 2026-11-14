@@ -72,6 +72,7 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -Unban
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -NoAutoBan
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -KnownCheat "E:\Counter-Strike\OPENGL32.dll" -KnownCheatName "My wallhack"
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -ProposeAfter 1
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Map de_dust2 -AlertOnWallhackScore
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Diagnose
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Stage 2
@@ -147,6 +148,11 @@ param(
     # known_cheat. -KnownCheatName is what the cheat is called in the evidence and the ban.
     [string]$KnownCheat = "",
     [string]$KnownCheatName = "",
+    # In how many distinct banned accounts a file must be seen before the local test
+    # gateway proposes it as a known cheat (the Known cheats page of the dashboard,
+    # "Proposed"). The gateway's default is 2; with one PC and one test account, use 1.
+    # The setting stays until it is set again. A proposal is never added by itself.
+    [int]$ProposeAfter = 0,
     # Opt-in, for a test on your own server: also raise the alert when the information-leak
     # (wallhack) score of the player on this PC is strong in two separate four-minute
     # stretches of one match. Without it that score is evidence for review only. It is a
@@ -957,6 +963,12 @@ if ($KnownCheat) {
     Write-Host "KNOWN CHEAT $($added -join ' ')" -ForegroundColor Green
     Note "      A game that loads this file, under any name and from any folder, is banned on rule known_cheat."
     Note "      The list is on the dashboard's Known cheats page; entries are removed there."
+}
+if ($ProposeAfter -gt 0) {
+    $set = @(& $gatewayExe cheats propose-after -data $data -tenant demo -accounts $ProposeAfter 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE) { Die "-ProposeAfter: $($set -join ' ')" }
+    Note "PROPOSED CHEATS $($set -join ' ')."
+    Note "      After a ban, look at the dashboard's Known cheats page, part Proposed."
 }
 $gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
 if ($AlertOnIntegrity) { $gwArgs += "-client-notices-strict" }
