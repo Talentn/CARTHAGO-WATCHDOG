@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
@@ -41,6 +43,7 @@ func newBanEnv(t *testing.T, automatic bool) *banEnv {
 	if automatic {
 		pl.SetBanner(svc)
 	}
+	pl.SetKnownCheats(st)
 	gw = New(Config{
 		Tenants: map[string]string{"demo": serverKey}, HeartbeatInterval: time.Second, HeartbeatTimeout: 5 * time.Second,
 		TokenTTL: time.Minute, RenewBefore: time.Second, Detections: pl, Bans: svc,
@@ -229,6 +232,71 @@ func TestCertainEvidenceBansAutomatically(t *testing.T) {
 	c, err = handshakeAs(t, e.env, key, "a-new-account", false)
 	if body := refusal(t, e.env, c, err); body.BanRef != b.Ref {
 		t.Fatalf("refusal: %v", body)
+	}
+}
+
+// A module whose file is on the studio's list of known cheat files bans on rule
+// known_cheat with the cheat's name, whatever the file is called, wherever it sits and
+// whatever its signature says. A file that is not on the list bans nobody.
+func TestKnownCheatFileBans(t *testing.T) {
+	sum := sha256.Sum256([]byte("a cheat"))
+	other := sha256.Sum256([]byte("an honest file"))
+	signed := uint64(pb.ModuleSignature_MODULE_SIGNATURE_VALID) | uint64(pb.ModulePathClass_MODULE_PATH_CLASS_GAME_DIR)<<8 |
+		uint64(pb.ObservedFlags_OBSERVED_FLAGS_AT_START|pb.ObservedFlags_OBSERVED_FLAGS_KNOWN_START)<<16
+	renderer := rendererFinding()
+	renderer.FileSha256 = sum[:]
+	for name, tc := range map[string]struct {
+		finding *pb.Finding
+		// The category of the one notice, and what the reason of the ban names.
+		category pb.EnforcementCategory
+		module   string
+	}{
+		"a signed file of the game folder, there since the first start": {
+			&pb.Finding{Code: uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), A: 1, B: signed, Detail: "mp.dll", FileSha256: sum[:]},
+			pb.EnforcementCategory_ENFORCEMENT_CATEGORY_GAME_INTEGRITY, "mp.dll"},
+		"a file under the Windows directory": {
+			&pb.Finding{Code: uint32(pb.FindingCode_FINDING_CODE_MODULE_FILE), A: 2, Detail: "version.dll", FileSha256: sum[:]},
+			pb.EnforcementCategory_ENFORCEMENT_CATEGORY_GAME_INTEGRITY, "version.dll"},
+		"an unsigned renderer library: its own alert, the ban names the cheat": {
+			renderer, pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY, "OPENGL32.dll"},
+	} {
+		e := newBanEnv(t, true)
+		ctx := context.Background()
+		if err := e.st.AddKnownCheat(ctx, &store.KnownCheat{TenantID: "demo", SHA256: hex.EncodeToString(sum[:]), Name: "Wall v2", AddedBy: "ada"}); err != nil {
+			t.Fatal(err)
+		}
+		// Another studio's list is not this studio's.
+		if err := e.st.AddKnownCheat(ctx, &store.KnownCheat{TenantID: "other", SHA256: hex.EncodeToString(other[:]), Name: "theirs", AddedBy: "bob"}); err != nil {
+			t.Fatal(err)
+		}
+		c, err := handshake(t, e.env, softwareKey(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sendFindings(c, &pb.Finding{Code: uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), A: 9, B: signed, Detail: "hw.dll", FileSha256: other[:]}, tc.finding)
+		reason, notices := recvKick(t, c)
+		if reason != bans.KickReason || len(notices) != 1 {
+			t.Fatalf("%s: got %q after %d notices; want one notice, then the end of the session", name, reason, len(notices))
+		}
+		if body, err := protocol.VerifyNotice(e.keys.Identity.Public().(ed25519.PublicKey), notices[0]); err != nil || body.Category != uint32(tc.category) {
+			t.Fatalf("%s: notice %v %v", name, body, err)
+		}
+		list, _ := e.st.ListBans(ctx, "demo", 0)
+		if len(list) != 1 || list[0].Rule != "known_cheat" || list[0].BannedBy != store.BanAutomatic ||
+			!strings.Contains(list[0].Reason, `known cheat "Wall v2"`) || !strings.Contains(list[0].Reason, tc.module) {
+			t.Fatalf("%s: bans: %+v", name, list)
+		}
+		ev, _ := e.st.ListEvidence(ctx, "demo", store.EvidenceFilter{Limit: 50})
+		found := false
+		for _, x := range ev {
+			found = found || x.Rule == "known_cheat" && strings.Contains(x.Raw, hex.EncodeToString(sum[:]))
+			if strings.Contains(x.Summary, "hw.dll") && x.Rule == "known_cheat" {
+				t.Fatalf("%s: a file that is not on the list matched: %+v", name, x)
+			}
+		}
+		if !found {
+			t.Fatalf("%s: no known_cheat evidence with the hash: %+v", name, ev)
+		}
 	}
 }
 

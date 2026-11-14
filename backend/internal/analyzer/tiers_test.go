@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"strings"
 	"testing"
 
 	pb "carthago/backend/gen/carthago/v1"
@@ -23,11 +24,18 @@ func TestNoStatisticalRuleIsCertain(t *testing.T) {
 	if TierOf("a_rule_added_later") != TierSuspicious {
 		t.Error("a rule that is not listed must be suspicious")
 	}
-	certain := map[string]bool{"renderer_replaced": true, "foreign_module": true, "code_changed": true, "mapped_image": true, "external_writer": true}
+	certain := map[string]bool{"renderer_replaced": true, "foreign_module": true, "code_changed": true, "mapped_image": true, "external_writer": true, RuleKnownCheat: true}
 	for r, tier := range ruleTier {
 		if (tier == TierCertain) != certain[r] {
 			t.Errorf("%s is %s", r, tier)
 		}
+	}
+}
+
+func TestKnownCheatIsCertain(t *testing.T) {
+	e := KnownCheat("Wall", "opengl32.dll", "ab12")
+	if !e.Certain() || e.Rule != "known_cheat" || !strings.Contains(e.Summary, `known cheat "Wall"`) || !strings.Contains(e.Summary, "opengl32.dll") {
+		t.Fatalf("%+v", e)
 	}
 }
 

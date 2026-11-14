@@ -1,6 +1,10 @@
 package analyzer
 
-import pb "carthago/backend/gen/carthago/v1"
+import (
+	"fmt"
+
+	pb "carthago/backend/gen/carthago/v1"
+)
 
 // Tier says what a rule's evidence may do to a player by itself.
 type Tier int
@@ -31,6 +35,8 @@ var ruleTier = map[string]Tier{
 	"code_changed":      TierCertain, // rewritten code; only of the renderer or client library, see Certain
 	"mapped_image":      TierCertain, // an image mapped by hand, outside the loader
 	"external_writer":   TierCertain, // an unsigned outside program with a handle that writes the game's memory
+	// A module of the game whose file is on the studio's list of known cheat files.
+	RuleKnownCheat: TierCertain,
 
 	// Statistics over how somebody plays.
 	"angle_snap": TierSuspicious, "headshot_rate": TierSuspicious, "time_to_damage": TierSuspicious,
@@ -52,6 +58,22 @@ var ruleTier = map[string]Tier{
 	// Clocks and the health of the scanner.
 	"time_source_divergence": TierSuspicious, "clock_drift": TierSuspicious,
 	"scanner_stalled": TierSuspicious, "scan_quarantined": TierSuspicious, "scan_coverage": TierSuspicious, "evidence_flood": TierSuspicious,
+}
+
+// RuleKnownCheat is the rule of KnownCheat evidence.
+const RuleKnownCheat = "known_cheat"
+
+// KnownCheat is the evidence for a module of the game whose file has the SHA-256 of an
+// entry of the studio's list of known cheat files. The hash decides: the file's name, its
+// folder, its signature and whether an earlier start already had it do not matter.
+func KnownCheat(cheat, module, sha256 string) Evidence {
+	if module == "" {
+		module = "a file"
+	}
+	e := ev(RuleKnownCheat, SeverityCritical, 1, true,
+		fmt.Sprintf("known cheat %q: the game loaded %s, which is on the list of known cheat files (SHA-256 %s)", cheat, module, sha256))
+	e.Notice = pb.EnforcementCategory_ENFORCEMENT_CATEGORY_GAME_INTEGRITY
+	return e
 }
 
 // StatisticalRules are the rules that score play or input. None of them may be certain.

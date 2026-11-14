@@ -194,6 +194,10 @@ enum FindingCode {
   // CodeChange << 32, detail = "changed_module>target_module" (target empty when no jump
   // was written, "?" when the jump leads to memory no file backs).
   FINDING_CODE_EXTERNAL_CODE_CHANGE = 17;
+  // A file loaded as a module of the game from under the Windows directory, which has no
+  // FINDING_CODE_MODULE_SIGNATURE finding. a = base, detail = base name, file_sha256 =
+  // the SHA-256 of the file. It says nothing by itself: the gateway looks the hash up.
+  FINDING_CODE_MODULE_FILE = 18;
 }
 
 // What a companion knows about when it first saw something. It takes a picture of the game
@@ -306,6 +310,11 @@ message Finding {
   uint64 a = 3;
   uint64 b = 4;
   string detail = 5; // ≤ 47 bytes; module or process base name, never paths or titles
+  // FINDING_CODE_MODULE_SIGNATURE and FINDING_CODE_MODULE_FILE from a companion: the
+  // SHA-256 of the module's file on disk, 32 bytes, empty when the file could not be read.
+  // The gateway compares it with the studio's list of known cheat files; that list never
+  // leaves the server.
+  bytes file_sha256 = 6;
 }
 
 message SchedSummary {

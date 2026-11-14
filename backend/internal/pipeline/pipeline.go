@@ -11,6 +11,8 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -118,6 +120,7 @@ type Pipeline struct {
 	kick     Kicker
 	notify   Notifier
 	ban      Banner
+	cheats   CheatLookup
 	log      *slog.Logger
 
 	q    chan func()
@@ -190,6 +193,38 @@ type Banner interface {
 // (analyzer.Evidence.Certain) bans the session's account and device key. Evidence of the
 // suspicious tier, and all gameplay evidence, never does. Call it before any traffic.
 func (p *Pipeline) SetBanner(b Banner) { p.ban = b }
+
+// CheatLookup finds a file hash on a studio's list of known cheat files
+// (store.CheatStore). The list is read on the server only.
+type CheatLookup interface {
+	KnownCheat(ctx context.Context, tenant, sha256 string) (*store.KnownCheat, error)
+}
+
+// SetKnownCheats makes the pipeline compare the file hash of every module a client reports
+// with the studio's list. A match is analyzer.KnownCheat evidence. Call it before any
+// traffic.
+func (p *Pipeline) SetKnownCheats(l CheatLookup) { p.cheats = l }
+
+// knownCheat is the list entry for the file of a module finding, nil for none.
+func (p *Pipeline) knownCheat(ctx context.Context, tenant string, f *pb.Finding) (*store.KnownCheat, string) {
+	if p.cheats == nil || len(f.FileSha256) != sha256.Size {
+		return nil, ""
+	}
+	switch pb.FindingCode(f.Code) {
+	case pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE, pb.FindingCode_FINDING_CODE_MODULE_FILE:
+	default:
+		return nil, ""
+	}
+	sum := hex.EncodeToString(f.FileSha256)
+	c, err := p.cheats.KnownCheat(ctx, tenant, sum)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			p.log.Warn("known cheats lookup", "err", err)
+		}
+		return nil, sum
+	}
+	return c, sum
+}
 
 // Close drains queued work and stops the worker.
 func (p *Pipeline) Close() {
@@ -288,8 +323,11 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		sev pb.EnforcementSeverity
 	}
 	var notices []notice
-	// The first evidence of this heartbeat that bans by itself.
+	// The evidence of this heartbeat that bans by itself: a known cheat file if there is
+	// one, because it names the cheat, otherwise the first.
 	var certain *analyzer.Evidence
+	// quiet: the evidence being added raises no notice of its own.
+	quiet := false
 	add := func(key string, e analyzer.Evidence, raw string, f *pb.Finding) {
 		if cs.seen[key] {
 			return
@@ -305,14 +343,16 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		} else {
 			cs.seen[key] = true
 		}
-		if certain == nil && e.Certain() {
+		if e.Certain() && (certain == nil || e.Rule == analyzer.RuleKnownCheat && certain.Rule != analyzer.RuleKnownCheat) {
 			certain = &e
 		}
 		cat, sev, send, held := clientNotice(e, f, p.cfg.NoticesOptIn)
-		if send {
+		switch {
+		case send && quiet:
+		case send:
 			notices = append(notices, notice{cat, sev})
 			p.log.Info("notice raised by", "session", sess.SessionID, "rule", e.Rule, "category", noticeCategoryName(cat), "summary", e.Summary)
-		} else if held != "" && p.cfg.Notices {
+		case held != "" && p.cfg.Notices:
 			p.log.Info("notice withheld", "session", sess.SessionID, "rule", e.Rule, "category", noticeCategoryName(cat), "why", held, "summary", e.Summary)
 		}
 		evs = append(evs, store.Evidence{
@@ -328,10 +368,27 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 			continue
 		}
 		e, ok := p.cfg.Rules.ClassifyFinding(f.Code, f.A, f.B, f.Detail)
-		if !ok {
+		cheat, sum := p.knownCheat(ctx, sess.TenantID, f)
+		if !ok && cheat == nil {
 			continue
 		}
-		raw, _ := json.Marshal(map[string]any{"job": f.Job, "code": pb.FindingCode(f.Code).String(), "a": fmt.Sprintf("%#x", f.A), "b": fmt.Sprintf("%#x", f.B), "detail": f.Detail})
+		fields := map[string]any{"job": f.Job, "code": pb.FindingCode(f.Code).String(), "a": fmt.Sprintf("%#x", f.A), "b": fmt.Sprintf("%#x", f.B), "detail": f.Detail}
+		if sum != "" {
+			fields["sha256"] = sum
+		}
+		raw, _ := json.Marshal(fields)
+		if cheat != nil {
+			// After the finding's own evidence, and silent when that raised the alert: one
+			// file is one alert.
+			raised := len(notices)
+			if ok {
+				add(fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail), e, string(raw), f)
+			}
+			quiet = len(notices) > raised
+			add("k|"+sum, analyzer.KnownCheat(cheat.Name, f.Detail, sum), string(raw), f)
+			quiet = false
+			continue
+		}
 		key := fmt.Sprintf("f|%d|%x|%s", f.Code, f.A, f.Detail)
 		if pb.FindingCode(f.Code) == pb.FindingCode_FINDING_CODE_EXTERNAL_HANDLE {
 			// The same program may come back with more access than it had at first.

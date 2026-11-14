@@ -249,7 +249,10 @@ func (c Config) ClassifyFinding(code uint32, a, b uint64, detail string) (Eviden
 		// reviewer and carries no risk until build ground truth exists to compare against.
 		return ev("external_exec_regions", SeverityInfo, 0.1, false,
 			fmt.Sprintf("%d executable regions without a backing file (%d KB), seen from outside the process", a, b&(1<<48-1)>>10)), true
-	case pb.FindingCode_FINDING_CODE_MITIGATIONS, pb.FindingCode_FINDING_CODE_MODULE_LOADED, pb.FindingCode_FINDING_CODE_THREAD_START_LOADER:
+	case pb.FindingCode_FINDING_CODE_MITIGATIONS, pb.FindingCode_FINDING_CODE_MODULE_LOADED, pb.FindingCode_FINDING_CODE_THREAD_START_LOADER,
+		pb.FindingCode_FINDING_CODE_MODULE_FILE:
+		// A module's file hash is evidence only when the pipeline finds it on the studio's
+		// list of known cheat files (KnownCheat).
 		return Evidence{}, false
 	}
 	return Evidence{}, false

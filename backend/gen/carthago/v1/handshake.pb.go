@@ -152,6 +152,10 @@ const (
 	// CodeChange << 32, detail = "changed_module>target_module" (target empty when no jump
 	// was written, "?" when the jump leads to memory no file backs).
 	FindingCode_FINDING_CODE_EXTERNAL_CODE_CHANGE FindingCode = 17
+	// A file loaded as a module of the game from under the Windows directory, which has no
+	// FINDING_CODE_MODULE_SIGNATURE finding. a = base, detail = base name, file_sha256 =
+	// the SHA-256 of the file. It says nothing by itself: the gateway looks the hash up.
+	FindingCode_FINDING_CODE_MODULE_FILE FindingCode = 18
 )
 
 // Enum value maps for FindingCode.
@@ -175,6 +179,7 @@ var (
 		15: "FINDING_CODE_EXTERNAL_EXEC_REGIONS",
 		16: "FINDING_CODE_EXTERNAL_MAPPED_IMAGE",
 		17: "FINDING_CODE_EXTERNAL_CODE_CHANGE",
+		18: "FINDING_CODE_MODULE_FILE",
 	}
 	FindingCode_value = map[string]int32{
 		"FINDING_CODE_UNSPECIFIED":           0,
@@ -195,6 +200,7 @@ var (
 		"FINDING_CODE_EXTERNAL_EXEC_REGIONS": 15,
 		"FINDING_CODE_EXTERNAL_MAPPED_IMAGE": 16,
 		"FINDING_CODE_EXTERNAL_CODE_CHANGE":  17,
+		"FINDING_CODE_MODULE_FILE":           18,
 	}
 )
 
@@ -1776,12 +1782,17 @@ func (x *Session) GetNotes() []string {
 }
 
 type Finding struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Job           string                 `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
-	Code          uint32                 `protobuf:"varint,2,opt,name=code,proto3" json:"code,omitempty"` // FindingCode
-	A             uint64                 `protobuf:"varint,3,opt,name=a,proto3" json:"a,omitempty"`
-	B             uint64                 `protobuf:"varint,4,opt,name=b,proto3" json:"b,omitempty"`
-	Detail        string                 `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"` // ≤ 47 bytes; module or process base name, never paths or titles
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Job    string                 `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	Code   uint32                 `protobuf:"varint,2,opt,name=code,proto3" json:"code,omitempty"` // FindingCode
+	A      uint64                 `protobuf:"varint,3,opt,name=a,proto3" json:"a,omitempty"`
+	B      uint64                 `protobuf:"varint,4,opt,name=b,proto3" json:"b,omitempty"`
+	Detail string                 `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"` // ≤ 47 bytes; module or process base name, never paths or titles
+	// FINDING_CODE_MODULE_SIGNATURE and FINDING_CODE_MODULE_FILE from a companion: the
+	// SHA-256 of the module's file on disk, 32 bytes, empty when the file could not be read.
+	// The gateway compares it with the studio's list of known cheat files; that list never
+	// leaves the server.
+	FileSha256    []byte `protobuf:"bytes,6,opt,name=file_sha256,json=fileSha256,proto3" json:"file_sha256,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1849,6 +1860,13 @@ func (x *Finding) GetDetail() string {
 		return x.Detail
 	}
 	return ""
+}
+
+func (x *Finding) GetFileSha256() []byte {
+	if x != nil {
+		return x.FileSha256
+	}
+	return nil
 }
 
 type SchedSummary struct {
@@ -3046,13 +3064,15 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"trustLevel\x12!\n" +
 	"\fattest_flags\x18\x03 \x01(\x04R\vattestFlags\x12\"\n" +
 	"\rexpires_at_ms\x18\x04 \x01(\x04R\vexpiresAtMs\x12\x14\n" +
-	"\x05notes\x18\x05 \x03(\tR\x05notes\"c\n" +
+	"\x05notes\x18\x05 \x03(\tR\x05notes\"\x84\x01\n" +
 	"\aFinding\x12\x10\n" +
 	"\x03job\x18\x01 \x01(\tR\x03job\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\rR\x04code\x12\f\n" +
 	"\x01a\x18\x03 \x01(\x04R\x01a\x12\f\n" +
 	"\x01b\x18\x04 \x01(\x04R\x01b\x12\x16\n" +
-	"\x06detail\x18\x05 \x01(\tR\x06detail\"\xb7\x02\n" +
+	"\x06detail\x18\x05 \x01(\tR\x06detail\x12\x1f\n" +
+	"\vfile_sha256\x18\x06 \x01(\fR\n" +
+	"fileSha256\"\xb7\x02\n" +
 	"\fSchedSummary\x12\"\n" +
 	"\rworker_cpu_ns\x18\x01 \x01(\x04R\vworkerCpuNs\x12\x16\n" +
 	"\x06slices\x18\x02 \x01(\x04R\x06slices\x12'\n" +
@@ -3150,7 +3170,7 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\fDeviceKeyAlg\x12\x1e\n" +
 	"\x1aDEVICE_KEY_ALG_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fDEVICE_KEY_ALG_ED25519_SOFTWARE\x10\x01\x12!\n" +
-	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02*\xf4\x04\n" +
+	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02*\x92\x05\n" +
 	"\vFindingCode\x12\x1c\n" +
 	"\x18FINDING_CODE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dFINDING_CODE_MODULE_NOT_IMAGE\x10\x01\x12$\n" +
@@ -3170,7 +3190,8 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x1dFINDING_CODE_MODULE_SIGNATURE\x10\x0e\x12&\n" +
 	"\"FINDING_CODE_EXTERNAL_EXEC_REGIONS\x10\x0f\x12&\n" +
 	"\"FINDING_CODE_EXTERNAL_MAPPED_IMAGE\x10\x10\x12%\n" +
-	"!FINDING_CODE_EXTERNAL_CODE_CHANGE\x10\x11*\x86\x02\n" +
+	"!FINDING_CODE_EXTERNAL_CODE_CHANGE\x10\x11\x12\x1c\n" +
+	"\x18FINDING_CODE_MODULE_FILE\x10\x12*\x86\x02\n" +
 	"\rObservedFlags\x12\x17\n" +
 	"\x13OBSERVED_FLAGS_NONE\x10\x00\x12\x1e\n" +
 	"\x1aOBSERVED_FLAGS_AFTER_START\x10\x01\x12\x1b\n" +
