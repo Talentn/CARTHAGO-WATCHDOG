@@ -42,8 +42,29 @@ type Service struct {
 	// Now is the clock; tests replace it.
 	Now func() time.Time
 
-	mu  sync.Mutex
-	end Ender
+	mu   sync.Mutex
+	end  Ender
+	hook Hook
+}
+
+// Hook is told about every ban made and every ban lifted (the economy ledger marks and
+// unmarks the money a banned player passed on).
+type Hook interface {
+	Banned(b *store.Ban)
+	Lifted(b *store.Ban)
+}
+
+// SetHook names who is told about bans and lifts.
+func (s *Service) SetHook(h Hook) {
+	s.mu.Lock()
+	s.hook = h
+	s.mu.Unlock()
+}
+
+func (s *Service) hooked() Hook {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hook
 }
 
 func New(st Store, log *slog.Logger) *Service {
@@ -113,6 +134,9 @@ func (s *Service) Ban(ctx context.Context, r Request) (b *store.Ban, created boo
 	} else {
 		s.endSessions(b)
 	}
+	if h := s.hooked(); h != nil {
+		h.Banned(b)
+	}
 	return b, true, nil
 }
 
@@ -136,7 +160,12 @@ func (s *Service) audit(ctx context.Context, b *store.Ban) {
 	if b.EffectiveAt.After(b.BannedAt) {
 		detail += ", pending until " + b.EffectiveAt.UTC().Format(time.RFC3339)
 	}
-	e := &store.AuditEntry{TenantID: b.TenantID, At: b.BannedAt, Actor: store.BanAutomatic, Action: "ban.add", Target: "session " + b.SessionID, Detail: detail}
+	target := "session " + b.SessionID
+	if b.SessionID == "" {
+		// A ban from the economy ledger is about an account, not a session.
+		target = "player " + b.PlayerHash
+	}
+	e := &store.AuditEntry{TenantID: b.TenantID, At: b.BannedAt, Actor: store.BanAutomatic, Action: "ban.add", Target: target, Detail: detail}
 	if err := au.AppendAudit(ctx, e); err != nil {
 		s.log.Warn("audit automatic ban", "ref", b.Ref, "err", err)
 	}
@@ -177,6 +206,9 @@ func (s *Service) Lift(ctx context.Context, tenant string, id int64, by, note st
 	b, err := s.st.LiftBan(ctx, tenant, id, by, note, s.Now())
 	if err == nil {
 		s.log.Info("ban lifted", "ref", b.Ref, "tenant", tenant, "player", b.PlayerHash, "by", by)
+		if h := s.hooked(); h != nil {
+			h.Lifted(b)
+		}
 	}
 	return b, err
 }

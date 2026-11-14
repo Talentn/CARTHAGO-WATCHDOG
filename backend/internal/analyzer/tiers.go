@@ -38,6 +38,15 @@ var ruleTier = map[string]Tier{
 	// A module of the game whose file is on the studio's list of known cheat files.
 	RuleKnownCheat: TierCertain,
 
+	// The economy ledger (internal/economy): money in a player's hands that the reports
+	// of the studio's own game servers do not explain.
+	"economy_balance_mismatch": TierCertain, // a reported balance above the ledger
+	"economy_no_source":        TierCertain, // money reported without a source
+	"economy_unknown_source":   TierCertain, // money from a source the studio does not have
+	// Earning faster than the studio's limits is a statistic, and a balance below the
+	// ledger is a spend the game server did not report.
+	"economy_over_limit": TierSuspicious, "economy_balance_short": TierSuspicious,
+
 	// Statistics over how somebody plays.
 	"angle_snap": TierSuspicious, "headshot_rate": TierSuspicious, "time_to_damage": TierSuspicious,
 	"information_leak": TierSuspicious, "information_leak_live": TierSuspicious, "decoy_reaction": TierSuspicious,
@@ -79,7 +88,7 @@ func KnownCheat(cheat, module, sha256 string) Evidence {
 // StatisticalRules are the rules that score play or input. None of them may be certain.
 var StatisticalRules = []string{
 	"angle_snap", "headshot_rate", "time_to_damage", "information_leak", "information_leak_live", "decoy_reaction",
-	"macro_interval", "command_rate", "injected_input", "oracle_score", "oracle_opinion",
+	"macro_interval", "command_rate", "injected_input", "oracle_score", "oracle_opinion", "economy_over_limit",
 }
 
 // TierOf is the tier of a rule; suspicious for a rule that is not listed.

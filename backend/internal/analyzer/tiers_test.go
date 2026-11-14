@@ -24,7 +24,8 @@ func TestNoStatisticalRuleIsCertain(t *testing.T) {
 	if TierOf("a_rule_added_later") != TierSuspicious {
 		t.Error("a rule that is not listed must be suspicious")
 	}
-	certain := map[string]bool{"renderer_replaced": true, "foreign_module": true, "code_changed": true, "mapped_image": true, "external_writer": true, RuleKnownCheat: true}
+	certain := map[string]bool{"renderer_replaced": true, "foreign_module": true, "code_changed": true, "mapped_image": true, "external_writer": true, RuleKnownCheat: true,
+		"economy_balance_mismatch": true, "economy_no_source": true, "economy_unknown_source": true}
 	for r, tier := range ruleTier {
 		if (tier == TierCertain) != certain[r] {
 			t.Errorf("%s is %s", r, tier)
