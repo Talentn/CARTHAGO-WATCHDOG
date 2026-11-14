@@ -54,6 +54,9 @@ type Config struct {
 	// Bans, when set, is asked at every handshake whether the account or the device key is
 	// banned (internal/bans). Nil: nobody is refused for a ban.
 	Bans BanChecker
+	// Pool, when set, is the shadow pool (internal/bans): it is told about every session
+	// that starts, and /v1/shadow tells the tenant's matchmaking who is in it.
+	Pool ShadowPool
 	// TestNoticeAfter sends every session an enforcement notice of category TEST this long
 	// after its client connected, to try a game's alert screen. Zero disables it.
 	TestNoticeAfter time.Duration
@@ -168,6 +171,11 @@ func (g *Gateway) Handler() http.Handler {
 		mux.HandleFunc("POST /v1/economy/balances", g.handleEconomyBalances)
 		mux.HandleFunc("GET /v1/economy/dirty", g.handleEconomyDirty)
 		mux.HandleFunc("GET /v1/economy/status", g.handleEconomyStatus)
+	}
+	if g.cfg.Pool != nil {
+		mux.HandleFunc("GET /v1/shadow/status", g.handleShadowStatus)
+		mux.HandleFunc("POST /v1/shadow/status", g.handleShadowStatus)
+		mux.HandleFunc("GET /v1/shadow/pool", g.handleShadowPool)
 	}
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

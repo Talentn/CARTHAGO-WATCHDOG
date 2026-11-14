@@ -390,6 +390,12 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 	if err := g.sessions.Start(rec, g.cfg.HeartbeatTimeout); err != nil {
 		return sc, nil, err
 	}
+	// Before the client has its answer, so the studio's matchmaking is never told
+	// "normal" about a session that is in the shadow pool. What the client is sent next
+	// is the same either way.
+	if g.cfg.Pool != nil {
+		g.cfg.Pool.Connected(ctx, rec)
+	}
 	if boot != nil {
 		a := &store.Attestation{SessionID: rec.SessionID, DeviceID: deviceID, VerifiedAt: now, QuoteOK: boot.QuoteOK, RankedPolicy: boot.Policy.Ranked,
 			Failures: strings.Join(boot.Policy.RankedFailures, "; ")}

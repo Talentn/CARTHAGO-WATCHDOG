@@ -357,7 +357,7 @@ func (p *Pipeline) leakAlerts(tenant string, ms *matchState, v *v2State, b *pb.G
 			ev.PlayerHash = fmt.Sprintf("slot-%d", h.Slot)
 		}
 		evs = append(evs, ev)
-		if bound && p.cfg.Notices && p.notify != nil {
+		if bound && p.cfg.Notices && p.notify != nil && !p.silent(s, false) {
 			p.notify.Notice(s.SessionID, pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY, pb.EnforcementSeverity_ENFORCEMENT_SEVERITY_HIGH)
 			p.log.Info("notice raised by", "session", s.SessionID, "rule", RuleInformationLeakLive, "category",
 				noticeCategoryName(pb.EnforcementCategory_ENFORCEMENT_CATEGORY_VISIBILITY), "summary", summary)

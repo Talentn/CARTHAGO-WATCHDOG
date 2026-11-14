@@ -200,6 +200,8 @@ func main() {
 		detections.SetBanner(banning)
 	}
 	detections.SetKnownCheats(st)
+	// A player in a studio's shadow pool is told nothing about what is found.
+	detections.SetPool(banning)
 	log.Info("bans", "automatic_on_certain_evidence", *autoBan)
 	// The economy ledger bans through the same service, under the same switch, and hears
 	// of every ban so it can mark what the banned player passed on.
@@ -214,10 +216,13 @@ func main() {
 	banning.AddHook(learning.NewLabeler(st, log))
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections, Bans: banning, Economy: ledger, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
+		Detections: detections, Bans: banning, Pool: banning, Economy: ledger, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	banning.SetEnder(gw.Sessions())
+	// The bans of the shadow pool whose period ended while the gateway was down land now;
+	// those still waiting land when their time comes, also after this restart.
+	go banning.Run(ctx, shadowSweepEvery)
 	srv := &http.Server{Addr: *listen, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsCfg}
 	go func() {
 		t := time.NewTicker(time.Minute)
@@ -413,6 +418,10 @@ func (f kickFunc) Kick(id, reason string) { f(id, reason) }
 
 // serveDashboard runs the Carthago Watchdog dashboard on its own listener, so it can stay on
 // loopback (or behind a VPN or proxy) while the client gateway faces the internet.
+// shadowSweepEvery is how often the gateway looks for bans of the shadow pool that came
+// due without a timer of this process: after a restart, or changed from the command line.
+const shadowSweepEvery = 15 * time.Second
+
 func serveDashboard(ctx context.Context, addr string, keys map[string]string, secure bool, hosts []string, orc *dashboard.OracleInfo, banning *bans.Service, st evidenceStore, log *slog.Logger) error {
 	if len(keys) == 0 {
 		log.Info("dashboard has no shared demo key: people sign in with accounts; the first admin of a studio is created with: carthago-gateway dashboard-user add-admin")

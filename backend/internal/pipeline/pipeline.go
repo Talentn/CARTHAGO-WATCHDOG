@@ -121,6 +121,7 @@ type Pipeline struct {
 	notify   Notifier
 	ban      Banner
 	cheats   CheatLookup
+	pool     Pool
 	log      *slog.Logger
 
 	q    chan func()
@@ -193,6 +194,23 @@ type Banner interface {
 // (analyzer.Evidence.Certain) bans the session's account and device key. Evidence of the
 // suspicious tier, and all gameplay evidence, never does. Call it before any traffic.
 func (p *Pipeline) SetBanner(b Banner) { p.ban = b }
+
+// Pool says whether a session's player must be told nothing about what was found
+// (bans.Service.Silent): the player is in the studio's shadow pool, or certain evidence is
+// about to put the player there.
+type Pool interface {
+	Silent(sess store.Session, certain bool) bool
+}
+
+// SetPool makes the pipeline ask before it raises a notice or ends a session. Call it
+// before any traffic.
+func (p *Pipeline) SetPool(pool Pool) { p.pool = pool }
+
+// silent: no notice goes to this session and nothing ends it. certain: this heartbeat
+// carries evidence that bans by itself.
+func (p *Pipeline) silent(sess store.Session, certain bool) bool {
+	return p.pool != nil && p.pool.Silent(sess, certain && p.ban != nil)
+}
 
 // CheatLookup finds a file hash on a studio's list of known cheat files
 // (store.CheatStore). The list is read on the server only.
@@ -433,9 +451,14 @@ func (p *Pipeline) heartbeat(sess store.Session, hb *pb.Heartbeat, at time.Time)
 		for _, e := range evs {
 			p.log.Info("detection", "session", sess.SessionID, "player", sess.PlayerHash, "rule", e.Rule, "severity", analyzer.Severity(e.Severity).String(), "summary", e.Summary)
 		}
+	}
+	// A player in the shadow pool, or on the way into it, is sent what a player with
+	// nothing found is sent.
+	silent := (len(evs) > 0 || len(notices) > 0) && p.silent(sess, certain != nil)
+	if len(evs) > 0 && !silent {
 		p.maybeKick(sess.SessionID, evs)
 	}
-	if p.cfg.Notices && p.notify != nil {
+	if p.cfg.Notices && p.notify != nil && !silent {
 		for _, n := range notices {
 			p.notify.Notice(sess.SessionID, n.cat, n.sev)
 		}

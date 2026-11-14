@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	pb "carthago/backend/gen/carthago/v1"
+	"carthago/backend/internal/analyzer"
 	"carthago/backend/internal/store"
 )
 
@@ -146,5 +147,88 @@ func TestGameplayEvidenceThatRaisesANotice(t *testing.T) {
 	}
 	if len(n.got) != 1 {
 		t.Errorf("notices for %d sessions, want 1: %v", len(n.got), n.got)
+	}
+}
+
+// pooled says which players are in a shadow pool, and records what it was asked.
+type pooled struct {
+	players map[string]bool
+	// entering: certain evidence puts a player into the pool.
+	entering bool
+	asked    []string
+}
+
+func (p *pooled) Silent(sess store.Session, certain bool) bool {
+	p.asked = append(p.asked, sess.SessionID)
+	return p.players[sess.PlayerHash] || certain && p.entering
+}
+
+type bansMade struct{ rules []string }
+
+func (b *bansMade) Automatic(_ store.Session, rule, _ string) { b.rules = append(b.rules, rule) }
+
+// A player in the shadow pool gets no notice and no kick, from the client's findings or
+// from the gameplay rules, and neither does a player whose evidence is about to put them
+// there. The evidence is still recorded and the ban is still asked for.
+func TestShadowPoolSilencesNoticesAndKicks(t *testing.T) {
+	patch := func(detail string) *pb.Heartbeat {
+		return hb(finding(pb.FindingCode_FINDING_CODE_CODE_PATCH, 1, 2, detail))
+	}
+	newPipeline := func(pool *pooled) (*Pipeline, *store.Memory, *notices, *kicks, *bansMade) {
+		p, st, k := newTest(t, Config{Notices: true, AutoKick: true, AutoKickSeverity: analyzer.SeverityHigh})
+		n, b := &notices{}, &bansMade{}
+		p.SetNotifier(n)
+		p.SetBanner(b)
+		if pool != nil {
+			p.SetPool(pool)
+		}
+		return p, st, n, k, b
+	}
+
+	// Without a pool, and for a player outside it: the notice and the kick, as before.
+	for _, pool := range []*pooled{nil, {players: map[string]bool{"somebody-else": true}}} {
+		p, st, n, k, _ := newPipeline(pool)
+		p.Heartbeat(session(st, "s1", "t1", "p1"), patch("hw.dll>x"))
+		flush(p)
+		if len(n.of("s1")) != 1 || k.reason("s1") == "" {
+			t.Fatalf("pool %+v: notices %v, kicks %v", pool, n.of("s1"), k.got)
+		}
+	}
+
+	// In the pool.
+	pool := &pooled{players: map[string]bool{"p1": true}}
+	p, st, n, k, _ := newPipeline(pool)
+	p.Heartbeat(session(st, "s1", "t1", "p1"), patch("hw.dll>x"))
+	p.Heartbeat(session(st, "clean", "t1", "p9"), hb())
+	flush(p)
+	if n.of("s1") != nil || len(k.got) != 0 {
+		t.Fatalf("in the pool: notices %v, kicks %v", n.of("s1"), k.got)
+	}
+	if evs, _ := st.ListEvidence(t.Context(), "t1", store.EvidenceFilter{SessionID: "s1", Limit: 10}); len(evs) == 0 {
+		t.Fatal("the evidence of a player in the pool was not recorded")
+	}
+	if len(pool.asked) != 1 {
+		t.Fatalf("the pool is asked when there is something to say, not on every heartbeat: %v", pool.asked)
+	}
+	ms := &matchState{reported: map[string]bool{"1|angle_snap": true, "1|headshot_rate": true, "2|angle_snap": true, "2|headshot_rate": true},
+		sessions: map[uint32]store.Session{1: {SessionID: "s1", PlayerHash: "p1"}, 2: {SessionID: "s2", PlayerHash: "p2"}}}
+	p.notifyGameplay(ms)
+	if n.of("s1") != nil || len(n.of("s2")) != 1 {
+		t.Fatalf("gameplay notices: pooled %v, normal %v", n.of("s1"), n.of("s2"))
+	}
+
+	// On the way in: certain evidence, with the studio's period on.
+	p, st, n, k, b := newPipeline(&pooled{entering: true})
+	renderer := finding(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE, 1,
+		uint64(pb.ModuleSignature_MODULE_SIGNATURE_NONE)|uint64(pb.ModulePathClass_MODULE_PATH_CLASS_GAME_DIR)<<8|
+			uint64(pb.ObservedFlags_OBSERVED_FLAGS_AT_START|pb.ObservedFlags_OBSERVED_FLAGS_SHADOWS_SYSTEM)<<16, "OPENGL32.dll")
+	p.Heartbeat(session(st, "s1", "t1", "p1"), hb(renderer))
+	p.Heartbeat(session(st, "s2", "t1", "p2"), patch("hw.dll>x"))
+	flush(p)
+	if n.of("s1") != nil || len(b.rules) != 1 || b.rules[0] != "renderer_replaced" {
+		t.Fatalf("on the way in: notices %v, bans %v", n.of("s1"), b.rules)
+	}
+	if len(n.of("s2")) != 1 || len(k.got) != 1 || k.reason("s2") == "" {
+		t.Fatalf("evidence that does not ban: notices %v, kicks %v", n.of("s2"), k.got)
 	}
 }

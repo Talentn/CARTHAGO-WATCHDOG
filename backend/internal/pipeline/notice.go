@@ -126,7 +126,7 @@ func (p *Pipeline) notifyGameplay(ms *matchState) {
 		return
 	}
 	for slot, s := range ms.sessions {
-		if gameplayNotice(ms.reported, slot) {
+		if gameplayNotice(ms.reported, slot) && !p.silent(s, false) {
 			p.notify.Notice(s.SessionID, pb.EnforcementCategory_ENFORCEMENT_CATEGORY_AIM_ASSISTANCE, pb.EnforcementSeverity_ENFORCEMENT_SEVERITY_HIGH)
 		}
 	}
