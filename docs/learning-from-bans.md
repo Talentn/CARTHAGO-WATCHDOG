@@ -63,6 +63,9 @@ carthago-gateway cheats propose-after -tenant demo -accounts 1 -data <dir>
 
 In the CS 1.6 kit, `-ProposeAfter 1` sets N for the local test gateway.
 
+With a shadow period set, a caught player is not banned at once and the same learning
+starts at entry into the pool, with labels of source `shadow`. See `docs/shadow-pool.md`.
+
 ## Limits
 
 - A ban says the account cheated, not that every one of its sessions of the last 30 days

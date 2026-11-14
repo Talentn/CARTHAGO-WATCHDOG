@@ -117,6 +117,10 @@ its Economy page first, or scenario 3 reports a failure):
 cd /d "C:\Users\Ala Ghabi\anticheat\backend" && go run .\cmd\carthago-econ-sim -gateway https://127.0.0.1:8750 -key demo-server-key
 ```
 
+With a shadow period set, a ban on an impossible value waits in the shadow pool: the
+answers then carry `"shadow": true` next to `"banned"`, the player is still playing, and
+the money is marked dirty from that moment. See `docs/shadow-pool.md`.
+
 ## Limits
 
 - The ledger trusts the game server. It catches money that appears in a balance or arrives

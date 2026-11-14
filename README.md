@@ -108,6 +108,7 @@ players by verifying their token offline and removes them when the gateway sends
 | `backend/internal/store` | Store interface; SQLite (pure Go, no cgo) and in-memory |
 | `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
 | `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
+| `backend/cmd/carthago-shadow-sim` | Simulated matchmaker over the shadow pool, with a gateway of its own (`docs/shadow-pool.md`) |
 | `sdk/native/sample` | Minimal C++ game using the SDK (CMake) |
 | `tools/` | `carthago-e2e.sh` (Linux), `carthago-e2e.ps1` and `carthago-tpm-spike.ps1` (Windows), `carthago-update-ek-roots.sh`, `carthago-subset-fonts.sh`, `carthago-cs16.ps1` (Windows) and `carthago-cs16-check.sh` (Linux) for the Counter-Strike 1.6 kit |
 
