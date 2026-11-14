@@ -7,7 +7,7 @@
 {{if $d.Player}}
 <section class="card economy" id="ledger">
   <div class="card-head"><h2>Ledger of <span class="mono">{{$d.Player}}</span></h2>
-    <span class="muted">{{if $d.Banned}}<span class="mark ban-active">Banned</span> <span class="mono">{{$d.Banned.Ref}}</span>{{else}}not banned{{end}} · <a href="/players/{{path $d.Player}}">player page</a></span></div>
+    <span class="muted">{{if $d.Banned}}<span class="mark ban-active">Banned</span> <span class="mono">{{$d.Banned.Ref}}</span>{{else}}not banned{{end}}</span></div>
   {{if $d.Balances}}<div class="eco-balances">{{range $d.Balances}}<div><span class="muted">{{.Currency}} by the ledger</span><b>{{amount .Ledger}}</b>{{if .Dirty}}<small class="eco-dirty">{{amount .Dirty}} dirty</small>{{end}}</div>{{end}}</div>{{end}}
   {{if $d.Entries}}
   <table>
@@ -30,7 +30,7 @@
 </section>
 {{end}}
 <section class="card economy" id="flags">
-  <div class="card-head"><h2>Flags</h2><span class="muted">{{len $d.Flags}} {{if $d.Player}}for this player{{else}}latest{{end}}</span></div>
+  <div class="card-head"><h2>Flags</h2><span class="muted">{{len $d.Flags}} latest, all players</span></div>
   <p class="note">Certain: a reported balance above the ledger, or money reported with no source or a source your game does not have. These ban automatically. For review: earnings over your limits, and a balance below the ledger. These never ban.</p>
   {{if $d.Flags}}
   <table>
@@ -122,7 +122,7 @@
   {{else}}<p class="note">Balance tolerance: {{amount $d.Tolerance}}. Changing the limits and the tolerance needs the admin role.</p>{{end}}
 </section>
 <section class="card">
-  <form method="get" action="/economy" class="labelform">
+  <form method="get" action="/economy" class="labelform first">
     <label class="grow">A player's ledger
       <input type="text" name="player" class="mono" maxlength="128" value="{{$d.Player}}" placeholder="player account" autocomplete="off" required>
     </label>

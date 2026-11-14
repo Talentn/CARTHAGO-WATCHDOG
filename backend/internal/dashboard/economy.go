@@ -39,11 +39,11 @@ func (s *Server) economyPage(w http.ResponseWriter, r *http.Request, tenant stri
 		d.CanEdit = v.Admin()
 	}
 	var err error
-	if d.Flags, err = s.st.ListEconomyFlags(ctx, tenant, d.Player, economyRows); err != nil {
+	if d.Flags, err = s.st.ListEconomyFlags(ctx, tenant, "", economyRows); err != nil {
 		s.fail(w, err)
 		return
 	}
-	if d.Dirty, err = s.eco.Dirty(ctx, tenant, d.Player); err != nil {
+	if d.Dirty, err = s.eco.Dirty(ctx, tenant, ""); err != nil {
 		s.fail(w, err)
 		return
 	}

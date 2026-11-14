@@ -39,15 +39,16 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8760", "where the tool's own gateway listens")
 	dash := flag.String("dashboard-listen", "127.0.0.1:8761", "where the tool's own dashboard listens")
 	exit := flag.Bool("exit", false, "stop after the scenarios instead of keeping the dashboard up")
+	admin := flag.Bool("admin", false, "also print a one-time link that creates an admin account on the tool's own dashboard, to try changing the limits (the demo key is a reviewer, and stops signing in once an admin exists)")
 	flag.Parse()
-	os.Exit(run(*remote, *key, *listen, *dash, *exit, os.Stdout))
+	os.Exit(run(*remote, *key, *listen, *dash, *exit, *admin, os.Stdout))
 }
 
-func run(remote, key, listen, dash string, exit bool, out io.Writer) int {
+func run(remote, key, listen, dash string, exit, admin bool, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	fmt.Fprintln(out, "Carthago economy ledger: simulated game server")
-	base, dashURL := remote, ""
+	base, dashURL, invite := remote, "", ""
 	if remote == "" {
 		dir, err := os.MkdirTemp("", "carthago-econ-sim-")
 		if err != nil {
@@ -72,6 +73,14 @@ func run(remote, key, listen, dash string, exit bool, out io.Writer) int {
 			defer srv.Close()
 		}
 		base, dashURL, key = "http://"+listen, "http://"+dash, demoServerKey
+		if admin {
+			token, _, err := dashboard.Bootstrap{Store: l.st}.InviteAdmin(ctx, demoTenant, "admin")
+			if err != nil {
+				fmt.Fprintln(out, "ERROR:", err)
+				return 2
+			}
+			invite = dashURL + "/invite/" + token
+		}
 		fmt.Fprintf(out, "gateway    %s, started by this tool (robbery limit: %s per hour, %s per day)\n", base, economy.Amount(robberyPerHour), economy.Amount(robberyPerDay))
 	} else {
 		fmt.Fprintf(out, "gateway    %s (set a limit for robbery of %s per hour on its Economy page first)\n", base, economy.Amount(robberyPerHour))
@@ -83,7 +92,12 @@ func run(remote, key, listen, dash string, exit bool, out io.Writer) int {
 		code = 1
 	}
 	if dashURL != "" && !exit {
-		fmt.Fprintf(out, "\nDashboard: %s  (studio %s, key %s), page Economy.\nPress Ctrl+C to stop; nothing is kept.\n", dashURL, demoTenant, demoDashboardKey)
+		if invite != "" {
+			fmt.Fprintf(out, "\nDashboard: open this one-time link, choose a password, sign in as admin of studio %s, page Economy:\n  %s\n", demoTenant, invite)
+		} else {
+			fmt.Fprintf(out, "\nDashboard: %s  (studio %s, key %s), page Economy.\n", dashURL, demoTenant, demoDashboardKey)
+		}
+		fmt.Fprintln(out, "Press Ctrl+C to stop; nothing is kept.")
 		<-ctx.Done()
 	}
 	return code

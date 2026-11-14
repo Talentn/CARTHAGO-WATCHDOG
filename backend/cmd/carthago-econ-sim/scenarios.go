@@ -21,7 +21,7 @@ type gameServer struct {
 	http      *http.Client
 	run       string
 	seq       int
-	// clock is the game's time. The scenarios play inside the last half hour.
+	// clock is the game's time. The scenarios play inside the last five minutes.
 	clock time.Time
 	err   error
 }
@@ -34,7 +34,7 @@ func newGameServer(base, key string) *gameServer {
 		local = u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"
 	}
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: local}}
-	return &gameServer{base: strings.TrimRight(base, "/"), key: key, http: &http.Client{Timeout: 15 * time.Second, Transport: tr}, run: runID(), clock: time.Now().Add(-30 * time.Minute)}
+	return &gameServer{base: strings.TrimRight(base, "/"), key: key, http: &http.Client{Timeout: 15 * time.Second, Transport: tr}, run: runID(), clock: time.Now().Add(-5 * time.Minute)}
 }
 
 func (g *gameServer) call(method, path string, body, into any) {
