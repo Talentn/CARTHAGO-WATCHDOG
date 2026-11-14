@@ -120,8 +120,8 @@ func TestUpgradeFromEachBranch(t *testing.T) {
 					t.Fatalf("open %d: %d dashboard users", i+1, n)
 				}
 				s.Close()
-				if v, nums := schemaState(t, path); v != 5 || nums != "20,21,22" {
-					t.Fatalf("open %d: user_version %d, numbered migrations %s; want 5 and 20,21,22", i+1, v, nums)
+				if v, nums := schemaState(t, path); v != 5 || nums != "20,21,22,23" {
+					t.Fatalf("open %d: user_version %d, numbered migrations %s; want 5 and 20,21,22,23", i+1, v, nums)
 				}
 			}
 		})
@@ -153,7 +153,7 @@ func TestUnknownPositionIsStillRefused(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "newer than this gateway") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if v, nums := schemaState(t, path); v != 6 || nums != "20,21,22" {
+	if v, nums := schemaState(t, path); v != 6 || nums != "20,21,22,23" {
 		t.Fatalf("the refused database was changed: user_version %d, numbered %s", v, nums)
 	}
 }

@@ -33,6 +33,9 @@ var sqliteOracle string
 //go:embed sqlite/0022_bans.sql
 var sqliteBans string
 
+//go:embed sqlite/0023_known_cheats.sql
+var sqliteKnownCheats string
+
 // SQLiteNumbered lists the numbered migrations in ascending order. They run after every
 // migration in SQLite.
 var SQLiteNumbered = []Numbered{
@@ -40,4 +43,5 @@ var SQLiteNumbered = []Numbered{
 	// Was 0006 by position on the ai-engine branch.
 	{Number: 21, Name: "oracle", SQL: sqliteOracle, Position: 6, Probe: "oracle_scores"},
 	{Number: 22, Name: "bans", SQL: sqliteBans},
+	{Number: 23, Name: "known_cheats", SQL: sqliteKnownCheats},
 }

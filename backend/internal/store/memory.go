@@ -15,6 +15,8 @@ type Memory struct {
 	play         *memGameplay
 	oracle       *memOracle
 	bans         *memBans
+	cheats       []KnownCheat
+	cheatSeq     int64
 }
 
 func NewMemory() *Memory {
