@@ -161,7 +161,7 @@ func TestBanRefusesAccountAndDeviceKey(t *testing.T) {
 	}
 
 	// Lifted: both get a session again.
-	if _, err := e.bans.Lift(ctx, "demo", b.ID, "grace", "appeal"); err != nil {
+	if _, _, err := e.bans.Lift(ctx, "demo", b.ID, "grace", "appeal"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := handshake(t, e.env, keyB, false); err != nil {
@@ -405,7 +405,7 @@ func TestBanTeachesALabelAndAProposal(t *testing.T) {
 		!strings.EqualFold(p.List[0].Names[0], "OPENGL32.dll") || p.Compared != 0 {
 		t.Fatalf("proposals: %+v %v", p, err)
 	}
-	if _, err := e.bans.Lift(ctx, "demo", b.ID, "ada", "my own test"); err != nil {
+	if _, _, err := e.bans.Lift(ctx, "demo", b.ID, "ada", "my own test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.st.GetSessionLabel(ctx, "demo", b.SessionID); !errors.Is(err, store.ErrNotFound) {

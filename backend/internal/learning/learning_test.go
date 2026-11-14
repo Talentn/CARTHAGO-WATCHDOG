@@ -93,7 +93,7 @@ func TestBanLabelsFollowTheBan(t *testing.T) {
 	if err := f.st.SetSessionLabel(ctx, &store.SessionLabel{TenantID: "demo", SessionID: "mid", PlayerHash: "max", Label: store.LabelConfirmedCheat, Reviewer: "rev", LabelledAt: f.now}, store.LabelSet, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.bans.Lift(ctx, "demo", b.ID, "ada", "false alarm"); err != nil {
+	if _, _, err := f.bans.Lift(ctx, "demo", b.ID, "ada", "false alarm"); err != nil {
 		t.Fatal(err)
 	}
 	if f.label("now") != nil {
@@ -202,5 +202,99 @@ func TestProposals(t *testing.T) {
 	f.st.RemoveKnownCheat(ctx, "demo", known[0].ID)
 	if p := list(); len(p.List) != 0 || p.Compared != 2 {
 		t.Fatalf("after a lift: %+v", p)
+	}
+}
+
+// The shadow pool collects from entry: the caught player's recent sessions and every
+// session until the end are labelled with the source "shadow", an account that joined
+// through the device key is labelled from its joining session on and not back in time,
+// the files of both count toward proposals, and a release takes all of it away.
+func TestShadowPoolCollects(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if err := f.st.SetShadowPeriod(ctx, "demo", 48*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	f.st.SetCheatProposalAccounts(ctx, "demo", 2)
+	f.session("max-before", "max", 3*24*time.Hour)
+	caught := f.session("max-caught", "max", time.Minute)
+	f.session("alt-before", "alt", 2*24*time.Hour)
+	f.session("zed-1", "zed", time.Minute)
+	wall := strings.Repeat("a1", 32)
+	const unsigned = 2
+	f.module("max-caught", "max", "wall.dll", wall, unsigned)
+	f.module("zed-1", "zed", "client.dll", strings.Repeat("c3", 32), unsigned)
+
+	f.bans.Automatic(caught, "renderer_replaced", "an unsigned renderer")
+	entry, err := f.bans.Pooled(ctx, "demo", "max")
+	if err != nil || entry == nil {
+		t.Fatalf("not in the pool: %v", err)
+	}
+	for _, id := range []string{"max-caught", "max-before"} {
+		l := f.label(id)
+		if l == nil || l.Label != store.LabelConfirmedCheat || l.Source != store.LabelSourceShadow || l.BanRef != entry.Ref || l.Reviewer != "shadow pool "+entry.Ref || l.CheatType != "client_tampering" {
+			t.Fatalf("session %s: %+v", id, l)
+		}
+	}
+	// A session the player starts while in the pool.
+	f.now = f.now.Add(time.Hour)
+	later := f.session("max-later", "max", 0)
+	f.bans.Connected(ctx, later)
+	if l := f.label("max-later"); l == nil || l.Source != store.LabelSourceShadow || l.BanRef != entry.Ref {
+		t.Fatalf("a session started in the pool: %+v", l)
+	}
+	// Another account on the caught player's device key.
+	alt := f.session("alt-joins", "alt", 0)
+	alt.DeviceID = caught.DeviceID
+	f.bans.Connected(ctx, alt)
+	member, _ := f.bans.Pooled(ctx, "demo", "alt")
+	if member == nil || member.ShadowOf != entry.Ref {
+		t.Fatalf("the alternate account: %+v", member)
+	}
+	if l := f.label("alt-joins"); l == nil || l.Source != store.LabelSourceShadow || l.BanRef != member.Ref || l.CheatType != "" || !strings.Contains(l.Note, entry.Ref) {
+		t.Fatalf("the joining session: %+v", l)
+	}
+	if f.label("alt-before") != nil {
+		t.Fatal("the alternate account was labelled back in time")
+	}
+	next := f.session("alt-next", "alt", 0)
+	f.bans.Connected(ctx, next)
+	if l := f.label("alt-next"); l == nil || l.BanRef != member.Ref {
+		t.Fatalf("the alternate account's next session: %+v", l)
+	}
+	if f.label("zed-1") != nil {
+		t.Fatal("a player outside the pool was labelled")
+	}
+
+	// Their files count: two accounts of the pool loaded wall.dll and nobody else did.
+	f.module("alt-joins", "alt", "wall.dll", wall, unsigned)
+	p, err := FindProposals(ctx, f.st, "demo")
+	if err != nil || len(p.List) != 1 || p.List[0].SHA256 != wall || p.List[0].BannedAccounts != 2 {
+		t.Fatalf("proposals in the pool: %+v %v", p, err)
+	}
+
+	// The end of the period keeps the labels; they are the ban's.
+	f.now = entry.EffectiveAt
+	if n := f.bans.Sweep(ctx); n != 2 {
+		t.Fatalf("landed %d", n)
+	}
+	if l := f.label("max-caught"); l == nil || l.Source != store.LabelSourceShadow {
+		t.Fatalf("after the end: %+v", l)
+	}
+	// Lifting the ban afterwards removes them, the alternate account's too.
+	if _, with, err := f.bans.Lift(ctx, "demo", entry.ID, "ada", "appeal"); err != nil || len(with) != 1 {
+		t.Fatalf("lift: %+v %v", with, err)
+	}
+	for _, id := range []string{"max-caught", "max-before", "max-later", "alt-joins", "alt-next"} {
+		if f.label(id) != nil {
+			t.Fatalf("the label of %s outlived the release", id)
+		}
+	}
+	if p, _ := FindProposals(ctx, f.st, "demo"); len(p.List) != 0 {
+		t.Fatalf("proposals after the release: %+v", p.List)
+	}
+	history, _ := f.st.ListLabelAudit(ctx, "demo", "max-caught", 0)
+	if len(history) != 2 {
+		t.Fatalf("label history: %+v", history)
 	}
 }

@@ -135,14 +135,15 @@ func (m *Memory) LandShadowBan(_ context.Context, tenant string, id int64, at ti
 	return &out, nil
 }
 
-func (m *Memory) ShadowMember(_ context.Context, tenant, of, playerHash string) (*Ban, error) {
+func (m *Memory) ListShadowMembers(_ context.Context, tenant, of string) ([]Ban, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	mb := m.bn()
-	for i := len(mb.bans) - 1; i >= 0; i-- {
-		if b := mb.bans[i]; b.TenantID == tenant && b.ShadowOf == of && b.PlayerHash == playerHash {
-			return &b, nil
+	var out []Ban
+	for i := len(mb.bans) - 1; i >= 0 && of != ""; i-- {
+		if b := mb.bans[i]; b.TenantID == tenant && b.ShadowOf == of {
+			out = append(out, b)
 		}
 	}
-	return nil, ErrNotFound
+	return out, nil
 }

@@ -169,7 +169,7 @@ func Export(ctx context.Context, st Store, p *analyst.Pseudonymiser, tenant stri
 			}
 		}
 		stats.Labels++
-		if l.Source == store.LabelSourceBan {
+		if store.LabelFromBan(l.Source) {
 			stats.FromBans++
 		}
 		switch l.Label {
@@ -330,7 +330,7 @@ func ReadLabelled(r io.Reader) ([]train.Row, Used, error) {
 		h.Write([]byte(b.Subject))
 		// Groups above the synthetic match numbers, spread over the three splits.
 		row.Match = 1<<24 + int(h.Sum32()%(1<<20))
-		if b.Source == store.LabelSourceBan {
+		if store.LabelFromBan(b.Source) {
 			used.FromBans++
 		}
 		rows = append(rows, row)

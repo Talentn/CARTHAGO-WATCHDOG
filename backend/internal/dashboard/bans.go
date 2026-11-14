@@ -90,6 +90,16 @@ func (s *Server) banSession(w http.ResponseWriter, r *http.Request, v Viewer) {
 	http.Redirect(w, r, "/sessions/"+url.PathEscape(id)+"?banned=1#ban", http.StatusSeeOther)
 }
 
+// alsoBans names the bans that went with another one: those of the accounts that were in
+// the shadow pool through its device key.
+func alsoBans(with []store.Ban) string {
+	out := ""
+	for _, m := range with {
+		out += fmt.Sprintf("; with it %s of player %s", m.Ref, m.PlayerHash)
+	}
+	return out
+}
+
 func orNone(s string) string {
 	if s == "" {
 		return "none"
@@ -154,14 +164,18 @@ func (s *Server) liftBan(w http.ResponseWriter, r *http.Request, v Viewer) {
 		return
 	}
 	note := cleanText(r.PostFormValue("note"), 280)
-	b, err := s.bans.Lift(r.Context(), v.Tenant, id, bannedBy(v), note)
-	if err != nil {
+	b, with, err := s.bans.Lift(r.Context(), v.Tenant, id, bannedBy(v), note)
+	if err != nil && b == nil {
 		s.fail(w, err)
 		return
 	}
-	detail := "player " + b.PlayerHash
+	detail := "player " + b.PlayerHash + alsoBans(with)
 	if note != "" {
 		detail += "; note: " + note
+	}
+	if err != nil {
+		// The ban is lifted; one that follows it could not be.
+		detail += "; failed part-way: " + err.Error()
 	}
 	s.Audit(r, "ban.lift", "ban "+b.Ref, detail)
 	s.log.Info("dashboard ban lifted", "tenant", v.Tenant, "ref", b.Ref, "by", v.Name, "remote", s.clientAddr(r))

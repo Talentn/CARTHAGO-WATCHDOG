@@ -86,9 +86,9 @@ type BanStore interface {
 	// before the end of its period, makes it take effect then. ErrNotFound when the
 	// tenant has no such ban that stands and has not landed, so one caller applies it.
 	LandShadowBan(ctx context.Context, tenant string, id int64, at time.Time) (*Ban, error)
-	// ShadowMember returns the newest ban, lifted or not, that brought an account into the
-	// pool through the device key of the ban with reference of.
-	ShadowMember(ctx context.Context, tenant, of, playerHash string) (*Ban, error)
+	// ListShadowMembers returns the bans, lifted or not, of the accounts that came into
+	// the pool through the device key of the ban with reference of, newest first.
+	ListShadowMembers(ctx context.Context, tenant, of string) ([]Ban, error)
 }
 
 // MaxBanDelay bounds the delay of automatic bans.

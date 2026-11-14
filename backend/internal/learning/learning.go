@@ -75,15 +75,27 @@ func cheatType(b *store.Ban) string {
 	switch {
 	case b.BannedBy != store.BanAutomatic:
 		return b.Rule
-	case strings.HasPrefix(b.Rule, "economy_"):
+	case strings.HasPrefix(b.Rule, "economy_"), b.ShadowOf != "":
 		return ""
 	}
 	return "client_tampering"
 }
 
+// origin is how a ban's labels name where they come from: the source, and the words the
+// session page and the label history show.
+func origin(b *store.Ban) (source, by string) {
+	if b.Shadow {
+		return store.LabelSourceShadow, "shadow pool " + b.Ref
+	}
+	return store.LabelSourceBan, "ban " + b.Ref
+}
+
 // Banned labels the session a ban was made from, and the account's other sessions of the
 // last LabelWindow, as confirmed cheating with the ban as the source. A session that
-// already has a label keeps it.
+// already has a label keeps it. A ban into the shadow pool labels the same way, from the
+// moment the player enters. An account that is in the pool because it connected from a
+// pooled player's device key is labelled from that session on, not back in time: nothing
+// was found on the account itself.
 func (l *Labeler) Banned(b *store.Ban) {
 	ctx := context.Background()
 	if !l.certain(ctx, b) {
@@ -93,19 +105,41 @@ func (l *Labeler) Banned(b *store.Ban) {
 	if b.SessionID != "" {
 		ids = append(ids, b.SessionID)
 	}
-	rows, err := l.st.ListSessions(ctx, b.TenantID, store.SessionFilter{PlayerHash: b.PlayerHash, Limit: maxSessions})
-	if err != nil {
-		l.log.Warn("ban labels", "ban", b.Ref, "err", err)
-		return
-	}
-	since := b.BannedAt.Add(-LabelWindow)
-	for _, r := range rows {
-		if r.SessionID != b.SessionID && !r.CreatedAt.Before(since) {
-			ids = append(ids, r.SessionID)
+	if b.ShadowOf == "" {
+		rows, err := l.st.ListSessions(ctx, b.TenantID, store.SessionFilter{PlayerHash: b.PlayerHash, Limit: maxSessions})
+		if err != nil {
+			l.log.Warn("ban labels", "ban", b.Ref, "err", err)
+			return
+		}
+		since := b.BannedAt.Add(-LabelWindow)
+		for _, r := range rows {
+			if r.SessionID != b.SessionID && !r.CreatedAt.Before(since) {
+				ids = append(ids, r.SessionID)
+			}
 		}
 	}
-	note := "ban " + b.Ref
-	if b.Rule != "" {
+	if n := l.label(ctx, b, ids); n > 0 {
+		l.log.Info("sessions labelled from a ban", "ban", b.Ref, "tenant", b.TenantID, "player", b.PlayerHash, "sessions", n, "shadow_pool", b.Shadow)
+	}
+}
+
+// PoolSession labels a session that a player in the shadow pool starts (bans.SessionHook):
+// what the pool collects is every session until the ban takes effect.
+func (l *Labeler) PoolSession(b *store.Ban, sess store.Session) {
+	ctx := context.Background()
+	if sess.TenantID != b.TenantID || sess.PlayerHash != b.PlayerHash || !l.certain(ctx, b) {
+		return
+	}
+	l.label(ctx, b, []string{sess.SessionID})
+}
+
+func (l *Labeler) label(ctx context.Context, b *store.Ban, ids []string) int {
+	source, by := origin(b)
+	note := by
+	switch {
+	case b.ShadowOf != "":
+		note += ": plays on the device key of " + b.ShadowOf
+	case b.Rule != "":
 		note += " on " + b.Rule
 	}
 	n := 0
@@ -114,19 +148,17 @@ func (l *Labeler) Banned(b *store.Ban) {
 			continue
 		} else if !errors.Is(err, store.ErrNotFound) {
 			l.log.Warn("ban labels", "ban", b.Ref, "err", err)
-			return
+			return n
 		}
 		label := &store.SessionLabel{TenantID: b.TenantID, SessionID: id, PlayerHash: b.PlayerHash, Label: store.LabelConfirmedCheat, CheatType: cheatType(b),
-			Note: note, Reviewer: "ban " + b.Ref, LabelledAt: l.Now(), Source: store.LabelSourceBan, BanRef: b.Ref}
+			Note: note, Reviewer: by, LabelledAt: l.Now(), Source: source, BanRef: b.Ref}
 		if err := l.st.SetSessionLabel(ctx, label, store.LabelSet, ""); err != nil {
 			l.log.Warn("ban labels", "ban", b.Ref, "err", err)
-			return
+			return n
 		}
 		n++
 	}
-	if n > 0 {
-		l.log.Info("sessions labelled from a ban", "ban", b.Ref, "tenant", b.TenantID, "player", b.PlayerHash, "sessions", n)
-	}
+	return n
 }
 
 // Lifted removes the labels a ban put on sessions. Labels a reviewer set stay.
@@ -137,13 +169,14 @@ func (l *Labeler) Lifted(b *store.Ban) {
 		l.log.Warn("ban labels", "ban", b.Ref, "err", err)
 		return
 	}
+	_, by := origin(b)
 	n := 0
 	for _, have := range labels {
-		if have.Source != store.LabelSourceBan || have.BanRef != b.Ref {
+		if !store.LabelFromBan(have.Source) || have.BanRef != b.Ref {
 			continue
 		}
-		gone := &store.SessionLabel{TenantID: b.TenantID, SessionID: have.SessionID, PlayerHash: have.PlayerHash, Note: "ban " + b.Ref + " lifted",
-			Reviewer: "ban " + b.Ref, LabelledAt: l.Now()}
+		gone := &store.SessionLabel{TenantID: b.TenantID, SessionID: have.SessionID, PlayerHash: have.PlayerHash, Note: by + " lifted",
+			Reviewer: by, LabelledAt: l.Now()}
 		if err := l.st.SetSessionLabel(ctx, gone, store.LabelRemove, ""); err != nil {
 			l.log.Warn("ban labels", "ban", b.Ref, "err", err)
 			return

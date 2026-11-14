@@ -147,11 +147,13 @@ func TestShadowBans(t *testing.T) {
 		if err != nil || len(all) != 3 || all[0].Ref != "S-3" || all[0].TenantID != "t2" || all[1].TenantID != "t1" {
 			t.Fatalf("%s: every tenant's pool: %+v %v", name, all, err)
 		}
-		if m, err := st.ShadowMember(ctx, "t1", "S-1", "p2"); err != nil || m.Ref != "S-2" {
-			t.Errorf("%s: member: %+v %v", name, m, err)
+		if m, err := st.ListShadowMembers(ctx, "t1", "S-1"); err != nil || len(m) != 1 || m[0].Ref != "S-2" {
+			t.Errorf("%s: members: %+v %v", name, m, err)
 		}
-		if _, err := st.ShadowMember(ctx, "t1", "S-1", "p9"); !errors.Is(err, ErrNotFound) {
-			t.Errorf("%s: no such member: %v", name, err)
+		for _, c := range [][2]string{{"t1", "S-2"}, {"t1", ""}, {"t2", "S-1"}} {
+			if m, err := st.ListShadowMembers(ctx, c[0], c[1]); err != nil || len(m) != 0 {
+				t.Errorf("%s: members of %v: %+v %v", name, c, m, err)
+			}
 		}
 
 		// "Ban now" after a day: the ban takes effect then, once.

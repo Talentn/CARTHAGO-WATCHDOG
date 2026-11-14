@@ -56,7 +56,7 @@ func TestPendingBanIsAppliedWhenDue(t *testing.T) {
 			t.Fatalf("a second ban was made: %+v", list)
 		}
 		if lifted {
-			if _, err := s.Lift(ctx, "t1", b.ID, "ada", "false alarm"); err != nil {
+			if _, _, err := s.Lift(ctx, "t1", b.ID, "ada", "false alarm"); err != nil {
 				t.Fatal(err)
 			}
 		}

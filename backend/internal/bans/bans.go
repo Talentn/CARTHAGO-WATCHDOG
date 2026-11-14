@@ -1,6 +1,7 @@
 // Package bans decides who is banned and applies it: the dashboard's "Ban player", the
 // gateway's automatic ban on certain evidence, the refusal at the handshake and the end of
-// a banned player's live sessions all go through one Service.
+// a banned player's live sessions all go through one Service. So does the shadow pool
+// (shadow.go): a studio's choice to let an automatic ban wait while the player plays on.
 package bans
 
 import (
@@ -45,6 +46,9 @@ type Service struct {
 	mu    sync.Mutex
 	end   Ender
 	hooks []Hook
+	// pool is held while an account joins the shadow pool through a device key, so two
+	// handshakes of one account make one entry.
+	pool sync.Mutex
 }
 
 // Hook is told about every ban made and every ban lifted: the economy ledger marks and
@@ -89,7 +93,9 @@ type Request struct {
 
 // Ban bans the session's account and the device key the session used. created is false
 // when a ban already stands for either, which is then returned unchanged. A ban made by a
-// person takes effect at once; an automatic one after the tenant's delay.
+// person takes effect at once. An automatic one takes effect after the tenant's delay, or,
+// when the tenant's shadow period is on, at the end of that period: until then the player
+// is in the shadow pool.
 func (s *Service) Ban(ctx context.Context, r Request) (b *store.Ban, created bool, err error) {
 	sess := r.Session
 	if sess.TenantID == "" || sess.PlayerHash == "" {
@@ -97,12 +103,28 @@ func (s *Service) Ban(ctx context.Context, r Request) (b *store.Ban, created boo
 	}
 	automatic := r.By == ""
 	now := s.Now()
+	if !automatic {
+		// A person's ban of a player in the shadow pool is that player's ban, now.
+		if own, err := s.st.StandingBan(ctx, sess.TenantID, sess.PlayerHash, ""); err == nil && own.InPool(now) {
+			b, _, err := s.BanNow(ctx, sess.TenantID, own.ID)
+			return b, err == nil, err
+		}
+	}
 	standing, err := s.st.StandingBan(ctx, sess.TenantID, sess.PlayerHash, sess.DeviceID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, false, err
 	}
 	// A person's ban is still made when the one that stands is only pending.
 	if err == nil && (automatic || standing.Active(now)) {
+		if automatic && standing.InPool(now) && standing.PlayerHash != sess.PlayerHash {
+			// Certain evidence on an account that plays on the device key of a player in
+			// the shadow pool and is not in it, because a reviewer released it: it is now.
+			if own, err := s.join(ctx, sess, standing, now, &r); err != nil {
+				return nil, false, err
+			} else if own != nil {
+				return own, true, nil
+			}
+		}
 		return standing, false, nil
 	}
 	b = &store.Ban{TenantID: sess.TenantID, Ref: newRef(), PlayerHash: sess.PlayerHash, DeviceID: sess.DeviceID,
@@ -114,31 +136,48 @@ func (s *Service) Ban(ctx context.Context, r Request) (b *store.Ban, created boo
 	}
 	if automatic {
 		b.BannedBy = store.BanAutomatic
-		delay, err := s.st.BanDelay(ctx, sess.TenantID)
+		period, err := s.st.ShadowPeriod(ctx, sess.TenantID)
 		if err != nil {
 			return nil, false, err
 		}
-		b.EffectiveAt = now.Add(delay)
+		if period > 0 {
+			b.Shadow, b.EffectiveAt = true, now.Add(period)
+		} else {
+			delay, err := s.st.BanDelay(ctx, sess.TenantID)
+			if err != nil {
+				return nil, false, err
+			}
+			b.EffectiveAt = now.Add(delay)
+		}
 	}
 	if err := s.st.AddBan(ctx, b); err != nil {
 		return nil, false, err
 	}
 	pending := b.EffectiveAt.Sub(now)
 	s.log.Info("ban", "ref", b.Ref, "tenant", b.TenantID, "player", b.PlayerHash, "device", b.DeviceID, "device_tpm", b.DeviceTPM,
-		"by", b.BannedBy, "rule", b.Rule, "session", b.SessionID, "effective_in", pending.String())
+		"by", b.BannedBy, "rule", b.Rule, "session", b.SessionID, "effective_in", pending.String(), "shadow_pool", b.Shadow)
 	if automatic {
 		s.audit(ctx, b)
 	}
+	s.made(b, pending)
+	return b, true, nil
+}
+
+// made tells the hooks about a new ban and applies it, now or when it comes due.
+func (s *Service) made(b *store.Ban, pending time.Duration) {
 	// What follows from the ban is on record before the banned player's sessions end.
 	for _, h := range s.hooked() {
 		h.Banned(b)
 	}
-	if pending > 0 {
+	switch {
+	case b.Shadow:
+		// Sweep also lands it: this timer does not outlive the gateway, a period of days does.
+		time.AfterFunc(pending, func() { s.landDue(b.TenantID, b.ID) })
+	case pending > 0:
 		time.AfterFunc(pending, func() { s.applyDue(b.TenantID, b.ID, b.PlayerHash, b.DeviceID) })
-	} else {
+	default:
 		s.endSessions(b)
 	}
-	return b, true, nil
 }
 
 // Automatic bans a session on evidence of the certain tier (analyzer.Evidence.Certain). It
@@ -153,12 +192,17 @@ func (s *Service) Automatic(sess store.Session, rule, summary string) {
 }
 
 func (s *Service) audit(ctx context.Context, b *store.Ban) {
-	au, ok := s.st.(auditor)
-	if !ok {
-		return
-	}
+	action := "ban.add"
 	detail := fmt.Sprintf("ban %s, rule %s, device key %s", b.Ref, b.Rule, orNone(b.DeviceID))
-	if b.EffectiveAt.After(b.BannedAt) {
+	switch {
+	case b.Shadow && b.ShadowOf != "":
+		action = "shadow.join"
+		detail = fmt.Sprintf("ban %s: an account that connected from the device key of %s is in the shadow pool with it; the ban takes effect %s",
+			b.Ref, b.ShadowOf, b.EffectiveAt.UTC().Format(time.RFC3339))
+	case b.Shadow:
+		action = "shadow.enter"
+		detail += ", in the shadow pool; the ban takes effect " + b.EffectiveAt.UTC().Format(time.RFC3339)
+	case b.EffectiveAt.After(b.BannedAt):
 		detail += ", pending until " + b.EffectiveAt.UTC().Format(time.RFC3339)
 	}
 	target := "session " + b.SessionID
@@ -166,9 +210,17 @@ func (s *Service) audit(ctx context.Context, b *store.Ban) {
 		// A ban from the economy ledger is about an account, not a session.
 		target = "player " + b.PlayerHash
 	}
-	e := &store.AuditEntry{TenantID: b.TenantID, At: b.BannedAt, Actor: store.BanAutomatic, Action: "ban.add", Target: target, Detail: detail}
+	s.record(ctx, &store.AuditEntry{TenantID: b.TenantID, At: b.BannedAt, Actor: store.BanAutomatic, Action: action, Target: target, Detail: detail})
+}
+
+// record writes what the gateway did by itself to the audit log.
+func (s *Service) record(ctx context.Context, e *store.AuditEntry) {
+	au, ok := s.st.(auditor)
+	if !ok {
+		return
+	}
 	if err := au.AppendAudit(ctx, e); err != nil {
-		s.log.Warn("audit automatic ban", "ref", b.Ref, "err", err)
+		s.log.Warn("audit", "action", e.Action, "target", e.Target, "err", err)
 	}
 }
 
@@ -202,16 +254,43 @@ func (s *Service) endSessions(b *store.Ban) {
 	}
 }
 
-// Lift ends a standing ban, pending or active.
-func (s *Service) Lift(ctx context.Context, tenant string, id int64, by, note string) (*store.Ban, error) {
-	b, err := s.st.LiftBan(ctx, tenant, id, by, note, s.Now())
-	if err == nil {
-		s.log.Info("ban lifted", "ref", b.Ref, "tenant", tenant, "player", b.PlayerHash, "by", by)
-		for _, h := range s.hooked() {
-			h.Lifted(b)
+// Lift ends a standing ban, pending or active. The accounts that are in the shadow pool,
+// or were banned from it, only because they connected from this ban's device key go with
+// it: their bans are lifted too and returned in with.
+func (s *Service) Lift(ctx context.Context, tenant string, id int64, by, note string) (b *store.Ban, with []store.Ban, err error) {
+	b, err = s.st.LiftBan(ctx, tenant, id, by, note, s.Now())
+	if err != nil {
+		return nil, nil, err
+	}
+	s.lifted(b, by)
+	if b.Shadow && b.ShadowOf == "" {
+		members, err := s.st.ListShadowMembers(ctx, tenant, b.Ref)
+		if err != nil {
+			return b, nil, err
+		}
+		for _, m := range members {
+			if m.Lifted() {
+				continue
+			}
+			gone, err := s.st.LiftBan(ctx, tenant, m.ID, by, "with "+b.Ref, s.Now())
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return b, with, err
+			}
+			s.lifted(gone, by)
+			with = append(with, *gone)
 		}
 	}
-	return b, err
+	return b, with, nil
+}
+
+func (s *Service) lifted(b *store.Ban, by string) {
+	s.log.Info("ban lifted", "ref", b.Ref, "tenant", b.TenantID, "player", b.PlayerHash, "by", by)
+	for _, h := range s.hooked() {
+		h.Lifted(b)
+	}
 }
 
 // Refused returns the ban that refuses this account or device key now, nil when there is

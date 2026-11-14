@@ -72,14 +72,25 @@ type SessionLabel struct {
 	Note       string
 	Reviewer   string // the dashboard account that set the label; with the demo login, the name the person gave
 	LabelledAt time.Time
-	// Source is empty for a reviewer's label and LabelSourceBan for one a ban put there;
-	// BanRef is then the ban's reference, and lifting that ban removes the label.
+	// Source is empty for a reviewer's label. LabelSourceBan and LabelSourceShadow are for
+	// one a ban put there; BanRef is then the ban's reference, and lifting that ban
+	// removes the label.
 	Source string
 	BanRef string
 }
 
-// LabelSourceBan marks a label that follows from a ban on certain evidence.
-const LabelSourceBan = "ban"
+// LabelSourceBan marks a label that follows from a ban on certain evidence, and
+// LabelSourceShadow one that follows from such a ban made into the shadow pool.
+const (
+	LabelSourceBan    = "ban"
+	LabelSourceShadow = "shadow"
+)
+
+// LabelFromBan reports whether a label's source is a ban, immediate or through the shadow
+// pool, and not a reviewer.
+func LabelFromBan(source string) bool {
+	return source == LabelSourceBan || source == LabelSourceShadow
+}
 
 const (
 	LabelConfirmedCheat = "confirmed_cheat"

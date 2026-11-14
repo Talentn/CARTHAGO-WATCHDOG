@@ -253,7 +253,7 @@ func TestMoneyFromABannedPlayerIsDirty(t *testing.T) {
 	if f.dirty("bo") != 600 {
 		t.Fatalf("after the removal: %d", f.dirty("bo"))
 	}
-	if _, err := f.bans.Lift(ctx, "demo", f.banned("max").ID, "ada", "false alarm"); err != nil {
+	if _, _, err := f.bans.Lift(ctx, "demo", f.banned("max").ID, "ada", "false alarm"); err != nil {
 		t.Fatal(err)
 	}
 	if f.dirty("") != 0 {
@@ -295,5 +295,67 @@ func TestAmount(t *testing.T) {
 		if got := Amount(v); got != want {
 			t.Errorf("%d: %q", v, got)
 		}
+	}
+}
+
+// In the shadow pool money a caught player passes on is dirty from entry, as for a ban,
+// and the game server is told that the ban waits. An account that is in the pool only for
+// the device key it connected from is not looked back on. A release clears the marks.
+func TestShadowPoolMarksMoneyDirty(t *testing.T) {
+	f := newFixture(t, true)
+	ctx := context.Background()
+	if err := f.st.SetShadowPeriod(ctx, "demo", 48*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	f.st.PutSession(ctx, &store.Session{SessionID: "s-max", TenantID: "demo", PlayerHash: "max", DeviceID: "dev-max", CreatedAt: f.now})
+	f.snap("max", 1_000)
+	f.ev("max", -300, "trade", "fay")
+	f.ev("fay", 300, "trade", "max")
+	f.ev("alt", 500, "job", "")
+	f.ev("alt", -200, "trade", "bo")
+	f.ev("bo", 200, "trade", "alt")
+
+	r := f.snap("max", 90_700)
+	if r.Banned == "" || !r.Shadow {
+		t.Fatalf("the mismatch: %+v", r)
+	}
+	entry, _ := f.bans.Pooled(ctx, "demo", "max")
+	if entry == nil || entry.Ref != r.Banned || entry.DeviceID != "dev-max" {
+		t.Fatalf("not in the pool: %+v", entry)
+	}
+	if st, err := f.eco.Player(ctx, "demo", "max"); err != nil || st.Banned != entry.Ref || !st.Shadow {
+		t.Fatalf("status: %+v %v", st, err)
+	}
+	if f.dirty("fay") != 300 {
+		t.Fatalf("what the caught player passed on before: %d", f.dirty("fay"))
+	}
+	f.ev("max", -1_000, "drop", "")
+	if r := f.ev("zoe", 1_000, "drop", "max"); r.Dirty != 1_000 || r.DirtyFrom != "max" || r.Banned != "" || r.Shadow {
+		t.Fatalf("picked up in the pool: %+v", r)
+	}
+
+	// Another account on the caught player's device key.
+	f.bans.Connected(ctx, store.Session{SessionID: "s-alt", TenantID: "demo", PlayerHash: "alt", DeviceID: "dev-max"})
+	if m, _ := f.bans.Pooled(ctx, "demo", "alt"); m == nil {
+		t.Fatal("the alternate account is not in the pool")
+	}
+	if f.dirty("bo") != 0 {
+		t.Fatalf("the alternate account was looked back on: %d", f.dirty("bo"))
+	}
+	f.ev("alt", -100, "trade", "bo")
+	if r := f.ev("bo", 100, "trade", "alt"); r.Dirty != 100 || r.DirtyFrom != "alt" {
+		t.Fatalf("a trade from the alternate account in the pool: %+v", r)
+	}
+
+	if _, with, err := f.bans.Release(ctx, "demo", entry.ID, "ada", "false alarm"); err != nil || len(with) != 1 {
+		t.Fatalf("release: %+v %v", with, err)
+	}
+	for _, p := range []string{"fay", "zoe", "bo"} {
+		if f.dirty(p) != 0 {
+			t.Fatalf("%s holds dirty money after the release: %d", p, f.dirty(p))
+		}
+	}
+	if st, _ := f.eco.Player(ctx, "demo", "max"); st.Banned != "" || st.Shadow {
+		t.Fatalf("status after the release: %+v", st)
 	}
 }

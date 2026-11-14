@@ -117,8 +117,11 @@ type Result struct {
 	Error  string `json:"error,omitempty"`
 	// Flags are the rules this event tripped for its player.
 	Flags []string `json:"flags,omitempty"`
-	// Banned is the reference of the ban a certain flag led to.
+	// Banned is the reference of the ban a certain flag led to. Shadow: that ban waits in
+	// the shadow pool. The player must not see anything follow from it; ask the shadow
+	// status and match the player with the pool instead.
 	Banned string `json:"banned,omitempty"`
+	Shadow bool   `json:"shadow,omitempty"`
 	// Dirty is how much of this credit should not exist, and DirtyFrom the banned player
 	// it came from: the receiver is not flagged for it. For money that tripped a flag
 	// DirtyFrom is the player themself.
@@ -147,6 +150,8 @@ type BalanceResult struct {
 	Error  string   `json:"error,omitempty"`
 	Flags  []string `json:"flags,omitempty"`
 	Banned string   `json:"banned,omitempty"`
+	// Shadow: the ban waits in the shadow pool, as in Result.
+	Shadow bool `json:"shadow,omitempty"`
 }
 
 func clean(s string) string { return strings.TrimSpace(s) }
@@ -269,7 +274,8 @@ func (s *Service) record(ctx context.Context, tenant string, ev Event) Result {
 	}
 	res.Status, res.Dirty, res.DirtyFrom = "recorded", e.Dirty, e.DirtyFrom
 	if rule != "" {
-		res.Flags, res.Banned = []string{rule}, s.flag(ctx, store.EconomyFlag{TenantID: tenant, PlayerHash: e.PlayerHash, Rule: rule, Currency: e.Currency, Amount: e.Amount,
+		res.Flags = []string{rule}
+		res.Banned, res.Shadow = s.flag(ctx, store.EconomyFlag{TenantID: tenant, PlayerHash: e.PlayerHash, Rule: rule, Currency: e.Currency, Amount: e.Amount,
 			Source: source, Summary: why, EventID: e.EventID, At: e.At})
 		return res
 	}
@@ -319,8 +325,9 @@ func (s *Service) overLimit(ctx context.Context, e store.EconomyEntry) string {
 }
 
 // flag records what the ledger found and, for a rule of the certain tier, bans the
-// player. It returns the reference of the ban.
-func (s *Service) flag(ctx context.Context, f store.EconomyFlag) string {
+// player. It returns the reference of the ban, and whether that ban waits in the shadow
+// pool.
+func (s *Service) flag(ctx context.Context, f store.EconomyFlag) (ref string, shadow bool) {
 	f.Certain = analyzer.TierOf(f.Rule) == analyzer.TierCertain
 	if f.Certain && s.ban != nil {
 		// The device key of the player's latest session is banned with the account, as
@@ -336,14 +343,14 @@ func (s *Service) flag(ctx context.Context, f store.EconomyFlag) string {
 		if b, _, err := s.ban.Ban(ctx, bans.Request{Session: sess, Reason: reason, Rule: f.Rule}); err != nil {
 			s.log.Warn("economy ban", "tenant", f.TenantID, "player", f.PlayerHash, "rule", f.Rule, "err", err)
 		} else {
-			f.BanRef = b.Ref
+			f.BanRef, shadow = b.Ref, b.InPool(s.Now())
 		}
 	}
 	if err := s.st.AddEconomyFlag(ctx, &f); err != nil {
 		s.log.Warn("economy flag", "tenant", f.TenantID, "player", f.PlayerHash, "rule", f.Rule, "err", err)
 	}
 	s.log.Info("economy flag", "tenant", f.TenantID, "player", f.PlayerHash, "rule", f.Rule, "certain", f.Certain, "ban", f.BanRef, "summary", f.Summary)
-	return f.BanRef
+	return f.BanRef, shadow
 }
 
 // Snapshot compares reported balances with the ledger.
@@ -421,7 +428,8 @@ func (s *Service) snapshot(ctx context.Context, tenant string, b Balance) Balanc
 	case "mismatch":
 		f.Rule = RuleBalanceMismatch
 		f.Summary = fmt.Sprintf("balance of %s %s is %s above the ledger (%s): money that no reported change explains", Amount(b.Balance), currency, Amount(diff), Amount(ledger))
-		res.Flags, res.Banned = []string{f.Rule}, s.flag(ctx, f)
+		res.Flags = []string{f.Rule}
+		res.Banned, res.Shadow = s.flag(ctx, f)
 	case "short":
 		f.Rule = RuleBalanceShort
 		f.Summary = fmt.Sprintf("balance of %s %s is %s below the ledger (%s): the game server did not report a spend", Amount(b.Balance), currency, Amount(-diff), Amount(ledger))
@@ -459,6 +467,11 @@ func (s *Service) clearDirty(ctx context.Context, tenant string, f store.Economy
 // reaches back DirtyLookBack from the ban; what they receive later is marked as it is
 // reported.
 func (s *Service) Banned(b *store.Ban) {
+	if b.ShadowOf != "" {
+		// In the shadow pool only for the device key it connected from: nothing was found
+		// on the account itself, so what it passes on is dirty from now, not back in time.
+		return
+	}
 	ctx := context.Background()
 	entries, err := s.st.ListEconomyEntries(ctx, b.TenantID, store.EconomyFilter{Counterparty: b.PlayerHash, Since: b.BannedAt.Add(-DirtyLookBack), Limit: 1000})
 	if err != nil {
@@ -548,7 +561,9 @@ type PlayerFlag struct {
 type Status struct {
 	Player string `json:"player"`
 	// Banned is the reference of the ban that stands for the player, empty for none.
+	// Shadow: it waits in the shadow pool and the player is still playing.
 	Banned   string            `json:"banned"`
+	Shadow   bool              `json:"shadow,omitempty"`
 	Balances []CurrencyBalance `json:"balances"`
 	Flags    []PlayerFlag      `json:"flags"`
 }
@@ -591,7 +606,7 @@ func (s *Service) Player(ctx context.Context, tenant, player string) (*Status, e
 	}
 	st := &Status{Player: player, Flags: []PlayerFlag{}}
 	if b, err := s.st.StandingBan(ctx, tenant, player, ""); err == nil {
-		st.Banned = b.Ref
+		st.Banned, st.Shadow = b.Ref, b.InPool(s.Now())
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}

@@ -151,11 +151,22 @@ func (s *SQLite) LandShadowBan(ctx context.Context, tenant string, id int64, at 
 	return scanBan(tenant, s.db.QueryRowContext(ctx, `SELECT `+banCols+` FROM bans WHERE tenant_id = ? AND id = ?`, tenant, id))
 }
 
-func (s *SQLite) ShadowMember(ctx context.Context, tenant, of, playerHash string) (*Ban, error) {
-	b, err := scanBan(tenant, s.db.QueryRowContext(ctx, `SELECT `+banCols+` FROM bans
-		WHERE tenant_id = ? AND shadow_of = ? AND player_hash = ? ORDER BY id DESC LIMIT 1`, tenant, of, playerHash))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+func (s *SQLite) ListShadowMembers(ctx context.Context, tenant, of string) ([]Ban, error) {
+	if of == "" {
+		return nil, nil
 	}
-	return b, err
+	rows, err := s.db.QueryContext(ctx, `SELECT `+banCols+` FROM bans WHERE tenant_id = ? AND shadow_of = ? ORDER BY id DESC`, tenant, of)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Ban
+	for rows.Next() {
+		b, err := scanBan(tenant, rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *b)
+	}
+	return out, rows.Err()
 }
