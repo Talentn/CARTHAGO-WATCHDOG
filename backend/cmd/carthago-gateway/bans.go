@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"carthago/backend/internal/bans"
 	"carthago/backend/internal/economy"
 	"carthago/backend/internal/learning"
 	"carthago/backend/internal/store"
@@ -22,8 +24,10 @@ const bansUsage = `usage:
   carthago-gateway bans delay -tenant ID -minutes N [-data DIR]
 
 Works on the gateway's database directly, running or not. A lifted ban stays in the list as
-history. delay sets how long the studio's automatic bans wait before they take effect
-(default 0). Both are also on the dashboard's Bans page.
+history. Lifting the ban of a player in the shadow pool releases the player, with the
+accounts that came into the pool from the same PC. delay sets how long the studio's
+automatic bans wait before they take effect (default 0). Both are also on the dashboard's
+Bans page. The shadow pool has its own command: carthago-gateway shadow.
 `
 
 // bansCommand runs "carthago-gateway bans ...".
@@ -94,6 +98,8 @@ func bansCommand(args []string, stdout, stderr io.Writer) int {
 			switch {
 			case b.Lifted():
 				state = "lifted by " + b.LiftedBy
+			case b.InPool(now):
+				state = "in the shadow pool until " + b.EffectiveAt.Local().Format("2006-01-02 15:04")
 			case b.Pending(now):
 				state = "pending until " + b.EffectiveAt.Local().Format("2006-01-02 15:04")
 			}
@@ -104,27 +110,40 @@ func bansCommand(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	// What followed from a ban goes with it, as when it is lifted on the dashboard: the
+	// labels on the account's sessions, the dirty marks on money it passed on, and the
+	// bans of the accounts that were in the shadow pool only through its device key.
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	svc := bans.New(st, quiet)
+	svc.AddHook(economy.New(st, nil, quiet))
+	svc.AddHook(learning.NewLabeler(st, quiet))
 	lifted := 0
 	for _, b := range list {
 		if b.Lifted() || !*all && b.Ref != *ref {
 			continue
 		}
-		gone, err := st.LiftBan(ctx, *tenant, b.ID, "command line", *note, now)
+		gone, with, err := svc.Lift(ctx, *tenant, b.ID, "command line", *note)
+		if errors.Is(err, store.ErrNotFound) {
+			// Went with the ban it followed, earlier in this run.
+			continue
+		}
 		if err != nil {
 			return fail(err)
 		}
-		// What followed from the ban goes with it, as when it is lifted on the dashboard:
-		// the labels on the account's sessions and the dirty marks on money it passed on.
-		quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-		learning.NewLabeler(st, quiet).Lifted(gone)
-		economy.New(st, nil, quiet).Lifted(gone)
 		// The audit log is the dashboard's record of who did what; a lift from the
 		// command line belongs in it too.
-		if err := st.AppendAudit(ctx, &store.AuditEntry{TenantID: *tenant, At: now, Actor: "command line", Action: "ban.lift", Target: "ban " + b.Ref, Detail: *note}); err != nil {
+		detail := *note
+		for _, m := range with {
+			detail = strings.TrimPrefix(detail+"; with it "+m.Ref+" of player "+m.PlayerHash, "; ")
+		}
+		if err := st.AppendAudit(ctx, &store.AuditEntry{TenantID: *tenant, At: now, Actor: "command line", Action: "ban.lift", Target: "ban " + gone.Ref, Detail: detail}); err != nil {
 			return fail(err)
 		}
-		fmt.Fprintf(stdout, "lifted %s (player %s)\n", b.Ref, b.PlayerHash)
-		lifted++
+		fmt.Fprintf(stdout, "lifted %s (player %s)\n", gone.Ref, gone.PlayerHash)
+		for _, m := range with {
+			fmt.Fprintf(stdout, "lifted %s (player %s), in the shadow pool through the device key of %s\n", m.Ref, m.PlayerHash, gone.Ref)
+		}
+		lifted += 1 + len(with)
 	}
 	if lifted == 0 {
 		if !*all {
