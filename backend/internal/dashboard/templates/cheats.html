@@ -1,0 +1,52 @@
+{{define "content"}}
+{{$d := .Data}}{{$csrf := .CSRF}}
+<div class="head">
+  <h1>Known cheats</h1>
+  <span class="muted">{{len $d.Rows}} {{if eq (len $d.Rows) 1}}file{{else}}files{{end}}</span>
+</div>
+<section class="card" id="add">
+  <div class="card-head"><h2>Known cheat files</h2><span class="muted">certain evidence · bans automatically</span></div>
+  <p class="note">A file the game loads whose SHA-256 is on this list is a known cheat, whatever the file is called, wherever it sits and whether it is signed or not. The match is made here on the server from the hash the player's client reports for every loaded file; the list is never sent to a client. An entry applies to files reported after it was added, so a player already in a game is caught at the next start.</p>
+  {{if $d.Added}}<p class="saved">Added to the list</p>{{end}}
+  {{if $d.Problem}}<p class="saved bad" role="alert">{{$d.Problem}}</p>{{end}}
+  {{if $d.CanAct}}
+  <form method="post" action="/cheats" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="grow">SHA-256 of the file
+      <input type="text" name="sha256" class="mono" maxlength="80" value="{{$d.SHA256}}" placeholder="64 hex digits" autocomplete="off" spellcheck="false" required>
+    </label>
+    <label>Cheat name
+      <input type="text" name="name" maxlength="80" value="{{$d.Name}}" autocomplete="off" required>
+    </label>
+    <label class="grow">Note
+      <input type="text" name="note" maxlength="280" value="{{$d.Note}}" autocomplete="off">
+    </label>
+    <button type="submit" class="secondary">Add to known cheats</button>
+  </form>
+  {{else}}<p class="note">Adding and removing entries needs the reviewer role.</p>{{end}}
+</section>
+<section class="card">
+{{if $d.Removed}}<p class="saved">Removed from the list</p>{{end}}
+{{if $d.Rows}}
+<table class="cheats">
+  <thead><tr><th>Cheat</th><th>SHA-256</th><th>Note</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {{range $d.Rows}}
+  <tr>
+    <td><b>{{.Name}}</b></td>
+    <td class="mono hash">{{.SHA256}}</td>
+    <td class="reason">{{if .Note}}{{.Note}}{{else}}<span class="muted">–</span>{{end}}</td>
+    <td class="when" title="{{when .AddedAt}}">{{.AddedBy}}<br><small class="muted"><span class="mono">{{.AddedAt.UTC.Format "01-02 15:04"}}</span> · {{ago .AddedAt}}</small></td>
+    <td>{{if $d.CanAct}}
+      <form method="post" action="/cheats/{{.ID}}/remove">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit" class="secondary" aria-label="Remove {{.Name}} from the known cheats">Remove</button>
+      </form>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}<p class="empty">No known cheat files yet</p>{{end}}
+</section>
+<p class="note">On the command line: <span class="mono">carthago-gateway cheats add -tenant {{.Tenant}} -file &lt;path&gt; -name &lt;name&gt;</span>, and <span class="mono">list</span> and <span class="mono">remove</span>. Changes to the list are in the audit log.</p>
+{{end}}

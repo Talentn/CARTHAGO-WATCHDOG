@@ -31,7 +31,7 @@
     <td><span class="sev sev-{{sev .Severity}}">{{sev .Severity}}</span>{{if .Integrity}} <span class="tag">integrity</span>{{end}}{{if .Bot}} <span class="tag" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{end}}</td>
     <td class="mono">{{.Rule}}</td>
     <td>{{.Source}}{{if .MatchID}} <span class="mono muted">{{short .MatchID}}</span>{{end}}</td>
-    <td class="sum">{{.Summary}}</td>
+    <td class="sum">{{.Summary}}{{with fileOf .}} <a class="addcheat" href="/cheats?sha256={{.SHA256}}&amp;module={{.Module}}#add" title="SHA-256 {{.SHA256}}">Add to known cheats</a>{{end}}</td>
     <td class="num">{{score .Score}}</td>
     <td class="when" title="{{when .ObservedAt}}"><span class="mono">{{.ObservedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .ObservedAt}}</span></td>
   </tr>

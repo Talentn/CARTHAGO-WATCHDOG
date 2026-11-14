@@ -36,7 +36,7 @@ const auditPageSize = 100
 // auditTabs: which actions each tab of the audit page shows.
 var auditTabs = map[string][]string{
 	"signins": {"login.", "logout", "session."},
-	"changes": {"user.", "invite.", "password.", "totp.", "recovery.", "tenant.", "label.", "ban.", "request.", "access."},
+	"changes": {"user.", "invite.", "password.", "totp.", "recovery.", "tenant.", "label.", "ban.", "cheat.", "request.", "access."},
 }
 
 type auditData struct {

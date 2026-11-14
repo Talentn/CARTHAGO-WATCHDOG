@@ -48,6 +48,7 @@ type Store interface {
 	store.EvidenceStore
 	store.OracleStore
 	store.BanStore
+	store.CheatStore
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
 }
@@ -125,6 +126,7 @@ func (s *Server) parse() error {
 		"ago":        func(t time.Time) string { return ago(s.now(), t) },
 		"when":       func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") },
 		"short":      short,
+		"fileOf":     fileOf,
 		"pct":        pct,
 		"ms":         func(ns uint64) string { return fmt.Sprintf("%.2f ms", float64(ns)/1e6) },
 		"tier":       tier,
@@ -183,6 +185,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /bans", s.auth(s.bansPage))
 	mux.HandleFunc("POST /bans/delay", s.require(RoleAdmin, s.setBanDelay))
 	mux.HandleFunc("POST /bans/{id}/lift", s.require(RoleReviewer, s.liftBan))
+	mux.HandleFunc("GET /cheats", s.auth(s.cheatsPage))
+	mux.HandleFunc("POST /cheats", s.require(RoleReviewer, s.addCheat))
+	mux.HandleFunc("POST /cheats/{id}/remove", s.require(RoleReviewer, s.removeCheat))
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
