@@ -1,0 +1,71 @@
+{{define "content"}}
+{{$d := .Data}}{{$csrf := .CSRF}}
+<div class="head">
+  <h1>Shadow pool</h1>
+  <span class="muted">{{len $d.Rows}} {{if eq (len $d.Rows) 1}}player{{else}}players{{end}} in the pool · period {{$d.PeriodText}}</span>
+</div>
+<section class="card" id="period">
+  <div class="card-head"><h2>Shadow period</h2><span class="muted">{{if $d.Period}}on{{else}}off{{end}} · certain evidence only</span></div>
+  {{if $d.Saved}}<p class="saved">Period saved</p>{{end}}
+  <dl class="kv">
+    <dt>Period</dt><dd><b>{{$d.PeriodText}}</b> <small class="muted">{{if $d.Period}}a player caught on certain evidence is not banned at once: the ban takes effect that long after the detection, and until then the player is in the pool{{else}}a player caught on certain evidence is banned at once, or after the delay on the <a href="/bans#automatic">Bans</a> page{{end}}</small></dd>
+    <dt>The player sees</dt><dd>Nothing. The handshake, the session token, the heartbeat answers and the alerts are those of a normal player; no alert is raised and the session is not ended. When the period is over the player is banned like anybody else, with a reference.</dd>
+    <dt>Your matchmaking</dt><dd>Asks the gateway who is in the pool, under your server key (<span class="mono">POST /v1/shadow/status</span>, <span class="mono">GET /v1/shadow/pool</span>), and matches those players with each other only. Without that the pool changes nothing for the other players.</dd>
+    <dt>Collected meanwhile</dt><dd>The sessions of a player in the pool are labelled "confirmed cheat" for the Oracle's training, the files they load count toward <a href="/cheats#proposed">proposed known cheats</a>, and money they trade or drop is marked dirty on the <a href="/economy">Economy</a> page.</dd>
+  </dl>
+  {{if $d.CanSet}}
+  <form method="post" action="/shadow/period" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Shadow period (0 is off)
+      <input type="number" name="amount" min="0" max="2160" value="{{$d.Amount}}" required>
+    </label>
+    <label>Unit
+      <select name="unit">
+        <option value="hours"{{if eq $d.Unit "hours"}} selected{{end}}>hours</option>
+        <option value="days"{{if eq $d.Unit "days"}} selected{{end}}>days</option>
+      </select>
+    </label>
+    <button type="submit" class="secondary">Save period</button>
+  </form>
+  <p class="note">At most {{$d.MaxDays}} days. A change applies to players caught from now on; those in the pool keep the end they have.</p>
+  {{else}}<p class="note">Changing the period needs the admin role.</p>{{end}}
+</section>
+<section class="card" id="pool">
+  <div class="card-head"><h2>In the pool</h2><span class="muted">still playing · told nothing</span></div>
+  {{if $d.Banned}}<p class="saved">Banned now: the session was ended and the player is refused from here on</p>{{end}}
+  {{if $d.Released}}<p class="saved">Released: the player is normal again; the labels, proposals and dirty marks of the entry are removed</p>{{end}}
+  {{if $d.Rows}}
+  <table class="bans pool">
+    <thead><tr><th>Player</th><th>Reference</th><th>Rule</th><th>In the pool since</th><th>Ban takes effect</th><th class="num">Sessions recorded</th><th class="num">Files collected</th><th></th></tr></thead>
+    <tbody>
+    {{range $d.Rows}}
+    <tr>
+      <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>{{if .ShadowOf}}<br><small class="muted">another account on the PC of <span class="mono">{{.ShadowOf}}</span></small>{{else if .DeviceID}}<br><small class="muted">device key <span class="mono" title="{{.DeviceID}}">{{short .DeviceID}}</span> <span class="tag">{{if .DeviceTPM}}TPM{{else}}software key{{end}}</span></small>{{end}}</td>
+      <td class="mono ref">{{.Ref}}</td>
+      <td>{{if .ShadowOf}}<span class="muted">same PC</span>{{else}}<span class="mono">{{.Rule}}</span>{{end}}{{if .SessionID}}<br><small><a class="mono" href="/sessions/{{path .SessionID}}">{{short .SessionID}}</a></small>{{end}}</td>
+      <td class="when" title="{{when .BannedAt}}"><span class="mono">{{.BannedAt.UTC.Format "01-02 15:04"}}</span><br><small class="muted">{{ago .BannedAt}}</small></td>
+      <td class="when" title="{{when .EffectiveAt}}"><span class="mono">{{.EffectiveAt.UTC.Format "01-02 15:04"}}</span><br><small class="muted">{{.Ends}}</small></td>
+      <td class="num">{{.Sessions}}</td>
+      <td class="num">{{.Files}}</td>
+      <td>{{if $d.CanAct}}
+        <div class="poolacts">
+        <form method="post" action="/shadow/{{.ID}}/ban">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <button type="submit" class="secondary" aria-label="Ban {{.Ref}} now">Ban now</button>
+        </form>
+        <form method="post" action="/shadow/{{.ID}}/release" class="liftform">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="text" name="note" maxlength="280" placeholder="Note" aria-label="Note for releasing {{.Ref}}" autocomplete="off">
+          <button type="submit" class="secondary" aria-label="Release {{.Ref}}">Release</button>
+        </form>
+        </div>
+        {{if .Accounts}}<small class="muted">with {{.Accounts}} other {{if eq .Accounts 1}}account{{else}}accounts{{end}} on this PC</small>{{end}}
+        {{else}}<span class="muted">–</span>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">Nobody is in the pool</p>{{end}}
+</section>
+<p class="note">Ban now makes the ban take effect at once, on the account and the device key. Release returns the player to normal and removes what the entry caused, as lifting a ban does. On the player who was caught both also apply to the other accounts that came into the pool from the same PC; on such an account they apply to that account alone. Both are in the audit log.{{if not $d.CanAct}} They need the reviewer role.{{end}} When few players are in the pool, whether to fill their matches with bots is your matchmaking's choice.</p>
+{{end}}

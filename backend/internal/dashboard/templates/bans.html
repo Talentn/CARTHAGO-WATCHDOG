@@ -2,7 +2,7 @@
 {{$d := .Data}}{{$csrf := .CSRF}}
 <div class="head">
   <h1>Bans</h1>
-  <span class="muted">{{$d.Active}} active · {{$d.Pending}} pending · {{$d.Lifted}} lifted</span>
+  <span class="muted">{{$d.Active}} active · {{$d.Pending}} pending{{if $d.Shadow}} · <a href="/shadow">{{$d.Shadow}} in the shadow pool</a>{{end}} · {{$d.Lifted}} lifted</span>
 </div>
 <section class="card" id="automatic">
   <div class="card-head"><h2>Automatic bans</h2><span class="muted">certain evidence only</span></div>
@@ -11,6 +11,7 @@
     <dt>Bans by itself</dt><dd>Hard integrity evidence about the game process: an unsigned renderer library, an unsigned DLL injected from outside the game folder, rewritten code of the renderer or client library, an image mapped by hand, an unsigned outside program holding a handle that writes the game's memory, and any loaded file that is on the list of <a href="/cheats">known cheats</a>.</dd>
     <dt>Never bans by itself</dt><dd>Anything statistical or advisory: aim rules, information leak, decoy reactions, the Oracle's score and opinion, overlays, readers and debuggers. These stay review flags; a reviewer bans from the session page.</dd>
     <dt>Delay</dt><dd><b>{{$d.DelayMinutes}} min</b> <small class="muted">{{if $d.DelayMinutes}}an automatic ban is listed as pending and takes effect that long after the detection{{else}}an automatic ban takes effect at once{{end}}</small></dd>
+    {{if $d.ShadowPeriod}}<dt>Shadow pool</dt><dd><b>{{$d.ShadowPeriod}}</b> <small class="muted">the <a href="/shadow">shadow period</a> is on and comes before the delay: a player caught on certain evidence plays on in the pool, told nothing, and is banned when it ends</small></dd>{{end}}
   </dl>
   {{if $d.CanSet}}
   <form method="post" action="/bans/delay" class="labelform">
@@ -31,7 +32,7 @@
   {{range $d.Rows}}
   <tr>
     <td class="mono ref">{{.Ref}}</td>
-    <td>{{if eq .State "active"}}<span class="mark ban-active">Active</span>{{else if eq .State "pending"}}<span class="mark ban-pending" title="Takes effect {{when .EffectiveAt}}">Pending</span><br><small class="muted">until {{.EffectiveAt.UTC.Format "15:04"}}</small>{{else}}<span class="mark ban-lifted">Lifted</span>{{end}}</td>
+    <td>{{if eq .State "active"}}<span class="mark ban-active">Active</span>{{else if eq .State "shadow"}}<a class="mark ban-pending" href="/shadow#pool" title="Takes effect {{when .EffectiveAt}}">Shadow pool</a><br><small class="muted">until {{.EffectiveAt.UTC.Format "01-02 15:04"}}</small>{{else if eq .State "pending"}}<span class="mark ban-pending" title="Takes effect {{when .EffectiveAt}}">Pending</span><br><small class="muted">until {{.EffectiveAt.UTC.Format "15:04"}}</small>{{else}}<span class="mark ban-lifted">Lifted</span>{{end}}</td>
     <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
     <td>{{if .DeviceID}}<span class="mono" title="{{.DeviceID}}">{{short .DeviceID}}</span> <span class="tag">{{if .DeviceTPM}}TPM{{else}}software key{{end}}</span>{{else}}<span class="muted">none</span>{{end}}</td>
     <td class="reason">{{if .Reason}}{{.Reason}}{{else}}<span class="muted">none given</span>{{end}}</td>

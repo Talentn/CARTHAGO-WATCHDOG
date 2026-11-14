@@ -22,8 +22,10 @@ type banCard struct {
 	// none. Pending: it does not refuse the player yet.
 	Standing *store.Ban
 	Pending  bool
-	Saved    bool
-	Types    []string
+	// Shadow: the pending ban is an entry of the shadow pool.
+	Shadow bool
+	Saved  bool
+	Types  []string
 }
 
 func (s *Server) banCardFor(r *http.Request, tenant string, sess *store.Session) (banCard, error) {
@@ -38,7 +40,7 @@ func (s *Server) banCardFor(r *http.Request, tenant string, sess *store.Session)
 	if err != nil {
 		return c, err
 	}
-	c.Standing, c.Pending = b, b.Pending(s.now())
+	c.Standing, c.Pending, c.Shadow = b, b.Pending(s.now()), b.InPool(s.now())
 	return c, nil
 }
 
@@ -109,14 +111,16 @@ func orNone(s string) string {
 
 type banRow struct {
 	store.Ban
-	// State is "active", "pending" or "lifted".
+	// State is "active", "pending", "shadow" (in the shadow pool) or "lifted".
 	State string
 }
 
 type bansData struct {
-	Rows                    []banRow
-	Active, Pending, Lifted int
-	DelayMinutes            int
+	Rows                            []banRow
+	Active, Pending, Shadow, Lifted int
+	DelayMinutes                    int
+	// ShadowPeriod is the studio's shadow period in words, empty when it is off.
+	ShadowPeriod string
 	// CanAct: the viewer may lift. CanSet: the viewer may change the delay.
 	CanAct, CanSet bool
 	Lifted1, Saved bool
@@ -134,8 +138,16 @@ func (s *Server) bansPage(w http.ResponseWriter, r *http.Request, tenant string)
 		s.fail(w, err)
 		return
 	}
+	period, err := s.st.ShadowPeriod(ctx, tenant)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	q := r.URL.Query()
 	d := bansData{DelayMinutes: int(delay / time.Minute), Lifted1: q.Get("lifted") == "1", Saved: q.Get("saved") == "1"}
+	if period > 0 {
+		d.ShadowPeriod = periodText(period)
+	}
 	if v, ok := s.CurrentViewer(r); ok {
 		d.CanAct, d.CanSet = v.Reviewer(), v.Admin()
 	}
@@ -146,6 +158,9 @@ func (s *Server) bansPage(w http.ResponseWriter, r *http.Request, tenant string)
 		case b.Lifted():
 			row.State = "lifted"
 			d.Lifted++
+		case b.InPool(now):
+			row.State = "shadow"
+			d.Shadow++
 		case b.Pending(now):
 			row.State = "pending"
 			d.Pending++

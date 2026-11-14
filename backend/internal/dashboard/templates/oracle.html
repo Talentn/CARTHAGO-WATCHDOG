@@ -136,7 +136,7 @@
   {{if .Saved}}<p class="saved">Ban saved</p>{{end}}
   {{with .Standing}}
   <dl class="kv okv">
-    <dt>State</dt><dd>{{if $.Pending}}<span class="mark ban-pending">Pending</span> <span class="muted">takes effect {{when .EffectiveAt}}</span>{{else}}<span class="mark ban-active">Banned</span>{{end}} <span class="mono">{{.Ref}}</span></dd>
+    <dt>State</dt><dd>{{if $.Shadow}}<a class="mark ban-pending" href="/shadow#pool">Shadow pool</a> <span class="muted">still playing and told nothing; the ban takes effect {{when .EffectiveAt}}</span>{{else if $.Pending}}<span class="mark ban-pending">Pending</span> <span class="muted">takes effect {{when .EffectiveAt}}</span>{{else}}<span class="mark ban-active">Banned</span>{{end}} <span class="mono">{{.Ref}}</span></dd>
     <dt>By</dt><dd>{{.BannedBy}} <span class="muted">· {{when .BannedAt}}</span></dd>
     {{if .Rule}}<dt>Rule</dt><dd class="mono">{{.Rule}}</dd>{{end}}
     {{if .Reason}}<dt>Reason</dt><dd>{{.Reason}}</dd>{{end}}
