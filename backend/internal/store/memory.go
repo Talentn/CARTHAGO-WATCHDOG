@@ -6,18 +6,20 @@ import (
 )
 
 type Memory struct {
-	mu           sync.Mutex
-	auth         *memAuth
-	devices      map[string]Device
-	sessions     map[string]Session
-	attestations []Attestation
-	evid         *memEvidence
-	play         *memGameplay
-	oracle       *memOracle
-	bans         *memBans
-	cheats       []KnownCheat
-	cheatSeq     int64
-	econ         *memEconomy
+	mu               sync.Mutex
+	auth             *memAuth
+	devices          map[string]Device
+	sessions         map[string]Session
+	attestations     []Attestation
+	evid             *memEvidence
+	play             *memGameplay
+	oracle           *memOracle
+	bans             *memBans
+	cheats           []KnownCheat
+	cheatSeq         int64
+	proposalAccounts map[string]int
+	dismissedCheats  map[[2]string]bool
+	econ             *memEconomy
 }
 
 func NewMemory() *Memory {

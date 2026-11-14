@@ -134,10 +134,10 @@ func (s *SQLite) SetSessionLabel(ctx context.Context, l *SessionLabel, action, r
 	if l.Label == "" {
 		_, err = tx.ExecContext(ctx, `DELETE FROM session_labels WHERE tenant_id = ? AND session_id = ?`, l.TenantID, l.SessionID)
 	} else {
-		_, err = tx.ExecContext(ctx, `INSERT INTO session_labels (tenant_id, session_id, player_hash, label, cheat_type, note, reviewer, labelled_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		_, err = tx.ExecContext(ctx, `INSERT INTO session_labels (tenant_id, session_id, player_hash, label, cheat_type, note, reviewer, labelled_ms, source, ban_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (tenant_id, session_id) DO UPDATE SET player_hash = excluded.player_hash, label = excluded.label, cheat_type = excluded.cheat_type,
-				note = excluded.note, reviewer = excluded.reviewer, labelled_ms = excluded.labelled_ms`,
-			l.TenantID, l.SessionID, l.PlayerHash, l.Label, l.CheatType, l.Note, l.Reviewer, ms(l.LabelledAt))
+				note = excluded.note, reviewer = excluded.reviewer, labelled_ms = excluded.labelled_ms, source = excluded.source, ban_ref = excluded.ban_ref`,
+			l.TenantID, l.SessionID, l.PlayerHash, l.Label, l.CheatType, l.Note, l.Reviewer, ms(l.LabelledAt), l.Source, l.BanRef)
 	}
 	if err != nil {
 		return err
@@ -152,8 +152,8 @@ func (s *SQLite) SetSessionLabel(ctx context.Context, l *SessionLabel, action, r
 func (s *SQLite) GetSessionLabel(ctx context.Context, tenant, sessionID string) (*SessionLabel, error) {
 	l := SessionLabel{TenantID: tenant, SessionID: sessionID}
 	var at int64
-	err := s.db.QueryRowContext(ctx, `SELECT player_hash, label, cheat_type, note, reviewer, labelled_ms FROM session_labels WHERE tenant_id = ? AND session_id = ?`,
-		tenant, sessionID).Scan(&l.PlayerHash, &l.Label, &l.CheatType, &l.Note, &l.Reviewer, &at)
+	err := s.db.QueryRowContext(ctx, `SELECT player_hash, label, cheat_type, note, reviewer, labelled_ms, source, ban_ref FROM session_labels WHERE tenant_id = ? AND session_id = ?`,
+		tenant, sessionID).Scan(&l.PlayerHash, &l.Label, &l.CheatType, &l.Note, &l.Reviewer, &at, &l.Source, &l.BanRef)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -165,7 +165,7 @@ func (s *SQLite) GetSessionLabel(ctx context.Context, tenant, sessionID string) 
 }
 
 func (s *SQLite) ListSessionLabels(ctx context.Context, tenant string, f OracleFilter) ([]SessionLabel, error) {
-	q, args := `SELECT session_id, player_hash, label, cheat_type, note, reviewer, labelled_ms FROM session_labels WHERE tenant_id = ?`, []any{tenant}
+	q, args := `SELECT session_id, player_hash, label, cheat_type, note, reviewer, labelled_ms, source, ban_ref FROM session_labels WHERE tenant_id = ?`, []any{tenant}
 	if f.PlayerHash != "" {
 		q, args = q+` AND player_hash = ?`, append(args, f.PlayerHash)
 	}
@@ -178,7 +178,7 @@ func (s *SQLite) ListSessionLabels(ctx context.Context, tenant string, f OracleF
 	for rows.Next() {
 		l := SessionLabel{TenantID: tenant}
 		var at int64
-		if err := rows.Scan(&l.SessionID, &l.PlayerHash, &l.Label, &l.CheatType, &l.Note, &l.Reviewer, &at); err != nil {
+		if err := rows.Scan(&l.SessionID, &l.PlayerHash, &l.Label, &l.CheatType, &l.Note, &l.Reviewer, &at, &l.Source, &l.BanRef); err != nil {
 			return nil, err
 		}
 		l.LabelledAt = fromMS(at)

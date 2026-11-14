@@ -72,7 +72,14 @@ type SessionLabel struct {
 	Note       string
 	Reviewer   string // the dashboard account that set the label; with the demo login, the name the person gave
 	LabelledAt time.Time
+	// Source is empty for a reviewer's label and LabelSourceBan for one a ban put there;
+	// BanRef is then the ban's reference, and lifting that ban removes the label.
+	Source string
+	BanRef string
 }
+
+// LabelSourceBan marks a label that follows from a ban on certain evidence.
+const LabelSourceBan = "ban"
 
 const (
 	LabelConfirmedCheat = "confirmed_cheat"
