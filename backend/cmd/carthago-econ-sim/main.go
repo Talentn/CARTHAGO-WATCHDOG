@@ -127,7 +127,7 @@ func newLocal(dir string) (*local, error) {
 	}
 	banning := bans.New(st, log)
 	ledger := economy.New(st, banning, log)
-	banning.SetHook(ledger)
+	banning.AddHook(ledger)
 	gw := gateway.New(gateway.Config{Tenants: map[string]string{demoTenant: demoServerKey}, Bans: banning, Economy: ledger}, keys, st, log)
 	banning.SetEnder(gw.Sessions())
 	d, err := dashboard.New(dashboard.Config{Keys: map[string]string{demoTenant: demoDashboardKey}, Bans: banning}, st, log)

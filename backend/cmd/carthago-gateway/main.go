@@ -26,6 +26,7 @@ import (
 	"carthago/backend/internal/economy"
 	"carthago/backend/internal/gateway"
 	"carthago/backend/internal/knowledge"
+	"carthago/backend/internal/learning"
 	"carthago/backend/internal/pipeline"
 	"carthago/backend/internal/store"
 )
@@ -207,7 +208,10 @@ func main() {
 		ledgerBans = banning
 	}
 	ledger := economy.New(st, ledgerBans, log)
-	banning.SetHook(ledger)
+	banning.AddHook(ledger)
+	// A ban on certain evidence labels the account's recent sessions for the Oracle's
+	// training data; lifting it takes the labels away.
+	banning.AddHook(learning.NewLabeler(st, log))
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
 		Detections: detections, Bans: banning, Economy: ledger, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,

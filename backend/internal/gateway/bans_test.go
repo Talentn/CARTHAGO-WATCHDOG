@@ -18,6 +18,7 @@ import (
 
 	pb "carthago/backend/gen/carthago/v1"
 	"carthago/backend/internal/bans"
+	"carthago/backend/internal/learning"
 	"carthago/backend/internal/pipeline"
 	"carthago/backend/internal/protocol"
 	"carthago/backend/internal/store"
@@ -37,6 +38,7 @@ func newBanEnv(t *testing.T, automatic bool) *banEnv {
 	st := store.NewMemory()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	svc := bans.New(st, log)
+	svc.AddHook(learning.NewLabeler(st, log))
 	var gw *Gateway
 	pl := pipeline.New(pipeline.Config{Notices: true}, st, st, kickFunc(func(id, reason string) { gw.Sessions().Kick(id, reason) }), log)
 	t.Cleanup(pl.Close)
@@ -360,5 +362,56 @@ func TestPendingBanRefusesNobodyUntilDue(t *testing.T) {
 	c, err = handshake(t, e.env, key, false)
 	if body := refusal(t, e.env, c, err); body.BanRef != list[0].Ref {
 		t.Fatalf("refusal: %v", body)
+	}
+}
+
+// One PC, one account, as in the studio's own test: the automatic ban on an unsigned
+// renderer library labels the session as cheating with the ban as the source, and the
+// library's file is proposed as a known cheat once the threshold is 1. The signed file of
+// the game is not, and lifting the ban takes the label and the proposal away.
+func TestBanTeachesALabelAndAProposal(t *testing.T) {
+	e := newBanEnv(t, true)
+	ctx := context.Background()
+	cheat, honest := sha256.Sum256([]byte("a renderer that is not the system's")), sha256.Sum256([]byte("an honest file"))
+	renderer := rendererFinding()
+	renderer.FileSha256 = cheat[:]
+	signed := uint64(pb.ModuleSignature_MODULE_SIGNATURE_VALID) | uint64(pb.ModulePathClass_MODULE_PATH_CLASS_GAME_DIR)<<8 |
+		uint64(pb.ObservedFlags_OBSERVED_FLAGS_AT_START|pb.ObservedFlags_OBSERVED_FLAGS_KNOWN_START)<<16
+	c, err := handshake(t, e.env, softwareKey(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendFindings(c, &pb.Finding{Code: uint32(pb.FindingCode_FINDING_CODE_MODULE_SIGNATURE), A: 9, B: signed, Detail: "hw.dll", FileSha256: honest[:]}, renderer)
+	if reason, _ := recvKick(t, c); reason != bans.KickReason {
+		t.Fatalf("session ended with %q", reason)
+	}
+	list, _ := e.st.ListBans(ctx, "demo", 0)
+	if len(list) != 1 || list[0].Rule != "renderer_replaced" {
+		t.Fatalf("bans: %+v", list)
+	}
+	b := list[0]
+	l, err := e.st.GetSessionLabel(ctx, "demo", b.SessionID)
+	if err != nil || l.Label != store.LabelConfirmedCheat || l.Source != store.LabelSourceBan || l.BanRef != b.Ref {
+		t.Fatalf("label: %+v %v", l, err)
+	}
+	if p, err := learning.FindProposals(ctx, e.st, "demo"); err != nil || len(p.List) != 0 || p.MinAccounts != 2 {
+		t.Fatalf("one banned account under the default threshold: %+v %v", p, err)
+	}
+	if err := e.st.SetCheatProposalAccounts(ctx, "demo", 1); err != nil {
+		t.Fatal(err)
+	}
+	p, err := learning.FindProposals(ctx, e.st, "demo")
+	if err != nil || len(p.List) != 1 || p.List[0].SHA256 != hex.EncodeToString(cheat[:]) || p.List[0].BannedAccounts != 1 || p.List[0].Signature != "not signed" ||
+		!strings.EqualFold(p.List[0].Names[0], "OPENGL32.dll") || p.Compared != 0 {
+		t.Fatalf("proposals: %+v %v", p, err)
+	}
+	if _, err := e.bans.Lift(ctx, "demo", b.ID, "ada", "my own test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.GetSessionLabel(ctx, "demo", b.SessionID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the label outlived the ban: %v", err)
+	}
+	if p, _ := learning.FindProposals(ctx, e.st, "demo"); len(p.List) != 0 || p.Compared != 1 {
+		t.Fatalf("after the lift: %+v", p)
 	}
 }

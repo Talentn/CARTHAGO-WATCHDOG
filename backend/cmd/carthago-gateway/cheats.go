@@ -13,19 +13,34 @@ import (
 	"strings"
 	"time"
 
+	"carthago/backend/internal/learning"
 	"carthago/backend/internal/store"
 )
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
 
 const cheatsUsage = `usage:
   carthago-gateway cheats list -tenant ID [-data DIR]
   carthago-gateway cheats add -tenant ID (-file PATH | -sha256 HEX) -name NAME [-note TEXT] [-data DIR]
   carthago-gateway cheats remove -tenant ID (-file PATH | -sha256 HEX | -name NAME) [-data DIR]
+  carthago-gateway cheats proposed -tenant ID [-data DIR]
+  carthago-gateway cheats propose-after -tenant ID -accounts N [-data DIR]
 
 The studio's list of known cheat files, by SHA-256. A module of the game whose file is on
 the list is certain evidence (rule known_cheat) whatever the file is called and wherever it
 sits, and bans automatically. Works on the gateway's database directly, running or not; an
 entry applies to modules reported after it was added. Also on the dashboard's Known cheats
 page. The list is never sent to a client.
+
+proposed lists the files that only banned accounts were seen to load: not validly signed,
+outside the Windows folder, in at least N distinct banned accounts and in no account that
+is not banned. propose-after sets N for the studio (default 2). A proposal is never added
+by itself: a reviewer approves or dismisses it on the Known cheats page.
 `
 
 func fileSHA256(path string) (string, error) {
@@ -56,6 +71,7 @@ func cheatsCommand(args []string, stdout, stderr io.Writer) int {
 	sum := fs.String("sha256", "", "the SHA-256 of the cheat's file, 64 hex digits")
 	name := fs.String("name", "", "what the cheat is called")
 	note := fs.String("note", "", "add: a note kept with the entry")
+	accounts := fs.Int("accounts", 0, "propose-after: distinct banned accounts a file must be seen in before it is proposed")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -63,7 +79,7 @@ func cheatsCommand(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "carthago-gateway cheats:", err)
 		return 1
 	}
-	if (cmd != "list" && cmd != "add" && cmd != "remove") || fs.NArg() > 0 {
+	if (cmd != "list" && cmd != "add" && cmd != "remove" && cmd != "proposed" && cmd != "propose-after") || fs.NArg() > 0 {
 		fmt.Fprint(stderr, cheatsUsage)
 		return 2
 	}
@@ -72,7 +88,11 @@ func cheatsCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	hash := ""
 	switch {
-	case cmd == "list":
+	case cmd == "list" || cmd == "proposed":
+	case cmd == "propose-after":
+		if *accounts < 1 || *accounts > store.MaxProposalAccounts {
+			return fail(fmt.Errorf("-accounts is a number from 1 to %d", store.MaxProposalAccounts))
+		}
 	case *file != "" && *sum != "":
 		return fail(errors.New("give -file or -sha256, not both"))
 	case *file != "":
@@ -96,14 +116,14 @@ func cheatsCommand(args []string, stdout, stderr io.Writer) int {
 		return fail(errors.New("add needs -name: what the cheat is called"))
 	}
 	dbPath := filepath.Join(*dataDir, "gateway.db")
-	if _, err := os.Stat(dbPath); err != nil && cmd != "add" {
-		if cmd == "list" {
+	if _, err := os.Stat(dbPath); err != nil && cmd != "add" && cmd != "propose-after" {
+		if cmd == "list" || cmd == "proposed" {
 			fmt.Fprintln(stdout, "no gateway database yet: the list is empty")
 			return 0
 		}
 		return fail(fmt.Errorf("no gateway database at %s: give -data the data directory the gateway runs with", dbPath))
 	}
-	// add also works before the gateway's first run, so a list can be prepared.
+	// add and propose-after also work before the gateway's first run.
 	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
 		return fail(err)
 	}
@@ -118,6 +138,29 @@ func cheatsCommand(args []string, stdout, stderr io.Writer) int {
 		return st.AppendAudit(ctx, &store.AuditEntry{TenantID: *tenant, At: now, Actor: "command line", Action: action, Target: "known cheat " + c.Name, Detail: "SHA-256 " + c.SHA256})
 	}
 	switch cmd {
+	case "propose-after":
+		if err := st.SetCheatProposalAccounts(ctx, *tenant, *accounts); err != nil {
+			return fail(err)
+		}
+		if err := st.AppendAudit(ctx, &store.AuditEntry{TenantID: *tenant, At: now, Actor: "command line", Action: "cheat.proposals", Target: "proposed known cheats",
+			Detail: fmt.Sprintf("proposed after %d banned accounts", *accounts)}); err != nil {
+			return fail(err)
+		}
+		fmt.Fprintf(stdout, "a file is proposed as a known cheat of %s once %d banned %s loaded it and no account that is not banned has\n", *tenant, *accounts, plural(*accounts, "account has", "accounts have"))
+		return 0
+	case "proposed":
+		p, err := learning.FindProposals(ctx, st, *tenant)
+		if err != nil {
+			return fail(err)
+		}
+		for _, f := range p.List {
+			fmt.Fprintf(stdout, "%s  %s  %s  banned accounts %d  sessions %d  last seen %s\n", f.SHA256, strings.Join(f.Names, ", "), f.Signature, f.BannedAccounts, f.Sessions, f.LastSeen.Local().Format("2006-01-02 15:04"))
+		}
+		if len(p.List) == 0 {
+			fmt.Fprintln(stdout, "nothing is proposed")
+		}
+		fmt.Fprintf(stdout, "proposed after %d banned %s; compared with %d %s not banned\n", p.MinAccounts, plural(p.MinAccounts, "account", "accounts"), p.Compared, plural(p.Compared, "account that is", "accounts that are"))
+		return 0
 	case "add":
 		c := store.KnownCheat{TenantID: *tenant, SHA256: hash, Name: strings.TrimSpace(*name), Note: strings.TrimSpace(*note), AddedBy: "command line", AddedAt: now}
 		err := st.AddKnownCheat(ctx, &c)

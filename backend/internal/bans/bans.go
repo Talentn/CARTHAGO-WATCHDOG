@@ -42,29 +42,29 @@ type Service struct {
 	// Now is the clock; tests replace it.
 	Now func() time.Time
 
-	mu   sync.Mutex
-	end  Ender
-	hook Hook
+	mu    sync.Mutex
+	end   Ender
+	hooks []Hook
 }
 
-// Hook is told about every ban made and every ban lifted (the economy ledger marks and
-// unmarks the money a banned player passed on).
+// Hook is told about every ban made and every ban lifted: the economy ledger marks and
+// unmarks the money a banned player passed on, and the session labels of a ban follow it.
 type Hook interface {
 	Banned(b *store.Ban)
 	Lifted(b *store.Ban)
 }
 
-// SetHook names who is told about bans and lifts.
-func (s *Service) SetHook(h Hook) {
+// AddHook adds one more to those told about bans and lifts, in the order added.
+func (s *Service) AddHook(h Hook) {
 	s.mu.Lock()
-	s.hook = h
+	s.hooks = append(s.hooks, h)
 	s.mu.Unlock()
 }
 
-func (s *Service) hooked() Hook {
+func (s *Service) hooked() []Hook {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.hook
+	return s.hooks[:len(s.hooks):len(s.hooks)]
 }
 
 func New(st Store, log *slog.Logger) *Service {
@@ -129,13 +129,14 @@ func (s *Service) Ban(ctx context.Context, r Request) (b *store.Ban, created boo
 	if automatic {
 		s.audit(ctx, b)
 	}
+	// What follows from the ban is on record before the banned player's sessions end.
+	for _, h := range s.hooked() {
+		h.Banned(b)
+	}
 	if pending > 0 {
 		time.AfterFunc(pending, func() { s.applyDue(b.TenantID, b.ID, b.PlayerHash, b.DeviceID) })
 	} else {
 		s.endSessions(b)
-	}
-	if h := s.hooked(); h != nil {
-		h.Banned(b)
 	}
 	return b, true, nil
 }
@@ -206,7 +207,7 @@ func (s *Service) Lift(ctx context.Context, tenant string, id int64, by, note st
 	b, err := s.st.LiftBan(ctx, tenant, id, by, note, s.Now())
 	if err == nil {
 		s.log.Info("ban lifted", "ref", b.Ref, "tenant", tenant, "player", b.PlayerHash, "by", by)
-		if h := s.hooked(); h != nil {
+		for _, h := range s.hooked() {
 			h.Lifted(b)
 		}
 	}

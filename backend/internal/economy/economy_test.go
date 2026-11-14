@@ -32,7 +32,7 @@ func newFixture(t *testing.T, autoBan bool) *fixture {
 	}
 	f.eco = New(f.st, banner, log)
 	f.eco.Now = func() time.Time { return f.now }
-	f.bans.SetHook(f.eco)
+	f.bans.AddHook(f.eco)
 	return f
 }
 

@@ -6,10 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
+	"carthago/backend/internal/economy"
+	"carthago/backend/internal/learning"
 	"carthago/backend/internal/store"
 )
 
@@ -106,9 +109,15 @@ func bansCommand(args []string, stdout, stderr io.Writer) int {
 		if b.Lifted() || !*all && b.Ref != *ref {
 			continue
 		}
-		if _, err := st.LiftBan(ctx, *tenant, b.ID, "command line", *note, now); err != nil {
+		gone, err := st.LiftBan(ctx, *tenant, b.ID, "command line", *note, now)
+		if err != nil {
 			return fail(err)
 		}
+		// What followed from the ban goes with it, as when it is lifted on the dashboard:
+		// the labels on the account's sessions and the dirty marks on money it passed on.
+		quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+		learning.NewLabeler(st, quiet).Lifted(gone)
+		economy.New(st, nil, quiet).Lifted(gone)
 		// The audit log is the dashboard's record of who did what; a lift from the
 		// command line belongs in it too.
 		if err := st.AppendAudit(ctx, &store.AuditEntry{TenantID: *tenant, At: now, Actor: "command line", Action: "ban.lift", Target: "ban " + b.Ref, Detail: *note}); err != nil {

@@ -25,7 +25,7 @@ func TestEconomyAPIKeysAndTenants(t *testing.T) {
 	}
 	banning := bans.New(st, log)
 	ledger := economy.New(st, banning, log)
-	banning.SetHook(ledger)
+	banning.AddHook(ledger)
 	gw := New(Config{Tenants: map[string]string{"demo": "demo-key", "rival": "rival-key"}, Economy: ledger}, keys, st, log)
 	srv := httptest.NewServer(gw.Handler())
 	defer srv.Close()
