@@ -17,6 +17,7 @@ type Memory struct {
 	bans         *memBans
 	cheats       []KnownCheat
 	cheatSeq     int64
+	econ         *memEconomy
 }
 
 func NewMemory() *Memory {
