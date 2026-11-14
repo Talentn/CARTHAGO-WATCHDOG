@@ -368,3 +368,7 @@ a, button, input, summary { transition: color 140ms var(--ease), background-colo
 .eco-balances div { display: flex; flex-direction: column; }
 .eco-balances b { font-size: 20px; font-variant-numeric: tabular-nums; }
 .labelform.first { margin-top: 0; padding-top: 0; border-top: 0; }
+.proposals td.num, .proposals th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.proposals .liftform + .liftform { margin-top: 6px; }
+.proposals td.hash { min-width: 22ch; }
+.proposals td.sig { white-space: nowrap; }

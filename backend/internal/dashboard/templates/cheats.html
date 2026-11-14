@@ -4,6 +4,52 @@
   <h1>Known cheats</h1>
   <span class="muted">{{len $d.Rows}} {{if eq (len $d.Rows) 1}}file{{else}}files{{end}}</span>
 </div>
+<section class="card" id="proposed">
+  {{$p := $d.Proposed}}
+  <div class="card-head"><h2>Proposed</h2><span class="muted">{{len $p.List}} {{if eq (len $p.List) 1}}file{{else}}files{{end}} · learned from bans · never added without a reviewer</span></div>
+  <p class="note">Files that only banned accounts load: not validly signed, outside the Windows folder, loaded by at least {{$p.MinAccounts}} banned {{if eq $p.MinAccounts 1}}account{{else}}accounts{{end}} and by no account that is not banned. Approve one and every game that loads the file is banned from then on, so look at the name and the counts first.</p>
+  {{if eq $p.Compared 0}}{{if $p.List}}<p class="saved bad" role="alert">No account that is not banned has reported its files yet, so the game's own unsigned files cannot be told from a cheat's: they are on this list too. They drop off it once players who are not banned have played.</p>{{end}}{{else}}<p class="note">Compared with the files of {{$p.Compared}} {{if eq $p.Compared 1}}account that is{{else}}accounts that are{{end}} not banned.</p>{{end}}
+  {{if $d.Approved}}<p class="saved">Approved: the file is on the list below</p>{{end}}
+  {{if $d.Dismissed}}<p class="saved">Dismissed: the file will not be proposed again</p>{{end}}
+  {{if $d.Saved}}<p class="saved">Saved</p>{{end}}
+  {{if $p.List}}
+  <table class="cheats proposals">
+    <thead><tr><th>Loaded as</th><th>SHA-256</th><th>Signature</th><th class="num">Banned accounts</th><th class="num">Other accounts</th><th class="num">Sessions</th><th>Last seen</th><th></th></tr></thead>
+    <tbody>
+    {{range $p.List}}
+    <tr>
+      <td>{{range $i, $n := .Names}}{{if $i}}, {{end}}<b class="mono">{{$n}}</b>{{end}}</td>
+      <td class="mono hash">{{.SHA256}}</td>
+      <td class="sig">{{.Signature}}</td>
+      <td class="num">{{.BannedAccounts}}</td>
+      <td class="num">0</td>
+      <td class="num">{{.Sessions}}</td>
+      <td class="when" title="{{when .LastSeen}}"><span class="mono">{{.LastSeen.UTC.Format "01-02 15:04"}}</span><br><small class="muted">{{ago .LastSeen}}</small></td>
+      <td>{{if $d.CanAct}}
+        <form method="post" action="/cheats/proposals/approve" class="liftform">
+          <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="sha256" value="{{.SHA256}}">
+          <input type="text" name="name" maxlength="80" value="{{index .Names 0}}" aria-label="Cheat name for {{index .Names 0}}" autocomplete="off" required>
+          <button type="submit" class="secondary">Approve</button>
+        </form>
+        <form method="post" action="/cheats/proposals/dismiss" class="liftform">
+          <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="sha256" value="{{.SHA256}}">
+          <button type="submit" class="secondary" aria-label="Dismiss {{index .Names 0}}">Dismiss</button>
+        </form>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">Nothing is proposed</p>{{end}}
+  {{if $d.CanSet}}
+  <form method="post" action="/cheats/proposals/accounts" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Propose a file after this many banned accounts
+      <input type="number" name="accounts" min="1" max="1000" value="{{$p.MinAccounts}}" required>
+    </label>
+    <button type="submit" class="secondary">Save</button>
+  </form>
+  {{else if not $d.CanAct}}<p class="note">Approving and dismissing need the reviewer role.</p>{{end}}
+</section>
 <section class="card" id="add">
   <div class="card-head"><h2>Known cheat files</h2><span class="muted">certain evidence · bans automatically</span></div>
   <p class="note">A file the game loads whose SHA-256 is on this list is a known cheat, whatever the file is called, wherever it sits and whether it is signed or not. The match is made here on the server from the hash the player's client reports for every loaded file; the list is never sent to a client. An entry applies to files reported after it was added, so a player already in a game is caught at the next start.</p>

@@ -51,6 +51,7 @@ type Store interface {
 	store.BanStore
 	store.CheatStore
 	store.EconomyStore
+	ListBans(ctx context.Context, tenant string, limit int) ([]store.Ban, error)
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
 }
@@ -199,6 +200,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /cheats", s.auth(s.cheatsPage))
 	mux.HandleFunc("POST /cheats", s.require(RoleReviewer, s.addCheat))
 	mux.HandleFunc("POST /cheats/{id}/remove", s.require(RoleReviewer, s.removeCheat))
+	mux.HandleFunc("POST /cheats/proposals/approve", s.require(RoleReviewer, s.approveProposal))
+	mux.HandleFunc("POST /cheats/proposals/dismiss", s.require(RoleReviewer, s.dismissProposal))
+	mux.HandleFunc("POST /cheats/proposals/accounts", s.require(RoleAdmin, s.setProposalAccounts))
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
