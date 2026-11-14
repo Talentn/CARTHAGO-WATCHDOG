@@ -1187,7 +1187,7 @@ function BanReport {
             Write-Host "BANNED at ${at}: player $who and $key were banned $how. Reference $($Matches[2])." -ForegroundColor Red
             Note "      The session was ended; the game was left running. The next start shows the BANNED screen and does not start the game."
         } else {
-            Write-Host "BAN PENDING since ${at}: player $who and $key will be banned $how in $($Matches[9]) (the automatic ban delay). Reference $($Matches[2])." -ForegroundColor Yellow
+            Write-Host "BAN PENDING since ${at}: player $who and $key are to be banned $how. The ban takes effect in $($Matches[9] -replace '(?<=[hm])0s$', '') (the automatic ban delay). Reference $($Matches[2])." -ForegroundColor Yellow
             Note "      Until then the player can play; after that the next start shows the BANNED screen and does not start the game."
         }
     }

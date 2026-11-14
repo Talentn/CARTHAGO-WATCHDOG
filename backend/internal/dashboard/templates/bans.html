@@ -26,19 +26,18 @@
 {{if $d.Lifted1}}<p class="saved">Ban lifted</p>{{end}}
 {{if $d.Rows}}
 <table class="bans">
-  <thead><tr><th>Reference</th><th>State</th><th>Player</th><th>Device key</th><th>Reason</th><th>Rule</th><th>Session</th><th>Banned by</th><th>When</th><th>Lifted</th></tr></thead>
+  <thead><tr><th>Reference</th><th>State</th><th>Player</th><th>Device key</th><th>Reason</th><th>Rule</th><th>Session</th><th>Banned</th><th>Lifted</th></tr></thead>
   <tbody>
   {{range $d.Rows}}
   <tr>
-    <td class="mono">{{.Ref}}</td>
+    <td class="mono ref">{{.Ref}}</td>
     <td>{{if eq .State "active"}}<span class="mark ban-active">Active</span>{{else if eq .State "pending"}}<span class="mark ban-pending" title="Takes effect {{when .EffectiveAt}}">Pending</span><br><small class="muted">until {{.EffectiveAt.UTC.Format "15:04"}}</small>{{else}}<span class="mark ban-lifted">Lifted</span>{{end}}</td>
     <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
     <td>{{if .DeviceID}}<span class="mono" title="{{.DeviceID}}">{{short .DeviceID}}</span> <span class="tag">{{if .DeviceTPM}}TPM{{else}}software key{{end}}</span>{{else}}<span class="muted">none</span>{{end}}</td>
     <td class="reason">{{if .Reason}}{{.Reason}}{{else}}<span class="muted">none given</span>{{end}}</td>
     <td class="mono">{{if .Rule}}{{.Rule}}{{else}}<span class="muted">–</span>{{end}}</td>
     <td>{{if .SessionID}}<a class="mono" href="/sessions/{{path .SessionID}}">{{short .SessionID}}</a>{{end}}</td>
-    <td>{{.BannedBy}}</td>
-    <td class="when" title="{{when .BannedAt}}"><span class="mono">{{.BannedAt.UTC.Format "01-02 15:04"}}</span> <span class="muted">{{ago .BannedAt}}</span></td>
+    <td class="when" title="{{when .BannedAt}}">{{.BannedBy}}<br><small class="muted"><span class="mono">{{.BannedAt.UTC.Format "01-02 15:04"}}</span> · {{ago .BannedAt}}</small></td>
     <td>{{if eq .State "lifted"}}{{.LiftedBy}} <span class="muted">{{ago .LiftedAt}}</span>{{if .LiftNote}}<br><small class="muted">{{.LiftNote}}</small>{{end}}
       {{else if $d.CanAct}}
       <form method="post" action="/bans/{{.ID}}/lift" class="liftform">

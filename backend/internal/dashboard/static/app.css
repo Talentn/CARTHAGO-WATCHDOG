@@ -348,8 +348,9 @@ a, button, input, summary { transition: color 140ms var(--ease), background-colo
 .ban-pending::before { background: var(--accent); }
 .ban-lifted { color: var(--muted); }
 .ban-lifted::before { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
-.bans td.reason { max-width: 36ch; }
-.liftform { display: flex; gap: 8px; align-items: center; }
-.liftform input { height: 32px; width: 16ch; font-size: 13px; }
+.bans td.reason { min-width: 26ch; max-width: 44ch; }
+.bans td.ref, .bans td.when { white-space: nowrap; }
+.liftform { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.liftform input { height: 32px; width: 14ch; font-size: 13px; }
 .labelform input[type=number] { width: 12ch; }
 .labelform + .note { margin: 12px 0 0; }
