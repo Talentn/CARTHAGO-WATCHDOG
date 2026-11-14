@@ -3,6 +3,8 @@ package bans
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -391,5 +393,47 @@ func TestShadowPeriodChangeKeepsEntries(t *testing.T) {
 	s.Automatic(other, "renderer_replaced", "x")
 	if got, _ := s.Refused(ctx, "t1", "p9", ""); got == nil || got.Shadow {
 		t.Fatalf("with the period off the ban is immediate: %+v", got)
+	}
+}
+
+// A gateway that was down when a period ended has no timer for it. The player is
+// refused from the end on all the same, and the first sweep after the start makes the
+// ban take effect: once, with the second account of that PC, and in the audit log.
+func TestShadowPoolEndsAfterARestart(t *testing.T) {
+	ctx := context.Background()
+	s, st, _, _, now := newPool(t)
+	s.Automatic(sess, "renderer_replaced", "an unsigned renderer")
+	s.Connected(ctx, store.Session{SessionID: "s2", TenantID: "t1", PlayerHash: "p2", DeviceID: "d1"})
+	if pool, _ := s.Pool(ctx, "t1"); len(pool) != 2 {
+		t.Fatalf("pool before the restart: %+v", pool)
+	}
+
+	later := now.Add(period + time.Hour)
+	again := New(st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	again.Now = func() time.Time { return later }
+	e := &ended{}
+	again.SetEnder(e)
+	if pool, _ := again.Pool(ctx, "t1"); len(pool) != 0 {
+		t.Fatalf("still in the pool after the period: %+v", pool)
+	}
+	for _, p := range []string{"p1", "p2"} {
+		if got, _ := again.Refused(ctx, "t1", p, "d9"); got == nil {
+			t.Fatalf("%s is not refused before the sweep", p)
+		}
+	}
+	if n := again.Sweep(ctx); n != 2 || len(e.calls) != 2 {
+		t.Fatalf("sweep after the restart: %d, ended %v", n, e.calls)
+	}
+	if n := again.Sweep(ctx); n != 0 || len(e.calls) != 2 {
+		t.Fatalf("second sweep: %d, ended %v", n, e.calls)
+	}
+	if got := audited(t, st); got != "shadow.enter by automatic, shadow.join by automatic, shadow.end by automatic, shadow.end by automatic" {
+		t.Fatalf("audit: %s", got)
+	}
+	list, _ := st.ListBans(ctx, "t1", 10)
+	for _, b := range list {
+		if !b.Active(later) || b.LandedAt.IsZero() || b.EffectiveAt.After(later) {
+			t.Fatalf("ban after the sweep: %+v", b)
+		}
 	}
 }
