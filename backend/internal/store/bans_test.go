@@ -87,3 +87,106 @@ func TestBans(t *testing.T) {
 		}
 	}
 }
+
+func TestShadowBans(t *testing.T) {
+	sq, err := OpenSQLite(filepath.Join(t.TempDir(), "gateway.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sq.Close()
+	for name, st := range map[string]BanStore{"sqlite": sq, "memory": NewMemory()} {
+		ctx := context.Background()
+		t0 := time.UnixMilli(1_700_000_000_000).UTC()
+		end := t0.Add(48 * time.Hour)
+		if d, err := st.ShadowPeriod(ctx, "t1"); err != nil || d != 0 {
+			t.Errorf("%s: the period is off by default: %v %v", name, d, err)
+		}
+		if err := st.SetShadowPeriod(ctx, "t1", 48*time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		_ = st.SetBanDelay(ctx, "t1", 5*time.Minute)
+		if d, _ := st.ShadowPeriod(ctx, "t1"); d != 48*time.Hour {
+			t.Errorf("%s: period %v", name, d)
+		}
+		if d, _ := st.BanDelay(ctx, "t1"); d != 5*time.Minute {
+			t.Errorf("%s: the delay is a setting of its own: %v", name, d)
+		}
+		_ = st.SetShadowPeriod(ctx, "t2", 100000*time.Hour)
+		if d, _ := st.ShadowPeriod(ctx, "t2"); d != MaxShadowPeriod {
+			t.Errorf("%s: period not bounded: %v", name, d)
+		}
+
+		caught := &Ban{TenantID: "t1", Ref: "S-1", PlayerHash: "p1", DeviceID: "d1", Rule: "renderer_replaced", BannedBy: BanAutomatic, BannedAt: t0, EffectiveAt: end, Shadow: true}
+		alt := &Ban{TenantID: "t1", Ref: "S-2", PlayerHash: "p2", BannedBy: BanAutomatic, BannedAt: t0.Add(time.Hour), EffectiveAt: end, Shadow: true, ShadowOf: "S-1"}
+		plain := &Ban{TenantID: "t1", Ref: "B-1", PlayerHash: "p3", BannedBy: "ada", BannedAt: t0, EffectiveAt: t0}
+		other := &Ban{TenantID: "t2", Ref: "S-3", PlayerHash: "p1", BannedBy: BanAutomatic, BannedAt: t0, EffectiveAt: t0.Add(time.Hour), Shadow: true}
+		for _, b := range []*Ban{caught, alt, plain, other} {
+			if err := st.AddBan(ctx, b); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := st.StandingBan(ctx, "t1", "p1", "")
+		if err != nil || !got.Shadow || !got.InPool(t0) || got.InPool(end) || got.ShadowOf != "" || !got.LandedAt.IsZero() {
+			t.Fatalf("%s: the caught player: %+v %v", name, got, err)
+		}
+		// The device key alone finds the caught player's ban, not the alternate's.
+		if got, err := st.StandingBan(ctx, "t1", "", "d1"); err != nil || got.Ref != "S-1" {
+			t.Errorf("%s: by device key: %+v %v", name, got, err)
+		}
+		if got, err := st.StandingBan(ctx, "t1", "p2", ""); err != nil || got.ShadowOf != "S-1" || !got.InPool(t0) {
+			t.Errorf("%s: the alternate account: %+v %v", name, got, err)
+		}
+		if plain.InPool(t0) {
+			t.Errorf("%s: a plain ban is in no pool", name)
+		}
+		pool, err := st.ListShadowBans(ctx, "t1")
+		if err != nil || len(pool) != 2 || pool[0].Ref != "S-1" || pool[1].Ref != "S-2" || pool[0].TenantID != "t1" {
+			t.Fatalf("%s: pool: %+v %v", name, pool, err)
+		}
+		all, err := st.ListShadowBans(ctx, "")
+		if err != nil || len(all) != 3 || all[0].Ref != "S-3" || all[0].TenantID != "t2" || all[1].TenantID != "t1" {
+			t.Fatalf("%s: every tenant's pool: %+v %v", name, all, err)
+		}
+		if m, err := st.ShadowMember(ctx, "t1", "S-1", "p2"); err != nil || m.Ref != "S-2" {
+			t.Errorf("%s: member: %+v %v", name, m, err)
+		}
+		if _, err := st.ShadowMember(ctx, "t1", "S-1", "p9"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: no such member: %v", name, err)
+		}
+
+		// "Ban now" after a day: the ban takes effect then, once.
+		now := t0.Add(24 * time.Hour)
+		if _, err := st.LandShadowBan(ctx, "t2", caught.ID, now); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: another tenant landed the ban: %v", name, err)
+		}
+		if _, err := st.LandShadowBan(ctx, "t1", plain.ID, now); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: a plain ban landed: %v", name, err)
+		}
+		landed, err := st.LandShadowBan(ctx, "t1", caught.ID, now)
+		if err != nil || !landed.LandedAt.Equal(now) || !landed.EffectiveAt.Equal(now) || landed.InPool(now) || !landed.Active(now) || !landed.Shadow {
+			t.Fatalf("%s: ban now: %+v %v", name, landed, err)
+		}
+		if _, err := st.LandShadowBan(ctx, "t1", caught.ID, now); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: landed twice: %v", name, err)
+		}
+		// At the end of the period the time the ban took effect stays what it was.
+		late := end.Add(time.Minute)
+		landed, err = st.LandShadowBan(ctx, "t1", alt.ID, late)
+		if err != nil || !landed.LandedAt.Equal(late) || !landed.EffectiveAt.Equal(end) {
+			t.Fatalf("%s: end of the period: %+v %v", name, landed, err)
+		}
+		if pool, _ := st.ListShadowBans(ctx, "t1"); len(pool) != 0 {
+			t.Errorf("%s: landed bans are still in the pool: %+v", name, pool)
+		}
+		// A released ban leaves the pool and is still found as the account's entry.
+		if _, err := st.LiftBan(ctx, "t2", other.ID, "ada", "", now); err != nil {
+			t.Fatal(err)
+		}
+		if all, _ := st.ListShadowBans(ctx, ""); len(all) != 0 {
+			t.Errorf("%s: a released ban is still in the pool: %+v", name, all)
+		}
+		if _, err := st.LandShadowBan(ctx, "t2", other.ID, now); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: a released ban landed: %v", name, err)
+		}
+	}
+}

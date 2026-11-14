@@ -42,6 +42,9 @@ var sqliteEconomy string
 //go:embed sqlite/0025_learning.sql
 var sqliteLearning string
 
+//go:embed sqlite/0026_shadow.sql
+var sqliteShadow string
+
 // SQLiteNumbered lists the numbered migrations in ascending order. They run after every
 // migration in SQLite.
 var SQLiteNumbered = []Numbered{
@@ -52,4 +55,5 @@ var SQLiteNumbered = []Numbered{
 	{Number: 23, Name: "known_cheats", SQL: sqliteKnownCheats},
 	{Number: 24, Name: "economy", SQL: sqliteEconomy},
 	{Number: 25, Name: "learning", SQL: sqliteLearning},
+	{Number: 26, Name: "shadow", SQL: sqliteShadow},
 }
