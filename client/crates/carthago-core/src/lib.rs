@@ -388,6 +388,7 @@ fn harden(inner: &Inner) {
         a: o.applied,
         b: o.failed,
         detail: String::new(),
+        file_sha256: Vec::new(),
     });
 }
 
@@ -489,7 +490,14 @@ fn heartbeat(inner: &Inner) -> pb::Heartbeat {
             taken
                 .by_ref()
                 .take(room)
-                .map(|f| pb::Finding { job: f.job.into(), code: f.code, a: f.a, b: f.b, detail: f.detail.as_str().into() }),
+                .map(|f| pb::Finding {
+                    job: f.job.into(),
+                    code: f.code,
+                    a: f.a,
+                    b: f.b,
+                    detail: f.detail.as_str().into(),
+                    file_sha256: f.file_sha256.map(Vec::from).unwrap_or_default(),
+                }),
         );
         let rest: Vec<carthago_sched::Finding> = taken.collect();
         s.requeue_findings(rest);

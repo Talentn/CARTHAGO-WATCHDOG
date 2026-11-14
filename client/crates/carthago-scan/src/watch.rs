@@ -278,6 +278,20 @@ pub fn system_copy(windows_dir: &str, wow64: bool, base_name: &str) -> String {
     format!("{dir}\\{}\\{base_name}", if wow64 { "SysWOW64" } else { "System32" })
 }
 
+/// The file behind a module that a game's loader lists under the Windows directory. The
+/// loader of a 32-bit game on 64-bit Windows names many of its libraries under `System32`
+/// although they were read from `SysWOW64`, and a 64-bit companion that opens the
+/// `System32` path gets the 64-bit file. Only the few 64-bit libraries of such a game,
+/// which sit above 4 GB, are what their path says.
+pub fn loaded_system_file(path: &str, wow64: bool, base: usize) -> String {
+    const SYSTEM32: &str = "\\system32\\";
+    let lower = path.to_ascii_lowercase().replace('/', "\\");
+    match lower.find(SYSTEM32) {
+        Some(i) if wow64 && (base as u64) <= u32::MAX as u64 => format!("{}\\SysWOW64\\{}", &path[..i], &path[i + SYSTEM32.len()..]),
+        _ => path.to_owned(),
+    }
+}
+
 /// Where a jump that an inline hook wrote into 32-bit code leads. `code` is the memory at
 /// `addr`; `read_u32` reads a pointer for `jmp dword ptr [abs32]`.
 pub fn jump32(code: &[u8], addr: u32, read_u32: impl Fn(u32) -> Option<u32>) -> crate::hook::Patch {
@@ -445,6 +459,11 @@ mod tests {
     fn system_copies() {
         assert_eq!(system_copy(r"C:\Windows\", true, "opengl32.dll"), r"C:\Windows\SysWOW64\opengl32.dll");
         assert_eq!(system_copy(r"C:\Windows", false, "opengl32.dll"), r"C:\Windows\System32\opengl32.dll");
+        // The file a 32-bit game really loaded, for hashing.
+        assert_eq!(loaded_system_file(r"C:\Windows\SYSTEM32\version.dll", true, 0x7400_0000), r"C:\Windows\SysWOW64\version.dll");
+        assert_eq!(loaded_system_file(r"C:\Windows\SysWOW64\version.dll", true, 0x7400_0000), r"C:\Windows\SysWOW64\version.dll");
+        assert_eq!(loaded_system_file(r"C:\Windows\SYSTEM32\ntdll.dll", true, 0x7ffb_1234_0000), r"C:\Windows\SYSTEM32\ntdll.dll");
+        assert_eq!(loaded_system_file(r"C:\Windows\System32\version.dll", false, 0x7400_0000), r"C:\Windows\System32\version.dll");
     }
 
     #[test]

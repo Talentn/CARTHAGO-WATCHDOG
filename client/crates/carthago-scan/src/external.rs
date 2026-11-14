@@ -489,7 +489,7 @@ pub struct ExtModules {
     listed: bool,
     new_any: bool,
     settled_at_begin: bool,
-    waiting: Vec<(usize, ModulePathClass, String)>,
+    waiting: Vec<(usize, Option<ModulePathClass>, String)>,
     unchecked: Vec<signature::Checked>,
     seen: Seen,
     sig: Option<signature::Worker>,
@@ -514,6 +514,12 @@ impl ExtModules {
     }
 
     fn report(&self, ctx: &Ctx<'_>, c: &signature::Checked) {
+        if c.hash_only {
+            if c.sha256.is_some() {
+                ctx.report_file(FindingCode::ModuleFile as u32, c.base, 0, &c.name, c.sha256);
+            }
+            return;
+        }
         let base = c.base as usize;
         let name = c.name.to_lowercase();
         let m = self.watch.module(base);
@@ -545,18 +551,38 @@ impl ExtModules {
                 FileState::New => observed::NEW_FILE,
             };
         }
-        ctx.report_detail(FindingCode::ModuleSignature as u32, c.base, signature::pack(c.state, c.class) | flags << 16 | secs << 32, &c.name);
+        ctx.report_file(FindingCode::ModuleSignature as u32, c.base, signature::pack(c.state, c.class) | flags << 16 | secs << 32, &c.name, c.sha256);
     }
 
-    fn submit(&mut self, t: &Target, base: usize, class: ModulePathClass, path: String) {
-        let system = watch::system_copy(&self.dirs.windows, t.is_wow64(), base_name(&path));
-        let queued = self.sig.as_ref().is_some_and(|s| s.submit_named(base as u64, class, path.clone(), Some(system)));
+    /// `class` is `None` for a file under the Windows directory: it is only hashed, so
+    /// that the gateway can compare every loaded file with its list of known cheat files.
+    fn submit(&mut self, t: &Target, base: usize, class: Option<ModulePathClass>, path: String) {
+        let queued = match class {
+            Some(class) => {
+                let system = watch::system_copy(&self.dirs.windows, t.is_wow64(), base_name(&path));
+                self.sig.as_ref().is_some_and(|s| s.submit_named(base as u64, class, path.clone(), Some(system)))
+            }
+            None => {
+                let file = Some(watch::loaded_system_file(&path, t.is_wow64(), base)).filter(|f| std::path::Path::new(f).is_file()).unwrap_or_else(|| path.clone());
+                self.sig.as_ref().is_some_and(|s| s.submit_hash(base as u64, file))
+            }
+        };
         if !queued && self.sig.is_some() {
             self.waiting.push((base, class, path));
-        } else if !queued {
+        } else if let (false, Some(class)) = (queued, class) {
             // No signature thread: the module is reported with its state unknown.
             let name = base_name(&path).to_owned();
-            self.unchecked.push(signature::Checked { base: base as u64, class, state: ModuleSignature::Unspecified, name, path, digest: String::new(), shadows_system: false });
+            self.unchecked.push(signature::Checked {
+                base: base as u64,
+                class,
+                state: ModuleSignature::Unspecified,
+                name,
+                path,
+                digest: String::new(),
+                shadows_system: false,
+                sha256: None,
+                hash_only: false,
+            });
         }
     }
 
@@ -642,9 +668,7 @@ impl Job for ExtModules {
                 seen_secs: self.watch.secs(),
                 addon: class == Some(ModulePathClass::GameDir) && path.to_lowercase().replace('/', "\\").contains("\\addons\\"),
             });
-            if let Some(class) = class {
-                self.submit(&t, base, class, path);
-            }
+            self.submit(&t, base, class, path);
             return Step::Continue;
         }
         Step::Continue

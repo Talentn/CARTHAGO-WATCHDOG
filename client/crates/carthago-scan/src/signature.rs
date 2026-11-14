@@ -100,11 +100,23 @@ mod worker {
         state_of(status)
     }
 
+    /// What the thread does with a file.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Want {
+        /// The signature state: a program outside the game.
+        Signature,
+        /// The signature state and the SHA-256: a module of the game.
+        SignatureAndHash,
+        /// The SHA-256 alone: a module of the game under the Windows directory.
+        Hash,
+    }
+
     struct Request {
         base: u64,
         class: ModulePathClass,
         path: String,
         system_copy: Option<String>,
+        want: Want,
     }
 
     /// One verified file.
@@ -120,6 +132,12 @@ mod worker {
         /// The file has the name of a system library (the request's `system_copy` exists)
         /// and is not a copy of it.
         pub shadows_system: bool,
+        /// SHA-256 of the file, for a module of the game. The gateway compares it with the
+        /// studio's list of known cheat files. `None` when it was not asked for, the file
+        /// could not be read or is larger than [`SHA_MAX`].
+        pub sha256: Option<[u8; 32]>,
+        /// Only the hash was asked for: `state` and `class` say nothing.
+        pub hash_only: bool,
     }
 
     #[derive(Clone)]
@@ -127,13 +145,18 @@ mod worker {
         state: ModuleSignature,
         digest: String,
         shadows_system: bool,
+        sha256: Option<[u8; 32]>,
     }
 
     const DIGEST_MAX: u64 = 32 << 20;
+    /// Larger files are not hashed with SHA-256; no library a game loads comes close.
+    const SHA_MAX: u64 = 512 << 20;
 
     /// FNV-1a over the file (its first 32 MB) plus its length. It identifies content for a comparison between
-    /// runs on the same machine; it is not a defence against a crafted collision.
-    fn digest(path: &str) -> Option<String> {
+    /// runs on the same machine; it is not a defence against a crafted collision. With
+    /// `sha`, also the SHA-256 of the whole file, from the same read.
+    fn digests(path: &str, sha: bool) -> Option<(String, Option<[u8; 32]>)> {
+        use sha2::{Digest, Sha256};
         use std::io::Read;
         let mut f = std::fs::File::open(path).ok()?;
         let mut buf = vec![0u8; 64 * 1024];
@@ -141,28 +164,37 @@ mod worker {
         // Program files of other processes can be very large; the first part and the
         // length are enough to tell two files apart.
         let total = f.metadata().ok()?.len();
+        let mut sha = (sha && total <= SHA_MAX).then(Sha256::new);
         loop {
-            let n = if len >= DIGEST_MAX { 0 } else { f.read(&mut buf).ok()? };
+            let n = if len >= DIGEST_MAX && sha.is_none() { 0 } else { f.read(&mut buf).ok()? };
             if n == 0 {
-                len = total;
                 break;
             }
-            for &b in &buf[..n] {
-                h = (h ^ b as u64).wrapping_mul(0x0100_0000_01b3);
+            if len < DIGEST_MAX {
+                for &b in &buf[..n] {
+                    h = (h ^ b as u64).wrapping_mul(0x0100_0000_01b3);
+                }
+            }
+            if let Some(s) = sha.as_mut() {
+                s.update(&buf[..n]);
             }
             len += n as u64;
         }
-        Some(format!("{h:016x}{len:x}"))
+        Some((format!("{h:016x}{total:x}"), sha.map(|s| s.finalize().into())))
     }
 
     fn check(r: &Request) -> Fact {
+        if r.want == Want::Hash {
+            let sha256 = digests(&r.path, true).and_then(|d| d.1);
+            return Fact { state: ModuleSignature::Unspecified, digest: String::new(), shadows_system: false, sha256 };
+        }
         let state = verify_file(&r.path);
-        let digest = digest(&r.path).unwrap_or_default();
+        let (digest, sha256) = digests(&r.path, r.want == Want::SignatureAndHash).unwrap_or_default();
         let shadows_system = match &r.system_copy {
-            Some(sys) if !sys.eq_ignore_ascii_case(&r.path) && std::fs::metadata(sys).is_ok_and(|m| m.is_file()) => self::digest(sys).is_none_or(|d| d != digest),
+            Some(sys) if !sys.eq_ignore_ascii_case(&r.path) && std::fs::metadata(sys).is_ok_and(|m| m.is_file()) => digests(sys, false).is_none_or(|d| d.0 != digest),
             _ => false,
         };
-        Fact { state, digest, shadows_system }
+        Fact { state, digest, shadows_system, sha256 }
     }
 
     /// Handle to the signature thread; dropping it stops the thread after the file in hand.
@@ -176,6 +208,8 @@ mod worker {
     /// Pause between files: a first inventory of ~30 modules takes a few seconds and costs a
     /// few tens of milliseconds of CPU in total.
     const PAUSE: Duration = Duration::from_millis(120);
+    /// After a file that was only hashed: a game has a hundred Windows libraries loaded.
+    const PAUSE_HASH: Duration = Duration::from_millis(15);
 
     impl Worker {
         pub fn start() -> std::io::Result<Self> {
@@ -196,12 +230,22 @@ mod worker {
                             cache.insert(key, f.clone());
                             CHECKED.fetch_add(1, Relaxed);
                             CPU_NS.store(carthago_sched::clock::cycles_to_ns(carthago_sched::clock::thread_cycles()), Relaxed);
-                            std::thread::sleep(PAUSE);
+                            std::thread::sleep(if r.want == Want::Hash { PAUSE_HASH } else { PAUSE });
                             f
                         }
                     };
                     let name = crate::paths::base_name(&r.path).to_owned();
-                    let done = Checked { base: r.base, class: r.class, state: fact.state, name, path: r.path, digest: fact.digest, shadows_system: fact.shadows_system };
+                    let done = Checked {
+                        base: r.base,
+                        class: r.class,
+                        state: fact.state,
+                        name,
+                        path: r.path,
+                        digest: fact.digest,
+                        shadows_system: fact.shadows_system,
+                        sha256: fact.sha256,
+                        hash_only: r.want == Want::Hash,
+                    };
                     if res.send(done).is_err() {
                         return;
                     }
@@ -210,15 +254,24 @@ mod worker {
             Ok(Self { tx, rx })
         }
 
-        /// Queues a file; `false` when the queue is full (ask again on a later pass).
-        pub fn submit(&self, base: u64, class: ModulePathClass, path: String) -> bool {
-            self.submit_named(base, class, path, None)
+        fn send(&self, r: Request) -> bool {
+            !matches!(self.tx.try_send(r), Err(TrySendError::Full(_) | TrySendError::Disconnected(_)))
         }
 
-        /// As [`submit`](Self::submit), and also says whether the file stands in for the
-        /// system library at `system_copy`.
+        /// Queues a file; `false` when the queue is full (ask again on a later pass).
+        pub fn submit(&self, base: u64, class: ModulePathClass, path: String) -> bool {
+            self.send(Request { base, class, path, system_copy: None, want: Want::Signature })
+        }
+
+        /// A module of the game: as [`submit`](Self::submit), and also the file's SHA-256
+        /// and whether the file stands in for the system library at `system_copy`.
         pub fn submit_named(&self, base: u64, class: ModulePathClass, path: String, system_copy: Option<String>) -> bool {
-            !matches!(self.tx.try_send(Request { base, class, path, system_copy }), Err(TrySendError::Full(_) | TrySendError::Disconnected(_)))
+            self.send(Request { base, class, path, system_copy, want: Want::SignatureAndHash })
+        }
+
+        /// A module of the game under the Windows directory: its SHA-256 and nothing else.
+        pub fn submit_hash(&self, base: u64, path: String) -> bool {
+            self.send(Request { base, class: ModulePathClass::Other, path, system_copy: None, want: Want::Hash })
         }
 
         /// A finished check, if any. Never blocks.

@@ -104,6 +104,8 @@ pub struct Finding {
     pub a: u64,
     pub b: u64,
     pub detail: Detail,
+    /// SHA-256 of the file a module finding is about, when the job has it.
+    pub file_sha256: Option<[u8; 32]>,
 }
 
 pub struct Ctx<'a> {
@@ -119,7 +121,12 @@ impl Ctx<'_> {
     }
 
     pub fn report_detail(&self, code: u32, a: u64, b: u64, detail: &str) {
-        let f = Finding { job: self.job, code, a, b, detail: Detail::new(detail) };
+        self.report_file(code, a, b, detail, None);
+    }
+
+    /// A finding about a file, with the file's SHA-256.
+    pub fn report_file(&self, code: u32, a: u64, b: u64, detail: &str, file_sha256: Option<[u8; 32]>) {
+        let f = Finding { job: self.job, code, a, b, detail: Detail::new(detail), file_sha256 };
         if let Err(TrySendError::Full(_)) = self.tx.try_send(f) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
