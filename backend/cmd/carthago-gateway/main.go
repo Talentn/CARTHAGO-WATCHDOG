@@ -35,6 +35,7 @@ type evidenceStore interface {
 	store.EvidenceStore
 	store.OracleStore
 	store.BanStore
+	store.CheatStore
 }
 
 type tenantFlag map[string]string
@@ -52,6 +53,9 @@ func (t tenantFlag) Set(v string) error {
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "bans" {
 		os.Exit(bansCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "cheats" {
+		os.Exit(cheatsCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "dashboard-user" {
 		os.Exit(dashboardUserCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
@@ -192,6 +196,7 @@ func main() {
 	if *autoBan {
 		detections.SetBanner(banning)
 	}
+	detections.SetKnownCheats(st)
 	log.Info("bans", "automatic_on_certain_evidence", *autoBan)
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
