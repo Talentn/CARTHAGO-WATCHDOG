@@ -3,7 +3,6 @@ package bans
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"carthago/backend/internal/store"
@@ -202,8 +201,14 @@ func (s *Service) land(ctx context.Context, tenant string, id int64, early bool)
 	s.log.Info("shadow pool: ban in effect", "ref", b.Ref, "tenant", tenant, "player", b.PlayerHash, "device", b.DeviceID, "early", early)
 	if !early {
 		// What a person does is recorded by the dashboard, with who did it.
-		s.record(ctx, &store.AuditEntry{TenantID: tenant, At: now, Actor: store.BanAutomatic, Action: "shadow.end", Target: "ban " + b.Ref,
-			Detail: fmt.Sprintf("the shadow period ended: player %s, device key %s banned", b.PlayerHash, orNone(b.DeviceID))})
+		detail := "the shadow period ended: player " + b.PlayerHash + " banned"
+		switch {
+		case b.DeviceID != "":
+			detail += ", with device key " + b.DeviceID
+		case b.ShadowOf != "":
+			detail += "; the device key is banned by " + b.ShadowOf
+		}
+		s.record(ctx, &store.AuditEntry{TenantID: tenant, At: now, Actor: store.BanAutomatic, Action: "shadow.end", Target: "ban " + b.Ref, Detail: detail})
 	}
 	s.endSessions(b)
 	return b, nil
