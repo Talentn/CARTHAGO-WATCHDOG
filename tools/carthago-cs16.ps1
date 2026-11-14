@@ -71,6 +71,7 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -ResetStartProfile
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -Unban
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -NoAutoBan
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -KnownCheat "E:\Counter-Strike\OPENGL32.dll" -KnownCheatName "My wallhack"
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Map de_dust2 -AlertOnWallhackScore
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Diagnose
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -Stage 2
@@ -140,6 +141,12 @@ param(
     [switch]$NoAutoBan,
     # Lift every ban in the local test gateway before this run, so you can keep testing.
     [switch]$Unban,
+    # A cheat's file, to put on the local test gateway's list of known cheat files before
+    # this run. The file is only read, to take its SHA-256. A game that loads a file with
+    # that hash, under any name and from any folder, signed or not, is banned on rule
+    # known_cheat. -KnownCheatName is what the cheat is called in the evidence and the ban.
+    [string]$KnownCheat = "",
+    [string]$KnownCheatName = "",
     # Opt-in, for a test on your own server: also raise the alert when the information-leak
     # (wallhack) score of the player on this PC is strong in two separate four-minute
     # stretches of one match. Without it that score is evidence for review only. It is a
@@ -942,6 +949,15 @@ if ($Unban) {
     if ($n) { Write-Host "UNBAN $n ban$(if ($n -ne 1) { 's' }) lifted in the local test gateway: $((($lifted | Where-Object { $_ -match '^lifted ' }) -replace '^lifted ', '') -join ', ')" -ForegroundColor Green }
     else { Note "-Unban: nobody was banned in the local test gateway" }
 }
+if ($KnownCheat) {
+    if (-not (Test-Path -LiteralPath $KnownCheat -PathType Leaf)) { Die "-KnownCheat: there is no file $KnownCheat" }
+    $cheatName = $(if ($KnownCheatName) { $KnownCheatName } else { "test cheat ($(Split-Path -Leaf $KnownCheat))" })
+    $added = @(& $gatewayExe cheats add -data $data -tenant demo -file $KnownCheat -name $cheatName -note "carthago-cs16.ps1 -KnownCheat" 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE) { Die "-KnownCheat: $($added -join ' ')" }
+    Write-Host "KNOWN CHEAT $($added -join ' ')" -ForegroundColor Green
+    Note "      A game that loads this file, under any name and from any folder, is banned on rule known_cheat."
+    Note "      The list is on the dashboard's Known cheats page; entries are removed there."
+}
 $gwArgs = @("-data", "`"$data`"", "-listen", "127.0.0.1:$gatewayPort", "-dashboard-listen", "127.0.0.1:$dashboardPort", "-tls-dev-cert", "-client-notices")
 if ($AlertOnIntegrity) { $gwArgs += "-client-notices-strict" }
 if ($AllowRendererLibrary) { $gwArgs += "-allow-renderer-library" }
@@ -1040,7 +1056,7 @@ function IntegrityReport {
     $lines = @(Get-Content -LiteralPath $gwLog -ErrorAction SilentlyContinue)
     $text = '"((?:[^"\\]|\\.)*)"'
     $clean = { param($t) $t -replace '\\"', '"' -replace '\\\\', '\' }
-    $own = 'renderer_replaced|system_library_replaced|foreign_module|mapped_image|code_changed|external_writer|external_reader|memory_tool|overlay_reader|game_file_changed|new_game_module|debugger'
+    $own = 'known_cheat|renderer_replaced|system_library_replaced|foreign_module|mapped_image|code_changed|external_writer|external_reader|memory_tool|overlay_reader|game_file_changed|new_game_module|debugger'
     $shown = @{}
     foreach ($line in $lines) {
         if ($line -match "msg=detection .* rule=($own) severity=(medium|high|critical) summary=$text") {

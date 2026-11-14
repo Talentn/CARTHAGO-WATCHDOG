@@ -636,6 +636,35 @@ WRAP
   rm "$game/opengl32.dll"
   echo "ok   -Unban lifts the ban; -NoAutoBan leaves the alert and bans nobody"
 
+  # Known cheat files. The game's own library, which every clean run above loaded without a
+  # word, goes on the list: the file is neither unsigned-and-foreign nor new, only its
+  # hash decides.
+  cheats() { "$run/carthago-scratch/bin/carthago-gateway" cheats "$@" -data "$run/carthago-scratch/gateway-data" -tenant demo; }
+  knownrun() {
+    local name="$1"
+    shift
+    code=0
+    full -NoPlugin -AlertSecs 2 -BaselineSecs 2 -GameArgs:"-game cstrike -secs 20" "$@" >"$run/integ-$name.log" 2>&1 || code=$?
+    grep -E '^(OK|FAIL|ALERT|BANNED|UNBAN|KNOWN CHEAT|      evidence)' "$run/integ-$name.log" | cut -c1-230
+  }
+  step "known cheats: a file on the list bans on rule known_cheat with the cheat's name; off the list the same game is clean"
+  knownrun known -KnownCheat "$game/cstrike/dlls/mp.dll" -KnownCheatName "Stand-in cheat"
+  [[ $code == 6 ]] || { cat "$run/integ-known.log"; fail "a game that loads a known cheat file should end in a ban (6), got $code"; }
+  has known '^KNOWN CHEAT added "Stand-in cheat": [0-9a-f]\{64\}$'
+  has known '^ALERT the session was flagged: .*\[category [a-z_]*integrity'
+  has known 'evidence  known_cheat (critical): known cheat "Stand-in cheat": the game loaded [a-z]*\.dll, which is on the list of known cheat files (SHA-256 [0-9a-f]\{64\})'
+  has known '^BANNED at [0-9:]*: player cs16-local-player and this PC.s device key .* were banned automatically, on rule known_cheat. Reference CW-'
+  cheats list | grep -q '  Stand-in cheat  added ' || fail "the known cheat is not on the list"
+  sleep 20
+  cheats remove -name "Stand-in cheat" | grep -q '^removed "Stand-in cheat"' || fail "the known cheat was not removed"
+  knownrun unlisted -Unban
+  [[ $code == 0 ]] || { cat "$run/integ-unlisted.log"; fail "the run after the entry was removed failed with $code"; }
+  has unlisted '^UNBAN 1 ban lifted'
+  hasnt unlisted '^ALERT'
+  hasnt unlisted 'known_cheat'
+  hasnt unlisted '^BANNED'
+  echo "ok   known cheat file: alert, ban on rule known_cheat with its name; removed from the list, the game is clean again"
+
   ps1 -Uninstall >"$run/uninstall2.log" 2>&1 || { cat "$run/uninstall2.log"; fail "uninstall after the staged check"; }
   diff -r "$run/game.before" "$game" || fail "the game folder differs after the staged check and -Uninstall"
   echo "ok   after -Diagnose and two runs, -Uninstall leaves the game folder identical"
