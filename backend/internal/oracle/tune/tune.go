@@ -46,6 +46,9 @@ type BehaviourRow struct {
 	HasMatch       bool          `json:"has_match"`
 	Features       oracle.Vector `json:"features"`
 	LabelledAt     string        `json:"labelled_at"`
+	// Source is "ban" for a label a ban on certain evidence put on the session, and
+	// left out for a reviewer's.
+	Source string `json:"source,omitempty"`
 }
 
 // ChatMessage and ChatExample are the chat fine-tuning format most trainers read: one
@@ -70,6 +73,29 @@ type Stats struct {
 	AnalystSamples int
 	// Skipped counts labels whose session is gone from the store.
 	Skipped int
+	// FromBans counts the labels that came from bans, not from a reviewer.
+	FromBans int
+}
+
+// Used counts the real labelled sessions a training or evaluation run read.
+type Used struct {
+	Cheating int
+	Clean    int
+	// Unsure sessions are read and left out.
+	Unsure int
+	// FromBans of the sessions used came from bans; the others from reviewers.
+	FromBans int
+}
+
+// Sessions is how many labelled sessions were used.
+func (u Used) Sessions() int { return u.Cheating + u.Clean }
+
+func (u Used) String() string {
+	s := fmt.Sprintf("real labels used: %d (%d from bans, %d from reviewers): %d cheating, %d clean", u.Sessions(), u.FromBans, u.Sessions()-u.FromBans, u.Cheating, u.Clean)
+	if u.Unsure > 0 {
+		s += fmt.Sprintf("; %d unsure left out", u.Unsure)
+	}
+	return s
 }
 
 // Minimum labelled sessions before retraining the behaviour model on them is worth it.
@@ -143,6 +169,9 @@ func Export(ctx context.Context, st Store, p *analyst.Pseudonymiser, tenant stri
 			}
 		}
 		stats.Labels++
+		if l.Source == store.LabelSourceBan {
+			stats.FromBans++
+		}
 		switch l.Label {
 		case store.LabelConfirmedCheat:
 			stats.Confirmed++
@@ -158,7 +187,7 @@ func Export(ctx context.Context, st Store, p *analyst.Pseudonymiser, tenant stri
 			stats.WithoutMatch++
 		}
 		rows = append(rows, BehaviourRow{Subject: p.Player(tenant, sess.PlayerHash), Session: p.Session(tenant, sess.SessionID), Label: l.Label, CheatType: l.CheatType,
-			FeatureVersion: version, HasMatch: hasMatch, Features: v, LabelledAt: l.LabelledAt.UTC().Format(time.RFC3339)})
+			FeatureVersion: version, HasMatch: hasMatch, Features: v, LabelledAt: l.LabelledAt.UTC().Format(time.RFC3339), Source: l.Source})
 
 		c := analyst.Build(p, oracle.CaseInput(*sess, evidence, score))
 		if c.CheckVocabulary() != nil {
@@ -257,7 +286,14 @@ func WriteJSONL[T any](w io.Writer, rows []T) error {
 // unsure are left out. One player's sessions share a group, so they stay on one side of
 // the train, calibration and test split.
 func ReadBehaviour(r io.Reader) ([]train.Row, error) {
+	rows, _, err := ReadLabelled(r)
+	return rows, err
+}
+
+// ReadLabelled is ReadBehaviour that also counts what it read.
+func ReadLabelled(r io.Reader) ([]train.Row, Used, error) {
 	var rows []train.Row
+	var used Used
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for n := 1; sc.Scan(); n++ {
@@ -269,31 +305,37 @@ func ReadBehaviour(r io.Reader) ([]train.Row, error) {
 		dec := json.NewDecoder(strings.NewReader(line))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&b); err != nil {
-			return nil, fmt.Errorf("line %d: %w", n, err)
+			return nil, used, fmt.Errorf("line %d: %w", n, err)
 		}
 		if b.FeatureVersion != oracle.FeatureVersion {
-			return nil, fmt.Errorf("line %d: feature version %d, this build reads %d", n, b.FeatureVersion, oracle.FeatureVersion)
+			return nil, used, fmt.Errorf("line %d: feature version %d, this build reads %d", n, b.FeatureVersion, oracle.FeatureVersion)
 		}
 		row := train.Row{Profile: train.Honest, InMatch: b.HasMatch, Vector: b.Features}
 		switch b.Label {
 		case store.LabelCleared:
+			used.Clean++
 		case store.LabelConfirmedCheat:
+			used.Cheating++
 			row.Cheating, row.Profile = true, "labelled"
 			if b.CheatType != "" {
 				row.Profile = "labelled_" + b.CheatType
 			}
 		case store.LabelUnsure:
+			used.Unsure++
 			continue
 		default:
-			return nil, fmt.Errorf("line %d: unknown label", n)
+			return nil, used, fmt.Errorf("line %d: unknown label", n)
 		}
 		h := fnv.New32a()
 		h.Write([]byte(b.Subject))
 		// Groups above the synthetic match numbers, spread over the three splits.
 		row.Match = 1<<24 + int(h.Sum32()%(1<<20))
+		if b.Source == store.LabelSourceBan {
+			used.FromBans++
+		}
 		rows = append(rows, row)
 	}
-	return rows, sc.Err()
+	return rows, used, sc.Err()
 }
 
 // Ready reports what an export still lacks before retraining on it is worth it, in

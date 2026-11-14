@@ -38,7 +38,8 @@ func fixture(t *testing.T) (*store.Memory, *analyst.Pseudonymiser) {
 	st.PutOracleScore(ctx, &store.OracleScore{TenantID: "studio", SessionID: "s-aim", PlayerHash: "player-s-aim", MatchID: "m1", ModelID: "cob-test", FeatureVersion: oracle.FeatureVersion,
 		Score: 0.9, Band: store.OracleBandReview, Signals: `[{"key":"aim_snap_rate","label":"x","family":"aim","effect":2.5}]`, Features: string(features), UpdatedAt: at})
 	for i, l := range []store.SessionLabel{
-		{SessionID: "s-tamper", Label: store.LabelConfirmedCheat, CheatType: "client_tampering", Note: "Ala's own test, cheat ON", Reviewer: "Ala Ghabi"},
+		{SessionID: "s-tamper", Label: store.LabelConfirmedCheat, CheatType: "client_tampering", Note: "ban CW-TEST-TEST on code_patch", Reviewer: "ban CW-TEST-TEST",
+			Source: store.LabelSourceBan, BanRef: "CW-TEST-TEST"},
 		{SessionID: "s-aim", Label: store.LabelConfirmedCheat, CheatType: "aim_assistance", Note: "secret note", Reviewer: "Ala Ghabi"},
 		{SessionID: "s-clear", Label: store.LabelCleared, Note: "cheat OFF", Reviewer: "Ala Ghabi"},
 		{SessionID: "s-unsure", Label: store.LabelUnsure},
@@ -61,7 +62,7 @@ func TestExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	if stats.Labels != 4 || stats.Confirmed != 2 || stats.Cleared != 1 || stats.Unsure != 1 || stats.Skipped != 1 || stats.WithoutMatch != 3 ||
-		stats.ByCheatType["client_tampering"] != 1 || stats.ByCheatType["aim_assistance"] != 1 || stats.AnalystSamples != 3 {
+		stats.ByCheatType["client_tampering"] != 1 || stats.ByCheatType["aim_assistance"] != 1 || stats.AnalystSamples != 3 || stats.FromBans != 1 {
 		t.Fatalf("stats: %+v", stats)
 	}
 	if len(rows) != 4 || len(chat) != 3 {
@@ -135,6 +136,11 @@ func TestExport(t *testing.T) {
 	}
 	if !(train[0].Vector[oracle.FIntegrityRisk] > 0) || train[1].Vector[oracle.FAimSnapRate] != 1.5 {
 		t.Fatal("features did not survive the round trip")
+	}
+	// The trainer says how many real labels it read, and how many of them bans made.
+	if _, used, err := ReadLabelled(strings.NewReader(behaviour)); err != nil || used != (Used{Cheating: 2, Clean: 1, Unsure: 1, FromBans: 1}) ||
+		used.String() != "real labels used: 3 (1 from bans, 2 from reviewers): 2 cheating, 1 clean; 1 unsure left out" {
+		t.Fatalf("used: %+v %q %v", used, used.String(), err)
 	}
 	again, _ := ReadBehaviour(strings.NewReader(behaviour))
 	if again[0].Match != train[0].Match || train[0].Match == train[1].Match {

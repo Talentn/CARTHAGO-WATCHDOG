@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,9 +33,22 @@ func runExport(args []string) error {
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	key, err := os.ReadFile(filepath.Join(*data, "oracle-pseudonym.key"))
-	if err != nil || len(key) < 16 {
-		return fmt.Errorf("no pseudonym key in %s: run the gateway with the Oracle once, so the export uses the names its case files use", *data)
+	if _, err := os.Stat(filepath.Join(*data, "gateway.db")); err != nil {
+		return fmt.Errorf("no gateway database in %s: give -data the data directory the gateway runs with", *data)
+	}
+	// The key the gateway's Oracle names players with in its case files. A gateway that
+	// never ran the Oracle has none yet; the export then makes the one the Oracle will
+	// find, so labels from bans can be exported before the Oracle is turned on.
+	keyPath := filepath.Join(*data, "oracle-pseudonym.key")
+	key, err := os.ReadFile(keyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		key = make([]byte, 32)
+		if _, err = rand.Read(key); err == nil {
+			err = os.WriteFile(keyPath, key, 0o600)
+		}
+	}
+	if err != nil || len(key) != 32 {
+		return fmt.Errorf("pseudonym key %s cannot be used (want 32 bytes): %v", keyPath, err)
 	}
 	st, err := store.OpenSQLite(filepath.Join(*data, "gateway.db"))
 	if err != nil {
@@ -85,6 +99,7 @@ func runExport(args []string) error {
 	}
 	fmt.Printf("%d labelled sessions of tenant %s from %d players written to %s\n", stats.Labels, *tenant, len(players), *out)
 	fmt.Printf("  confirmed cheat %d, cleared %d, unsure %d (unsure is exported but not trained on)\n", stats.Confirmed, stats.Cleared, stats.Unsure)
+	fmt.Printf("  from bans on certain evidence %d, from reviewers %d\n", stats.FromBans, stats.Labels-stats.FromBans)
 	types := make([]string, 0, len(stats.ByCheatType))
 	for t := range stats.ByCheatType {
 		types = append(types, t)

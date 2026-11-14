@@ -117,7 +117,7 @@ func runTrain(args []string) error {
 	p := train.DefaultParams()
 	fs.IntVar(&p.Rounds, "rounds", p.Rounds, "boosting rounds")
 	fs.Float64Var(&p.LearningRate, "learning-rate", p.LearningRate, "learning rate")
-	labelled := fs.String("labelled", "", "also train on reviewer-labelled sessions: a behaviour.jsonl written by `carthago-oracle export`")
+	labelled := fs.String("labelled", "", "also train on real labelled sessions, from reviewers and from bans: a behaviour.jsonl written by `carthago-oracle export`")
 	repeat := fs.Int("labelled-repeat", 1, "count each labelled session this many times")
 	local := localModelFlags(fs)
 	fs.Parse(args)
@@ -130,17 +130,18 @@ func runTrain(args []string) error {
 	}
 	source := "synthetic (knowledge/synth with behaviour profiles)"
 	if *labelled != "" {
-		// A studio's own reviewed sessions join the synthetic ones. They are few next to
+		// A studio's own labelled sessions join the synthetic ones: what its reviewers
+		// concluded and what its bans on certain evidence proved. They are few next to
 		// the simulation, so each can be counted more than once.
-		own, err := readLabelled(*labelled)
+		own, used, err := readLabelled(*labelled)
 		if err != nil {
 			return err
 		}
 		for range max(1, *repeat) {
 			rows = append(rows, own...)
 		}
-		source = fmt.Sprintf("synthetic plus %d reviewer-labelled sessions (each counted %d times)", len(own), max(1, *repeat))
-		fmt.Printf("%d reviewer-labelled sessions added from %s\n", len(own), *labelled)
+		source = fmt.Sprintf("synthetic plus %d real labelled sessions, %d of them from bans (each counted %d times)", len(own), used.FromBans, max(1, *repeat))
+		fmt.Printf("%s, next to %d synthetic sessions (%s)\n", used, len(rows)-len(own)*max(1, *repeat), *labelled)
 	}
 	tr, calib, test := train.Split(rows)
 	m, err := train.Fit(tr, p)
@@ -185,13 +186,13 @@ func runTrain(args []string) error {
 	return nil
 }
 
-func readLabelled(path string) ([]train.Row, error) {
+func readLabelled(path string) ([]train.Row, tune.Used, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, tune.Used{}, err
 	}
 	defer f.Close()
-	return tune.ReadBehaviour(f)
+	return tune.ReadLabelled(f)
 }
 
 func writeImportance(w io.Writer, m *oracle.Model, rows []train.Row) {
@@ -217,11 +218,11 @@ func runEval(args []string) error {
 	if *labelled != "" {
 		// A studio's own reviewed sessions, all of them: the check that matters most,
 		// because it is the only one on real play.
-		own, err := readLabelled(*labelled)
+		own, used, err := readLabelled(*labelled)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("bundle %s, behaviour model %s, on %d reviewer-labelled sessions\n\n", b.Manifest.BundleID, b.Manifest.Behaviour.ID, len(own))
+		fmt.Printf("bundle %s, behaviour model %s\n%s\n\n", b.Manifest.BundleID, b.Manifest.Behaviour.ID, used)
 		train.Evaluate(b.Model, b.Manifest.Thresholds, own).Write(os.Stdout)
 		return nil
 	}
