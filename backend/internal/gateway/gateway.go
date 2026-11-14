@@ -15,6 +15,7 @@ import (
 
 	pb "carthago/backend/gen/carthago/v1"
 	"carthago/backend/internal/attest/ekroots"
+	"carthago/backend/internal/economy"
 	"carthago/backend/internal/protocol"
 	"carthago/backend/internal/store"
 )
@@ -47,6 +48,9 @@ type Config struct {
 	// Detections receives every accepted heartbeat and serves /v1/ingest; nil disables both.
 	Detections Detections
 
+	// Economy, when set, serves /v1/economy: the ledger of in-game money the tenant's
+	// game servers report to.
+	Economy *economy.Service
 	// Bans, when set, is asked at every handshake whether the account or the device key is
 	// banned (internal/bans). Nil: nobody is refused for a ban.
 	Bans BanChecker
@@ -158,6 +162,12 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/gs", g.handleGameServer)
 	if g.cfg.Detections != nil {
 		mux.HandleFunc("GET /v1/ingest", g.handleIngest)
+	}
+	if g.cfg.Economy != nil {
+		mux.HandleFunc("POST /v1/economy/events", g.handleEconomyEvents)
+		mux.HandleFunc("POST /v1/economy/balances", g.handleEconomyBalances)
+		mux.HandleFunc("GET /v1/economy/dirty", g.handleEconomyDirty)
+		mux.HandleFunc("GET /v1/economy/status", g.handleEconomyStatus)
 	}
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

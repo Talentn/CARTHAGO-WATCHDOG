@@ -23,6 +23,7 @@ import (
 	"carthago/backend/internal/attest/ekroots"
 	"carthago/backend/internal/bans"
 	"carthago/backend/internal/dashboard"
+	"carthago/backend/internal/economy"
 	"carthago/backend/internal/gateway"
 	"carthago/backend/internal/knowledge"
 	"carthago/backend/internal/pipeline"
@@ -36,6 +37,7 @@ type evidenceStore interface {
 	store.OracleStore
 	store.BanStore
 	store.CheatStore
+	store.EconomyStore
 }
 
 type tenantFlag map[string]string
@@ -198,9 +200,17 @@ func main() {
 	}
 	detections.SetKnownCheats(st)
 	log.Info("bans", "automatic_on_certain_evidence", *autoBan)
+	// The economy ledger bans through the same service, under the same switch, and hears
+	// of every ban so it can mark what the banned player passed on.
+	var ledgerBans economy.Banner
+	if *autoBan {
+		ledgerBans = banning
+	}
+	ledger := economy.New(st, ledgerBans, log)
+	banning.SetHook(ledger)
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections, Bans: banning, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
+		Detections: detections, Bans: banning, Economy: ledger, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	banning.SetEnder(gw.Sessions())
