@@ -1,0 +1,132 @@
+{{define "content"}}
+{{$d := .Data}}{{$csrf := .CSRF}}
+<div class="head">
+  <h1>Economy</h1>
+  <span class="muted">{{if $d.Player}}player <span class="mono">{{$d.Player}}</span> · <a href="/economy">all players</a>{{else}}the ledger of in-game money your game servers report{{end}}</span>
+</div>
+{{if $d.Player}}
+<section class="card economy" id="ledger">
+  <div class="card-head"><h2>Ledger of <span class="mono">{{$d.Player}}</span></h2>
+    <span class="muted">{{if $d.Banned}}<span class="mark ban-active">Banned</span> <span class="mono">{{$d.Banned.Ref}}</span>{{else}}not banned{{end}} · <a href="/players/{{path $d.Player}}">player page</a></span></div>
+  {{if $d.Balances}}<div class="eco-balances">{{range $d.Balances}}<div><span class="muted">{{.Currency}} by the ledger</span><b>{{amount .Ledger}}</b>{{if .Dirty}}<small class="eco-dirty">{{amount .Dirty}} dirty</small>{{end}}</div>{{end}}</div>{{end}}
+  {{if $d.Entries}}
+  <table>
+    <thead><tr><th>When</th><th>Source</th><th class="num">Amount</th><th>Currency</th><th>With</th><th class="num">Dirty</th><th>Event</th></tr></thead>
+    <tbody>
+    {{range $d.Entries}}
+    <tr>
+      <td class="when mono" title="{{when .At}}">{{.At.UTC.Format "01-02 15:04:05"}}</td>
+      <td class="mono">{{.Source}}</td>
+      <td class="num{{if lt .Amount 0}} neg{{end}}">{{if gt .Amount 0}}+{{end}}{{amount .Amount}}</td>
+      <td>{{.Currency}}</td>
+      <td>{{if .Counterparty}}<a class="mono" href="/economy?player={{query .Counterparty}}#ledger">{{short .Counterparty}}</a>{{else}}<span class="muted">–</span>{{end}}</td>
+      <td class="num">{{if .Dirty}}<span class="eco-dirty" title="from {{.DirtyFrom}}">{{amount .Dirty}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+      <td class="mono"><small>{{.EventID}}</small></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">No game server has reported anything about this player</p>{{end}}
+</section>
+{{end}}
+<section class="card economy" id="flags">
+  <div class="card-head"><h2>Flags</h2><span class="muted">{{len $d.Flags}} {{if $d.Player}}for this player{{else}}latest{{end}}</span></div>
+  <p class="note">Certain: a reported balance above the ledger, or money reported with no source or a source your game does not have. These ban automatically. For review: earnings over your limits, and a balance below the ledger. These never ban.</p>
+  {{if $d.Flags}}
+  <table>
+    <thead><tr><th>When</th><th>Player</th><th>Tier</th><th>Rule</th><th>What</th><th>Ban</th></tr></thead>
+    <tbody>
+    {{range $d.Flags}}
+    <tr>
+      <td class="when" title="{{when .At}}"><span class="mono">{{.At.UTC.Format "01-02 15:04"}}</span><br><small class="muted">{{ago .At}}</small></td>
+      <td><a class="mono" href="/economy?player={{query .PlayerHash}}#ledger">{{short .PlayerHash}}</a></td>
+      <td>{{if .Certain}}<span class="mark eco-certain">Certain</span>{{else}}<span class="mark eco-review">Review</span>{{end}}</td>
+      <td class="mono">{{.Rule}}</td>
+      <td class="reason">{{.Summary}}</td>
+      <td>{{if .BanRef}}<a class="mono" href="/bans">{{.BanRef}}</a>{{else if .Certain}}<span class="muted">automatic bans off</span>{{else}}<span class="muted">–</span>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">No flags</p>{{end}}
+</section>
+<section class="card economy" id="dirty">
+  <div class="card-head"><h2>Dirty money</h2><span class="muted">to remove in your game</span></div>
+  <p class="note">Money that should not exist: what the ledger could not explain in a banned player's own balance, and what a banned player traded or dropped, marked on whoever received it. A receiver is never banned or flagged for it. Your game server reads this list from <span class="mono">GET /v1/economy/dirty</span> and reports what it took back as a <span class="mono">dirty_removal</span>.</p>
+  {{if $d.Dirty}}
+  <table>
+    <thead><tr><th>Player</th><th>Currency</th><th class="num">Dirty</th><th>From</th><th class="num">Entries</th></tr></thead>
+    <tbody>
+    {{range $d.Dirty}}{{$p := .Player}}
+    <tr>
+      <td><a class="mono" href="/economy?player={{query .Player}}#ledger">{{short .Player}}</a></td>
+      <td>{{.Currency}}</td>
+      <td class="num eco-dirty">{{amount .Dirty}}</td>
+      <td>{{with index .Entries 0}}{{if eq .From $p}}<span class="muted">their own, unexplained</span>{{else}}banned player <a class="mono" href="/economy?player={{query .From}}#ledger">{{short .From}}</a>{{end}}{{end}}</td>
+      <td class="num">{{len .Entries}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">No dirty money</p>{{end}}
+</section>
+<section class="card economy" id="limits">
+  <div class="card-head"><h2>Limits</h2><span class="muted">earnings over a limit are flagged for review</span></div>
+  {{if $d.Saved}}<p class="saved">Saved</p>{{end}}
+  <p class="note">How much one player may earn from one source in an hour and in a day; 0 is no limit. A source with a limit is one of your game's sources. Without a limit, a game server may report: <span class="mono">{{$d.Sources}}</span>.</p>
+  {{if $d.Limits}}
+  <table>
+    <thead><tr><th>Source</th><th>Currency</th><th class="num">Per hour</th><th class="num">Per day</th><th></th></tr></thead>
+    <tbody>
+    {{range $d.Limits}}
+    <tr>
+      <td class="mono">{{.Source}}</td>
+      <td>{{.Currency}}</td>
+      <td class="num">{{if .PerHour}}{{amount .PerHour}}{{else}}<span class="muted">no limit</span>{{end}}</td>
+      <td class="num">{{if .PerDay}}{{amount .PerDay}}{{else}}<span class="muted">no limit</span>{{end}}</td>
+      <td>{{if $d.CanEdit}}
+        <form method="post" action="/economy/limits/remove">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="source" value="{{.Source}}"><input type="hidden" name="currency" value="{{.Currency}}">
+          <button type="submit" class="secondary" aria-label="Remove the limit for {{.Source}} in {{.Currency}}">Remove</button>
+        </form>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">No limits yet</p>{{end}}
+  {{if $d.CanEdit}}
+  <form method="post" action="/economy/limits" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Source
+      <input type="text" name="source" maxlength="32" placeholder="robbery" autocomplete="off" required>
+    </label>
+    <label>Currency
+      <input type="text" name="currency" maxlength="32" value="money" autocomplete="off">
+    </label>
+    <label>Per hour
+      <input type="number" name="per_hour" min="0" value="0" required>
+    </label>
+    <label>Per day
+      <input type="number" name="per_day" min="0" value="0" required>
+    </label>
+    <button type="submit" class="secondary">Set limit</button>
+  </form>
+  <form method="post" action="/economy/tolerance" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="grow">Balance tolerance: how far a reported balance may be above the ledger before it bans
+      <input type="number" name="tolerance" min="0" value="{{$d.Tolerance}}" required>
+    </label>
+    <button type="submit" class="secondary">Set tolerance</button>
+  </form>
+  {{else}}<p class="note">Balance tolerance: {{amount $d.Tolerance}}. Changing the limits and the tolerance needs the admin role.</p>{{end}}
+</section>
+<section class="card">
+  <form method="get" action="/economy" class="labelform">
+    <label class="grow">A player's ledger
+      <input type="text" name="player" class="mono" maxlength="128" value="{{$d.Player}}" placeholder="player account" autocomplete="off" required>
+    </label>
+    <button type="submit" class="secondary">Show ledger</button>
+  </form>
+</section>
+{{end}}

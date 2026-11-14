@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"carthago/backend/internal/bans"
+	"carthago/backend/internal/economy"
 	"carthago/backend/internal/protocol"
 	"carthago/backend/internal/store"
 )
@@ -49,6 +50,7 @@ type Store interface {
 	store.OracleStore
 	store.BanStore
 	store.CheatStore
+	store.EconomyStore
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
 }
@@ -89,6 +91,7 @@ type Server struct {
 	hosts        map[string]bool
 	oracle       *OracleInfo
 	bans         *bans.Service
+	eco          *economy.Service
 }
 
 func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
@@ -103,6 +106,9 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 		s.bans = bans.New(st, log)
 		s.bans.Now = cfg.Now
 	}
+	// The Economy page reads the ledger through the service; it reports nothing itself.
+	s.eco = economy.New(st, nil, log)
+	s.eco.Now = cfg.Now
 	if len(cfg.AllowedHosts) > 0 {
 		s.hosts = map[string]bool{}
 		for _, h := range cfg.AllowedHosts {
@@ -136,6 +142,7 @@ func (s *Server) parse() error {
 		"mitig":      mitigations,
 		"pretty":     prettyJSON,
 		"path":       url.PathEscape,
+		"amount":     economy.Amount,
 		"query":      url.QueryEscape,
 		"add":        func(a, b int) int { return a + b },
 		"bar":        trustBar,
@@ -185,6 +192,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /bans", s.auth(s.bansPage))
 	mux.HandleFunc("POST /bans/delay", s.require(RoleAdmin, s.setBanDelay))
 	mux.HandleFunc("POST /bans/{id}/lift", s.require(RoleReviewer, s.liftBan))
+	mux.HandleFunc("GET /economy", s.auth(s.economyPage))
+	mux.HandleFunc("POST /economy/limits", s.require(RoleAdmin, s.setEconomyLimit))
+	mux.HandleFunc("POST /economy/limits/remove", s.require(RoleAdmin, s.removeEconomyLimit))
+	mux.HandleFunc("POST /economy/tolerance", s.require(RoleAdmin, s.setEconomyTolerance))
 	mux.HandleFunc("GET /cheats", s.auth(s.cheatsPage))
 	mux.HandleFunc("POST /cheats", s.require(RoleReviewer, s.addCheat))
 	mux.HandleFunc("POST /cheats/{id}/remove", s.require(RoleReviewer, s.removeCheat))

@@ -356,3 +356,14 @@ a, button, input, summary { transition: color 140ms var(--ease), background-colo
 .liftform input { height: 32px; width: 14ch; font-size: 13px; }
 .labelform input[type=number] { width: 12ch; }
 .labelform + .note { margin: 12px 0 0; }
+
+.economy td.num, .economy th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.economy td.reason { min-width: 30ch; }
+.economy td.when { white-space: nowrap; }
+.economy .neg { color: var(--muted); }
+.eco-certain::before { background: var(--act); }
+.eco-review::before { background: var(--accent); }
+.eco-dirty { font-weight: 500; }
+.eco-balances { display: flex; flex-wrap: wrap; gap: 24px; margin: 0 0 16px; }
+.eco-balances div { display: flex; flex-direction: column; }
+.eco-balances b { font-size: 20px; font-variant-numeric: tabular-nums; }
