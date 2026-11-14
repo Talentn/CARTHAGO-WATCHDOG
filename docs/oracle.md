@@ -482,6 +482,11 @@ it.
 ones (each counted N times) and writes a new bundle with a new id. Point the gateway at it and
 restart.
 
+**Labels from bans.** A ban on certain evidence labels the banned account's recent sessions as
+confirmed cheating, with the ban as the source; lifting the ban removes them. The export
+includes them, and `train -labelled` prints how many real labels it used and how many of them
+came from bans. See `docs/learning-from-bans.md`.
+
 **Tuning the analyst.** `analyst.jsonl` is the training file for a LoRA or full fine-tune of
 the base model with any standard trainer (for example llama.cpp's or Hugging Face's tools).
 This repository does not run the fine-tune: it needs a GPU and a set of reviewed cases that
