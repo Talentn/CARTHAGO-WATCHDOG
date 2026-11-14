@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"sync"
@@ -189,6 +190,9 @@ func validateHeartbeat(hb *pb.Heartbeat) error {
 	for _, f := range hb.Findings {
 		if len(f.GetDetail()) > maxFindingDetail || len(f.GetJob()) > maxJobName {
 			return fmt.Errorf("finding with a %d-byte detail and %d-byte job name", len(f.GetDetail()), len(f.GetJob()))
+		}
+		if n := len(f.GetFileSha256()); n != 0 && n != sha256.Size {
+			return fmt.Errorf("finding with a %d-byte file hash", n)
 		}
 	}
 	if len(hb.Coverage) > maxCoverageEntries {

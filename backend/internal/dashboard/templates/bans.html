@@ -8,7 +8,7 @@
   <div class="card-head"><h2>Automatic bans</h2><span class="muted">certain evidence only</span></div>
   {{if $d.Saved}}<p class="saved">Delay saved</p>{{end}}
   <dl class="kv">
-    <dt>Bans by itself</dt><dd>Hard integrity evidence about the game process: an unsigned renderer library, an unsigned DLL injected from outside the game folder, rewritten code of the renderer or client library, an image mapped by hand, an unsigned outside program holding a handle that writes the game's memory.</dd>
+    <dt>Bans by itself</dt><dd>Hard integrity evidence about the game process: an unsigned renderer library, an unsigned DLL injected from outside the game folder, rewritten code of the renderer or client library, an image mapped by hand, an unsigned outside program holding a handle that writes the game's memory, and any loaded file that is on the list of <a href="/cheats">known cheats</a>.</dd>
     <dt>Never bans by itself</dt><dd>Anything statistical or advisory: aim rules, information leak, decoy reactions, the Oracle's score and opinion, overlays, readers and debuggers. These stay review flags; a reviewer bans from the session page.</dd>
     <dt>Delay</dt><dd><b>{{$d.DelayMinutes}} min</b> <small class="muted">{{if $d.DelayMinutes}}an automatic ban is listed as pending and takes effect that long after the detection{{else}}an automatic ban takes effect at once{{end}}</small></dd>
   </dl>
