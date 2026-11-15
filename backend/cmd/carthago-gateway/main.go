@@ -39,6 +39,7 @@ type evidenceStore interface {
 	store.BanStore
 	store.CheatStore
 	store.EconomyStore
+	store.DriverStore
 }
 
 type tenantFlag map[string]string
@@ -219,7 +220,7 @@ func main() {
 	banning.AddHook(learning.NewLabeler(st, log))
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections, Bans: banning, Pool: banning, Economy: ledger, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
+		Detections: detections, Bans: banning, Pool: banning, Drivers: st, Economy: ledger, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	banning.SetEnder(gw.Sessions())

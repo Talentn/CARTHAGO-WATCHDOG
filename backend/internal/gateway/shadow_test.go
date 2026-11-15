@@ -41,7 +41,7 @@ func newPoolEnv(t *testing.T, period time.Duration) *banEnv {
 	pl.SetPool(svc)
 	gw = New(Config{
 		Tenants: map[string]string{"demo": serverKey, "rival": "rival-server-key"}, HeartbeatInterval: 10 * time.Millisecond, HeartbeatTimeout: 5 * time.Second,
-		TokenTTL: time.Minute, RenewBefore: time.Minute, Detections: pl, Bans: svc, Pool: svc,
+		TokenTTL: time.Minute, RenewBefore: time.Minute, Detections: pl, Bans: svc, Pool: svc, Drivers: st,
 	}, keys, st, log)
 	pl.SetNotifier(gw)
 	svc.SetEnder(gw.Sessions())

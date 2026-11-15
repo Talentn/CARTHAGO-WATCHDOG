@@ -31,6 +31,8 @@ type env struct {
 	keys *Keys
 	st   *store.Memory
 	dial *websocket.DialOptions
+	// driverList, when set, is what the test client puts in Prove as its driver list.
+	driverList func(th [32]byte) *pb.DriverList
 }
 
 func newEnv(t *testing.T) *env {
@@ -128,7 +130,11 @@ func handshakeAs(t *testing.T, e *env, dk deviceKey, player string, corruptSig b
 	if corruptSig {
 		sig[3] ^= 1
 	}
-	c.send(&pb.ClientMsg{Body: &pb.ClientMsg_Prove{Prove: &pb.Prove{DeviceSig: sig}}})
+	prove := &pb.Prove{DeviceSig: sig}
+	if e.driverList != nil {
+		prove.DriverList = e.driverList(th)
+	}
+	c.send(&pb.ClientMsg{Body: &pb.ClientMsg_Prove{Prove: prove}})
 	m, err := c.recv()
 	if err != nil {
 		return c, err

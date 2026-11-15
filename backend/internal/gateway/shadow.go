@@ -28,10 +28,13 @@ const (
 	maxPlayerHash    = 128
 )
 
-// shadowStatus is one player's answer: "normal" or "shadow".
+// shadowStatus is one player's answer: "normal" or "shadow". Attestation is a second,
+// unrelated answer that is only there while the studio has the unattested pool on:
+// "attested" or "unattested", worked out without looking at the shadow pool.
 type shadowStatus struct {
-	Player string `json:"player"`
-	Status string `json:"status"`
+	Player      string `json:"player"`
+	Status      string `json:"status"`
+	Attestation string `json:"attestation,omitempty"`
 }
 
 func (g *Gateway) shadowStatusOf(ctx context.Context, tenant, player string) (shadowStatus, error) {
@@ -40,6 +43,10 @@ func (g *Gateway) shadowStatusOf(ctx context.Context, tenant, player string) (sh
 	if b != nil {
 		st.Status = bans.StatusShadow
 	}
+	if err != nil {
+		return st, err
+	}
+	st.Attestation, err = g.attestationOf(ctx, tenant, player)
 	return st, err
 }
 
@@ -50,7 +57,8 @@ func validPlayer(p string) bool {
 // GET /v1/shadow/status?player= answers {"player","status"}.
 // POST /v1/shadow/status {"players":[...]} answers {"players":[{"player","status"}]} in
 // the same order. status is "normal" or "shadow"; a player the gateway has never seen is
-// normal.
+// normal. While the studio's unattested pool is on, each answer also carries
+// "attestation": "attested" or "unattested" (a player never seen is unattested).
 func (g *Gateway) handleShadowStatus(w http.ResponseWriter, r *http.Request) {
 	tenant, ok := g.economyTenant(w, r)
 	if !ok {

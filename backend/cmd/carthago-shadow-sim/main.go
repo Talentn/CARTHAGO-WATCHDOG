@@ -158,7 +158,7 @@ func newLocal(ctx context.Context, dir string) (*local, error) {
 	detections.SetPool(banning)
 	gw = gateway.New(gateway.Config{
 		Tenants: map[string]string{demoTenant: demoServerKey}, HeartbeatInterval: 500 * time.Millisecond, HeartbeatTimeout: 15 * time.Second,
-		Detections: detections, Bans: banning, Pool: banning,
+		Detections: detections, Bans: banning, Pool: banning, Drivers: st,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	banning.SetEnder(gw.Sessions())

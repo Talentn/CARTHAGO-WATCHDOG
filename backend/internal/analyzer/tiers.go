@@ -64,6 +64,8 @@ var ruleTier = map[string]Tier{
 	"code_patch": TierSuspicious, "api_hook": TierSuspicious, "image_not_in_loader": TierSuspicious, "unbacked_exec": TierSuspicious,
 	"module_not_image": TierSuspicious, "thread_start_unbacked": TierSuspicious, "external_exec_regions": TierSuspicious,
 	"vulnerable_driver": TierSuspicious,
+	// From Windows' signed driver list, raised by the gateway at the handshake.
+	"driver_vulnerable": TierSuspicious, "driver_unsigned": TierSuspicious, "driver_test_signing": TierSuspicious,
 	// Clocks and the health of the scanner.
 	"time_source_divergence": TierSuspicious, "clock_drift": TierSuspicious,
 	"scanner_stalled": TierSuspicious, "scan_quarantined": TierSuspicious, "scan_coverage": TierSuspicious, "evidence_flood": TierSuspicious,

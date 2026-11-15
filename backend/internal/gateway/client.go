@@ -406,6 +406,9 @@ func (g *Gateway) handshake(ctx context.Context, ws *websocket.Conn) (sc *sealed
 			g.log.Warn("persist attestation", "err", err)
 		}
 	}
+	if n := g.recordDriverList(ctx, rec, prove.DriverList, protocol.DriverListNonce(th), boot, now); n != "" {
+		notes = append(notes, n)
+	}
 	if err := sc.send(ctx, &pb.ServerMsg{Body: &pb.ServerMsg_Session{Session: &pb.Session{
 		SessionToken: token, TrustLevel: trust, AttestFlags: flags, ExpiresAtMs: uint64(expiry.UnixMilli()), Notes: notes,
 	}}}); err != nil {

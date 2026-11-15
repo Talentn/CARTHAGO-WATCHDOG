@@ -57,6 +57,9 @@ type Config struct {
 	// Pool, when set, is the shadow pool (internal/bans): it is told about every session
 	// that starts, and /v1/shadow tells the tenant's matchmaking who is in it.
 	Pool ShadowPool
+	// Drivers, when set, keeps the driver list each client sends at its handshake and
+	// answers the unattested pool on /v1/shadow/status. Without it the list is ignored.
+	Drivers DriverLists
 	// TestNoticeAfter sends every session an enforcement notice of category TEST this long
 	// after its client connected, to try a game's alert screen. Zero disables it.
 	TestNoticeAfter time.Duration
