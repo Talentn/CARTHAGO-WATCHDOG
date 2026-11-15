@@ -61,6 +61,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "shadow" {
 		os.Exit(shadowCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "drivers" {
+		os.Exit(driversCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "cheats" {
 		os.Exit(cheatsCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
