@@ -65,6 +65,7 @@
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -GameArgs:"-game cstrike -nomaster"
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -TestAlert
+  powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -DriverList
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -TestAlertAfter 60 -EndMatchOnDetect
   powershell -ExecutionPolicy Bypass -File tools\carthago-cs16.ps1 -NoPlugin -AlertOnIntegrity
@@ -111,6 +112,10 @@ param(
     [switch]$NoLocalCompile,
     # Show the alert screen now, as a preview: no gateway, no game, nothing is detected.
     [switch]$TestAlert,
+    # Only ask Windows whether this PC has its signed list of kernel drivers, print the
+    # one DRIVER LIST line, and stop: no gateway, no game. Every other run prints the same
+    # line before it starts the game. It reads only and changes nothing on the PC.
+    [switch]$DriverList,
     # Have the gateway send a test notice this many seconds after the session opens, so the
     # alert appears over the running game. It is labelled as a test.
     [int]$TestAlertAfter = 0,
@@ -798,6 +803,36 @@ if ($AlertSecs -lt 0 -or $AlertSecs -gt 600) { Die "-AlertSecs is 0 to 600" }
 if ($TestAlertAfter -lt 0 -or $TestAlertAfter -gt 3600) { Die "-TestAlertAfter is 0 to 3600 seconds" }
 if ($BaselineSecs -lt 2 -or $BaselineSecs -gt 600) { Die "-BaselineSecs is 2 to 600" }
 
+# Asks Windows, through the companion, whether this PC has its signed list of the kernel
+# drivers loaded since boot (Windows 11 24H2 or 25H2 with the January 2026 update, with
+# memory integrity on), and says so in one line. Reading it changes nothing on the PC.
+function DriverListLine {
+    $line = @(& $companionExe --driver-list 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match '^DRIVER LIST' }) | Select-Object -First 1
+    if (-not $line) { $line = "DRIVER LIST: no answer. The companion did not report whether this PC has the driver list (exit code $LASTEXITCODE)." }
+    $script:driverListLine = $line
+    if ($line -match '^DRIVER LIST: supported') { Write-Host $line -ForegroundColor Green }
+    else { Write-Host $line -ForegroundColor Yellow }
+}
+
+# ---- only the driver list line --------------------------------------------------------------
+if ($DriverList) {
+    if (-not $SkipBuild) {
+        if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { Die "'cargo' is not on PATH (the Rust toolchain used for the earlier demos is needed)" }
+        Step "build the companion (cargo, release; the first build takes a few minutes)"
+        Push-Location (J $root "client")
+        cargo build --release -p carthago-cs16-companion 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath (J $logs "build-client.log")
+        $code = $LASTEXITCODE
+        Pop-Location
+        if ($code) { Die "cargo build (see $(J $logs 'build-client.log'))" }
+    }
+    if (-not (Test-Path -LiteralPath $companionExe)) { Die "missing $companionExe (run without -SkipBuild)" }
+    Step "ask Windows for its signed list of kernel drivers"
+    DriverListLine
+    Note "Nothing was started and nothing on this PC was changed. A normal run sends this list to the local test gateway;"
+    Note "the session page of the dashboard then shows it under Kernel drivers."
+    exit 0
+}
+
 # ---- preview of the alert screen ------------------------------------------------------------
 if ($TestAlert) {
     if (-not $SkipBuild) {
@@ -876,6 +911,7 @@ OraclePrepare
 if (-not (Test-Path -LiteralPath $gatewayExe)) { Die "missing $gatewayExe (run without -SkipBuild)" }
 if (-not $DashboardOnly) {
     if (-not (Test-Path -LiteralPath $companionExe)) { Die "missing $companionExe (run without -SkipBuild)" }
+    DriverListLine
     if (($plugin -or $Diagnose) -and -not (Test-Path -LiteralPath $bridgeExe)) { Die "missing $bridgeExe (run without -SkipBuild)" }
 }
 
@@ -1226,6 +1262,17 @@ function BanReport {
         Note "-NoAutoBan: nobody is banned automatically in this run; Ban player on the session page of the dashboard still works."
     }
 }
+# What the gateway made of the driver list this run's session sent: verified or not, how
+# many drivers, how many raised for review. From the gateway's database.
+function DriverListReport {
+    $shown = @(& $gatewayExe drivers show -data $data -tenant demo -player $Player 2>&1 | ForEach-Object { "$_" })
+    if ($LASTEXITCODE -or -not $shown.Count) { Note "DRIVER LIST: the gateway's record of this session's driver list could not be read"; return }
+    if ($shown[0] -match 'signature verified; 0 raised') { Write-Host $shown[0] -ForegroundColor Green }
+    elseif ($shown[0] -match 'drivers loaded since boot') { Write-Host $shown[0] -ForegroundColor Yellow }
+    else { Note $shown[0] }
+    $shown | Select-Object -Skip 1 | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+    if ($shown[0] -match 'drivers loaded since boot') { Note "      The whole list is on the session page of the dashboard, under Kernel drivers. Nothing in it bans." }
+}
 function CompanionVerdict($code, $exeName) {
     switch ($code) {
         0 { Write-Host "OK    the session stayed up while the game ran" -ForegroundColor Green }
@@ -1384,6 +1431,7 @@ $refused = BannedLine
 if (-not ($refused -and $refused.AtStart)) {
     AlertVerdict
     IntegrityReport
+    DriverListReport
     BanReport
 }
 if ($plugin) {
