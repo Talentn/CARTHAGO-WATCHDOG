@@ -27,6 +27,7 @@ const (
 	dstChallengeSig = "carthago/v1/challenge-sig"
 	dstProve        = "carthago/v1/prove"
 	dstQuote        = "carthago/v1/quote"
+	dstDriverList   = "carthago/v1/driver-list"
 	dstDeviceID     = "carthago/v1/device-id"
 	infoC2S         = "carthago/v1/key/c2s"
 	infoS2C         = "carthago/v1/key/s2c"
@@ -70,6 +71,11 @@ func ProveDigest(th [32]byte) [32]byte { return taggedHash(dstProve, th) }
 
 // QuoteNonce is the TPM2_Quote / TPM2_Certify qualifying data for this handshake.
 func QuoteNonce(th [32]byte) [32]byte { return taggedHash(dstQuote, th) }
+
+// DriverListNonce is the nonce the client hands to Windows when it asks for the signed
+// driver list of this handshake. Windows copies it into the signed part of the package,
+// so a list made for another handshake does not pass.
+func DriverListNonce(th [32]byte) [32]byte { return taggedHash(dstDriverList, th) }
 
 // X25519 computes the shared secret, rejecting low-order points (all-zero output).
 func X25519(priv, peerPub []byte) ([]byte, error) {

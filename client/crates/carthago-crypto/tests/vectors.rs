@@ -140,6 +140,7 @@ fn handshake_vectors() {
     let pd = prove_digest(&th);
     assert_eq!(pd.to_vec(), hx(&v["prove_digest"]));
     assert_eq!(quote_nonce(&th).to_vec(), hx(&v["quote_nonce"]));
+    assert_eq!(driver_list_nonce(&th).to_vec(), hx(&v["driver_list_nonce"]));
     assert_eq!(dev.sign(&pd).to_bytes().to_vec(), hx(&v["device_sig"]));
 
     use p256::ecdsa::signature::hazmat::PrehashVerifier;

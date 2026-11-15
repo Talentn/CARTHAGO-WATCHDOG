@@ -44,6 +44,9 @@ then Heartbeat / HeartbeatAck (and Kicked, EnforcementNotice) both ways, seq str
   (TPM key) signs it as a prehashed digest, output raw `r || s`.
 - `quote_nonce = SHA-256("carthago/v1/quote" || th)` is the qualifying data of the TPM2_Quote and of
   TPM2_Certify(device key by AK), which binds the attestation to this handshake.
+- `driver_list_nonce = SHA-256("carthago/v1/driver-list" || th)` is the nonce the client gives
+  Windows for the signed driver list in Prove (`GetRuntimeAttestationReport`), which binds the
+  list to this handshake.
 - `device_id = hex(SHA-256("carthago/v1/device-id" || alg_u8 || device_public_key)[..16])`.
 
 ## Enforcement notice

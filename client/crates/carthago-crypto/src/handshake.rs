@@ -19,6 +19,7 @@ const DST_NOTICE: &[u8] = b"carthago/v1/enforcement-notice";
 const DST_BAN: &[u8] = b"carthago/v1/ban-refusal";
 const DST_PROVE: &[u8] = b"carthago/v1/prove";
 const DST_QUOTE: &[u8] = b"carthago/v1/quote";
+const DST_DRIVER_LIST: &[u8] = b"carthago/v1/driver-list";
 const DST_DEVICE_ID: &[u8] = b"carthago/v1/device-id";
 const INFO_C2S: &[u8] = b"carthago/v1/key/c2s";
 const INFO_S2C: &[u8] = b"carthago/v1/key/s2c";
@@ -68,6 +69,11 @@ pub fn prove_digest(th: &[u8; 32]) -> [u8; 32] {
 /// Qualifying data for TPM2_Quote and TPM2_Certify in this handshake.
 pub fn quote_nonce(th: &[u8; 32]) -> [u8; 32] {
     tagged(DST_QUOTE, th)
+}
+
+/// The nonce handed to Windows when asking for the signed driver list of this handshake.
+pub fn driver_list_nonce(th: &[u8; 32]) -> [u8; 32] {
+    tagged(DST_DRIVER_LIST, th)
 }
 
 pub fn x25519_public(secret: &[u8; 32]) -> [u8; 32] {

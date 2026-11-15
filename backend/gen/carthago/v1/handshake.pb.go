@@ -83,6 +83,67 @@ func (DeviceKeyAlg) EnumDescriptor() ([]byte, []int) {
 	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{0}
 }
 
+// Why a client has no driver list to send.
+type DriverListUnavailable int32
+
+const (
+	DriverListUnavailable_DRIVER_LIST_UNAVAILABLE_UNSPECIFIED DriverListUnavailable = 0
+	// This Windows has no GetRuntimeAttestationReport (older than Windows 11 24H2 with the
+	// update that added it), or the client does not run on Windows.
+	DriverListUnavailable_DRIVER_LIST_UNAVAILABLE_NO_INTERFACE DriverListUnavailable = 1
+	// Windows has the function and keeps no list: memory integrity (HVCI) is off.
+	DriverListUnavailable_DRIVER_LIST_UNAVAILABLE_HVCI_OFF DriverListUnavailable = 2
+	// Virtualization-based security is not running.
+	DriverListUnavailable_DRIVER_LIST_UNAVAILABLE_VBS_OFF DriverListUnavailable = 3
+	// Windows refused for another reason; win32_error says which.
+	DriverListUnavailable_DRIVER_LIST_UNAVAILABLE_FAILED DriverListUnavailable = 4
+)
+
+// Enum value maps for DriverListUnavailable.
+var (
+	DriverListUnavailable_name = map[int32]string{
+		0: "DRIVER_LIST_UNAVAILABLE_UNSPECIFIED",
+		1: "DRIVER_LIST_UNAVAILABLE_NO_INTERFACE",
+		2: "DRIVER_LIST_UNAVAILABLE_HVCI_OFF",
+		3: "DRIVER_LIST_UNAVAILABLE_VBS_OFF",
+		4: "DRIVER_LIST_UNAVAILABLE_FAILED",
+	}
+	DriverListUnavailable_value = map[string]int32{
+		"DRIVER_LIST_UNAVAILABLE_UNSPECIFIED":  0,
+		"DRIVER_LIST_UNAVAILABLE_NO_INTERFACE": 1,
+		"DRIVER_LIST_UNAVAILABLE_HVCI_OFF":     2,
+		"DRIVER_LIST_UNAVAILABLE_VBS_OFF":      3,
+		"DRIVER_LIST_UNAVAILABLE_FAILED":       4,
+	}
+)
+
+func (x DriverListUnavailable) Enum() *DriverListUnavailable {
+	p := new(DriverListUnavailable)
+	*p = x
+	return p
+}
+
+func (x DriverListUnavailable) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DriverListUnavailable) Descriptor() protoreflect.EnumDescriptor {
+	return file_carthago_v1_handshake_proto_enumTypes[1].Descriptor()
+}
+
+func (DriverListUnavailable) Type() protoreflect.EnumType {
+	return &file_carthago_v1_handshake_proto_enumTypes[1]
+}
+
+func (x DriverListUnavailable) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DriverListUnavailable.Descriptor instead.
+func (DriverListUnavailable) EnumDescriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{1}
+}
+
 // Client scan finding codes (Finding.code). The client only observes and reports; every
 // threshold, allowlist and verdict lives on the server (plan §8.6). Meaning of a, b and
 // detail per code below. Codes 1 and 3 predate this enum and keep their values.
@@ -215,11 +276,11 @@ func (x FindingCode) String() string {
 }
 
 func (FindingCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[1].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[2].Descriptor()
 }
 
 func (FindingCode) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[1]
+	return &file_carthago_v1_handshake_proto_enumTypes[2]
 }
 
 func (x FindingCode) Number() protoreflect.EnumNumber {
@@ -228,7 +289,7 @@ func (x FindingCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FindingCode.Descriptor instead.
 func (FindingCode) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{1}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{2}
 }
 
 // What a companion knows about when it first saw something. It takes a picture of the game
@@ -296,11 +357,11 @@ func (x ObservedFlags) String() string {
 }
 
 func (ObservedFlags) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[2].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[3].Descriptor()
 }
 
 func (ObservedFlags) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[2]
+	return &file_carthago_v1_handshake_proto_enumTypes[3]
 }
 
 func (x ObservedFlags) Number() protoreflect.EnumNumber {
@@ -309,7 +370,7 @@ func (x ObservedFlags) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ObservedFlags.Descriptor instead.
 func (ObservedFlags) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{2}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{3}
 }
 
 // FINDING_CODE_EXTERNAL_HANDLE b >> 32, bit 16.
@@ -343,11 +404,11 @@ func (x HolderFlags) String() string {
 }
 
 func (HolderFlags) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[3].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[4].Descriptor()
 }
 
 func (HolderFlags) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[3]
+	return &file_carthago_v1_handshake_proto_enumTypes[4]
 }
 
 func (x HolderFlags) Number() protoreflect.EnumNumber {
@@ -356,7 +417,7 @@ func (x HolderFlags) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use HolderFlags.Descriptor instead.
 func (HolderFlags) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{3}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{4}
 }
 
 // FINDING_CODE_EXTERNAL_CODE_CHANGE b >> 32: CodeChangeKind in bits 0-3, then about the
@@ -401,11 +462,11 @@ func (x CodeChangeKind) String() string {
 }
 
 func (CodeChangeKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[4].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[5].Descriptor()
 }
 
 func (CodeChangeKind) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[4]
+	return &file_carthago_v1_handshake_proto_enumTypes[5]
 }
 
 func (x CodeChangeKind) Number() protoreflect.EnumNumber {
@@ -414,7 +475,7 @@ func (x CodeChangeKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use CodeChangeKind.Descriptor instead.
 func (CodeChangeKind) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{4}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{5}
 }
 
 // FINDING_CODE_MODULE_SIGNATURE b & 0xff: what WinVerifyTrust says about the file on disk
@@ -464,11 +525,11 @@ func (x ModuleSignature) String() string {
 }
 
 func (ModuleSignature) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[5].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[6].Descriptor()
 }
 
 func (ModuleSignature) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[5]
+	return &file_carthago_v1_handshake_proto_enumTypes[6]
 }
 
 func (x ModuleSignature) Number() protoreflect.EnumNumber {
@@ -477,7 +538,7 @@ func (x ModuleSignature) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ModuleSignature.Descriptor instead.
 func (ModuleSignature) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{5}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{6}
 }
 
 // Bits in FINDING_CODE_UNBACKED_EXEC b >> 48.
@@ -520,11 +581,11 @@ func (x UnbackedFlags) String() string {
 }
 
 func (UnbackedFlags) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[6].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[7].Descriptor()
 }
 
 func (UnbackedFlags) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[6]
+	return &file_carthago_v1_handshake_proto_enumTypes[7]
 }
 
 func (x UnbackedFlags) Number() protoreflect.EnumNumber {
@@ -533,7 +594,7 @@ func (x UnbackedFlags) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use UnbackedFlags.Descriptor instead.
 func (UnbackedFlags) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{6}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{7}
 }
 
 // Bits in FINDING_CODE_DEBUGGER a.
@@ -582,11 +643,11 @@ func (x DebugSignal) String() string {
 }
 
 func (DebugSignal) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[7].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[8].Descriptor()
 }
 
 func (DebugSignal) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[7]
+	return &file_carthago_v1_handshake_proto_enumTypes[8]
 }
 
 func (x DebugSignal) Number() protoreflect.EnumNumber {
@@ -595,7 +656,7 @@ func (x DebugSignal) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DebugSignal.Descriptor instead.
 func (DebugSignal) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{7}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{8}
 }
 
 type ModulePathClass int32
@@ -631,11 +692,11 @@ func (x ModulePathClass) String() string {
 }
 
 func (ModulePathClass) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[8].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[9].Descriptor()
 }
 
 func (ModulePathClass) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[8]
+	return &file_carthago_v1_handshake_proto_enumTypes[9]
 }
 
 func (x ModulePathClass) Number() protoreflect.EnumNumber {
@@ -644,7 +705,7 @@ func (x ModulePathClass) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ModulePathClass.Descriptor instead.
 func (ModulePathClass) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{8}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{9}
 }
 
 // Curated exports checked for inline hooks (timing APIs for speedhacks, loader and query
@@ -715,11 +776,11 @@ func (x WatchedApi) String() string {
 }
 
 func (WatchedApi) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[9].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[10].Descriptor()
 }
 
 func (WatchedApi) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[9]
+	return &file_carthago_v1_handshake_proto_enumTypes[10]
 }
 
 func (x WatchedApi) Number() protoreflect.EnumNumber {
@@ -728,7 +789,7 @@ func (x WatchedApi) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WatchedApi.Descriptor instead.
 func (WatchedApi) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{9}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{10}
 }
 
 // Why a session was flagged, as a broad category. Which rule fired, its scores and its
@@ -785,11 +846,11 @@ func (x EnforcementCategory) String() string {
 }
 
 func (EnforcementCategory) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[10].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[11].Descriptor()
 }
 
 func (EnforcementCategory) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[10]
+	return &file_carthago_v1_handshake_proto_enumTypes[11]
 }
 
 func (x EnforcementCategory) Number() protoreflect.EnumNumber {
@@ -798,7 +859,7 @@ func (x EnforcementCategory) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EnforcementCategory.Descriptor instead.
 func (EnforcementCategory) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{10}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{11}
 }
 
 type EnforcementSeverity int32
@@ -837,11 +898,11 @@ func (x EnforcementSeverity) String() string {
 }
 
 func (EnforcementSeverity) Descriptor() protoreflect.EnumDescriptor {
-	return file_carthago_v1_handshake_proto_enumTypes[11].Descriptor()
+	return file_carthago_v1_handshake_proto_enumTypes[12].Descriptor()
 }
 
 func (EnforcementSeverity) Type() protoreflect.EnumType {
-	return &file_carthago_v1_handshake_proto_enumTypes[11]
+	return &file_carthago_v1_handshake_proto_enumTypes[12]
 }
 
 func (x EnforcementSeverity) Number() protoreflect.EnumNumber {
@@ -850,7 +911,7 @@ func (x EnforcementSeverity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EnforcementSeverity.Descriptor instead.
 func (EnforcementSeverity) EnumDescriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{11}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{12}
 }
 
 type DeviceKey struct {
@@ -1651,18 +1712,85 @@ func (x *TpmEvidence) GetDeviceKeyPublicArea() []byte {
 	return nil
 }
 
+// Windows' signed list of the kernel drivers loaded since boot, as a user-mode program
+// gets it from GetRuntimeAttestationReport (driver report). The client passes the bytes
+// on unread; the gateway verifies and reads them. A client that cannot get the list says
+// why and carries on: the handshake never fails for it.
+type DriverList struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The Runtime Report Package exactly as Windows returned it, asked for with the nonce
+	// driver_list_nonce(transcript). Empty when unavailable is set.
+	Package       []byte                `protobuf:"bytes,1,opt,name=package,proto3" json:"package,omitempty"`
+	Unavailable   DriverListUnavailable `protobuf:"varint,2,opt,name=unavailable,proto3,enum=carthago.v1.DriverListUnavailable" json:"unavailable,omitempty"`
+	Win32Error    uint32                `protobuf:"varint,3,opt,name=win32_error,json=win32Error,proto3" json:"win32_error,omitempty"` // GetLastError of the refused call, 0 otherwise
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DriverList) Reset() {
+	*x = DriverList{}
+	mi := &file_carthago_v1_handshake_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DriverList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DriverList) ProtoMessage() {}
+
+func (x *DriverList) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_handshake_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DriverList.ProtoReflect.Descriptor instead.
+func (*DriverList) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DriverList) GetPackage() []byte {
+	if x != nil {
+		return x.Package
+	}
+	return nil
+}
+
+func (x *DriverList) GetUnavailable() DriverListUnavailable {
+	if x != nil {
+		return x.Unavailable
+	}
+	return DriverListUnavailable_DRIVER_LIST_UNAVAILABLE_UNSPECIFIED
+}
+
+func (x *DriverList) GetWin32Error() uint32 {
+	if x != nil {
+		return x.Win32Error
+	}
+	return 0
+}
+
 // First sealed client message.
 type Prove struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DeviceSig     []byte                 `protobuf:"bytes,1,opt,name=device_sig,json=deviceSig,proto3" json:"device_sig,omitempty"` // over prove_digest(transcript)
 	Attestation   *TpmEvidence           `protobuf:"bytes,2,opt,name=attestation,proto3" json:"attestation,omitempty"`
+	DriverList    *DriverList            `protobuf:"bytes,3,opt,name=driver_list,json=driverList,proto3" json:"driver_list,omitempty"` // absent from clients that predate it
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Prove) Reset() {
 	*x = Prove{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[10]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1674,7 +1802,7 @@ func (x *Prove) String() string {
 func (*Prove) ProtoMessage() {}
 
 func (x *Prove) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[10]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1687,7 +1815,7 @@ func (x *Prove) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Prove.ProtoReflect.Descriptor instead.
 func (*Prove) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{10}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Prove) GetDeviceSig() []byte {
@@ -1700,6 +1828,13 @@ func (x *Prove) GetDeviceSig() []byte {
 func (x *Prove) GetAttestation() *TpmEvidence {
 	if x != nil {
 		return x.Attestation
+	}
+	return nil
+}
+
+func (x *Prove) GetDriverList() *DriverList {
+	if x != nil {
+		return x.DriverList
 	}
 	return nil
 }
@@ -1718,7 +1853,7 @@ type Session struct {
 
 func (x *Session) Reset() {
 	*x = Session{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[11]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1730,7 +1865,7 @@ func (x *Session) String() string {
 func (*Session) ProtoMessage() {}
 
 func (x *Session) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[11]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1743,7 +1878,7 @@ func (x *Session) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Session.ProtoReflect.Descriptor instead.
 func (*Session) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{11}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Session) GetSessionToken() string {
@@ -1799,7 +1934,7 @@ type Finding struct {
 
 func (x *Finding) Reset() {
 	*x = Finding{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[12]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1811,7 +1946,7 @@ func (x *Finding) String() string {
 func (*Finding) ProtoMessage() {}
 
 func (x *Finding) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[12]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1824,7 +1959,7 @@ func (x *Finding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finding.ProtoReflect.Descriptor instead.
 func (*Finding) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{12}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Finding) GetJob() string {
@@ -1885,7 +2020,7 @@ type SchedSummary struct {
 
 func (x *SchedSummary) Reset() {
 	*x = SchedSummary{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[13]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1897,7 +2032,7 @@ func (x *SchedSummary) String() string {
 func (*SchedSummary) ProtoMessage() {}
 
 func (x *SchedSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[13]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1910,7 +2045,7 @@ func (x *SchedSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchedSummary.ProtoReflect.Descriptor instead.
 func (*SchedSummary) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{13}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SchedSummary) GetWorkerCpuNs() uint64 {
@@ -1983,7 +2118,7 @@ type TimeSample struct {
 
 func (x *TimeSample) Reset() {
 	*x = TimeSample{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[14]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1995,7 +2130,7 @@ func (x *TimeSample) String() string {
 func (*TimeSample) ProtoMessage() {}
 
 func (x *TimeSample) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[14]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2008,7 +2143,7 @@ func (x *TimeSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSample.ProtoReflect.Descriptor instead.
 func (*TimeSample) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{14}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TimeSample) GetQpcNs() uint64 {
@@ -2046,7 +2181,7 @@ type InputStats struct {
 
 func (x *InputStats) Reset() {
 	*x = InputStats{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[15]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2058,7 +2193,7 @@ func (x *InputStats) String() string {
 func (*InputStats) ProtoMessage() {}
 
 func (x *InputStats) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[15]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2071,7 +2206,7 @@ func (x *InputStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InputStats.ProtoReflect.Descriptor instead.
 func (*InputStats) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{15}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *InputStats) GetMouseEvents() uint64 {
@@ -2115,7 +2250,7 @@ type JobCoverage struct {
 
 func (x *JobCoverage) Reset() {
 	*x = JobCoverage{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[16]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2127,7 +2262,7 @@ func (x *JobCoverage) String() string {
 func (*JobCoverage) ProtoMessage() {}
 
 func (x *JobCoverage) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[16]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2140,7 +2275,7 @@ func (x *JobCoverage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobCoverage.ProtoReflect.Descriptor instead.
 func (*JobCoverage) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{16}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *JobCoverage) GetJob() string {
@@ -2185,7 +2320,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[17]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2197,7 +2332,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[17]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2210,7 +2345,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{17}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Heartbeat) GetActivity() uint32 {
@@ -2265,7 +2400,7 @@ type HeartbeatAck struct {
 
 func (x *HeartbeatAck) Reset() {
 	*x = HeartbeatAck{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[18]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2277,7 +2412,7 @@ func (x *HeartbeatAck) String() string {
 func (*HeartbeatAck) ProtoMessage() {}
 
 func (x *HeartbeatAck) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[18]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2290,7 +2425,7 @@ func (x *HeartbeatAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatAck.ProtoReflect.Descriptor instead.
 func (*HeartbeatAck) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{18}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *HeartbeatAck) GetRenewedToken() string {
@@ -2316,7 +2451,7 @@ type Kicked struct {
 
 func (x *Kicked) Reset() {
 	*x = Kicked{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[19]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2328,7 +2463,7 @@ func (x *Kicked) String() string {
 func (*Kicked) ProtoMessage() {}
 
 func (x *Kicked) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[19]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2341,7 +2476,7 @@ func (x *Kicked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Kicked.ProtoReflect.Descriptor instead.
 func (*Kicked) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{19}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Kicked) GetReason() string {
@@ -2361,7 +2496,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[20]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2373,7 +2508,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[20]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2386,7 +2521,7 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{20}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Error) GetCode() string {
@@ -2418,7 +2553,7 @@ type EnforcementNoticeBody struct {
 
 func (x *EnforcementNoticeBody) Reset() {
 	*x = EnforcementNoticeBody{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2430,7 +2565,7 @@ func (x *EnforcementNoticeBody) String() string {
 func (*EnforcementNoticeBody) ProtoMessage() {}
 
 func (x *EnforcementNoticeBody) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[21]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2443,7 +2578,7 @@ func (x *EnforcementNoticeBody) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnforcementNoticeBody.ProtoReflect.Descriptor instead.
 func (*EnforcementNoticeBody) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{21}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *EnforcementNoticeBody) GetNoticeId() []byte {
@@ -2510,7 +2645,7 @@ type EnforcementNotice struct {
 
 func (x *EnforcementNotice) Reset() {
 	*x = EnforcementNotice{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2522,7 +2657,7 @@ func (x *EnforcementNotice) String() string {
 func (*EnforcementNotice) ProtoMessage() {}
 
 func (x *EnforcementNotice) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[22]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2535,7 +2670,7 @@ func (x *EnforcementNotice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnforcementNotice.ProtoReflect.Descriptor instead.
 func (*EnforcementNotice) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{22}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *EnforcementNotice) GetBody() []byte {
@@ -2572,7 +2707,7 @@ type BanRefusalBody struct {
 
 func (x *BanRefusalBody) Reset() {
 	*x = BanRefusalBody{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2584,7 +2719,7 @@ func (x *BanRefusalBody) String() string {
 func (*BanRefusalBody) ProtoMessage() {}
 
 func (x *BanRefusalBody) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[23]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2597,7 +2732,7 @@ func (x *BanRefusalBody) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BanRefusalBody.ProtoReflect.Descriptor instead.
 func (*BanRefusalBody) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{23}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *BanRefusalBody) GetSessionId() []byte {
@@ -2649,7 +2784,7 @@ type BanRefusal struct {
 
 func (x *BanRefusal) Reset() {
 	*x = BanRefusal{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2661,7 +2796,7 @@ func (x *BanRefusal) String() string {
 func (*BanRefusal) ProtoMessage() {}
 
 func (x *BanRefusal) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[24]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2674,7 +2809,7 @@ func (x *BanRefusal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BanRefusal.ProtoReflect.Descriptor instead.
 func (*BanRefusal) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{24}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BanRefusal) GetBody() []byte {
@@ -2715,7 +2850,7 @@ type ClientMsg struct {
 
 func (x *ClientMsg) Reset() {
 	*x = ClientMsg{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[25]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2727,7 +2862,7 @@ func (x *ClientMsg) String() string {
 func (*ClientMsg) ProtoMessage() {}
 
 func (x *ClientMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[25]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2740,7 +2875,7 @@ func (x *ClientMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientMsg.ProtoReflect.Descriptor instead.
 func (*ClientMsg) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{25}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ClientMsg) GetSeq() uint64 {
@@ -2825,7 +2960,7 @@ type ServerMsg struct {
 
 func (x *ServerMsg) Reset() {
 	*x = ServerMsg{}
-	mi := &file_carthago_v1_handshake_proto_msgTypes[26]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2837,7 +2972,7 @@ func (x *ServerMsg) String() string {
 func (*ServerMsg) ProtoMessage() {}
 
 func (x *ServerMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_handshake_proto_msgTypes[26]
+	mi := &file_carthago_v1_handshake_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2850,7 +2985,7 @@ func (x *ServerMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMsg.ProtoReflect.Descriptor instead.
 func (*ServerMsg) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{26}
+	return file_carthago_v1_handshake_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ServerMsg) GetSeq() uint64 {
@@ -3053,11 +3188,19 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\x1cdevice_key_certify_signature\x18\b \x01(\fR\x19deviceKeyCertifySignature\x12\x14\n" +
 	"\x05error\x18\t \x01(\tR\x05error\x123\n" +
 	"\x16device_key_public_area\x18\n" +
-	" \x01(\fR\x13deviceKeyPublicArea\"b\n" +
+	" \x01(\fR\x13deviceKeyPublicArea\"\x8d\x01\n" +
+	"\n" +
+	"DriverList\x12\x18\n" +
+	"\apackage\x18\x01 \x01(\fR\apackage\x12D\n" +
+	"\vunavailable\x18\x02 \x01(\x0e2\".carthago.v1.DriverListUnavailableR\vunavailable\x12\x1f\n" +
+	"\vwin32_error\x18\x03 \x01(\rR\n" +
+	"win32Error\"\x9c\x01\n" +
 	"\x05Prove\x12\x1d\n" +
 	"\n" +
 	"device_sig\x18\x01 \x01(\fR\tdeviceSig\x12:\n" +
-	"\vattestation\x18\x02 \x01(\v2\x18.carthago.v1.TpmEvidenceR\vattestation\"\xac\x01\n" +
+	"\vattestation\x18\x02 \x01(\v2\x18.carthago.v1.TpmEvidenceR\vattestation\x128\n" +
+	"\vdriver_list\x18\x03 \x01(\v2\x17.carthago.v1.DriverListR\n" +
+	"driverList\"\xac\x01\n" +
 	"\aSession\x12#\n" +
 	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\x12\x1f\n" +
 	"\vtrust_level\x18\x02 \x01(\rR\n" +
@@ -3170,7 +3313,13 @@ const file_carthago_v1_handshake_proto_rawDesc = "" +
 	"\fDeviceKeyAlg\x12\x1e\n" +
 	"\x1aDEVICE_KEY_ALG_UNSPECIFIED\x10\x00\x12#\n" +
 	"\x1fDEVICE_KEY_ALG_ED25519_SOFTWARE\x10\x01\x12!\n" +
-	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02*\x92\x05\n" +
+	"\x1dDEVICE_KEY_ALG_ECDSA_P256_TPM\x10\x02*\xd9\x01\n" +
+	"\x15DriverListUnavailable\x12'\n" +
+	"#DRIVER_LIST_UNAVAILABLE_UNSPECIFIED\x10\x00\x12(\n" +
+	"$DRIVER_LIST_UNAVAILABLE_NO_INTERFACE\x10\x01\x12$\n" +
+	" DRIVER_LIST_UNAVAILABLE_HVCI_OFF\x10\x02\x12#\n" +
+	"\x1fDRIVER_LIST_UNAVAILABLE_VBS_OFF\x10\x03\x12\"\n" +
+	"\x1eDRIVER_LIST_UNAVAILABLE_FAILED\x10\x04*\x92\x05\n" +
 	"\vFindingCode\x12\x1c\n" +
 	"\x18FINDING_CODE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dFINDING_CODE_MODULE_NOT_IMAGE\x10\x01\x12$\n" +
@@ -3278,76 +3427,80 @@ func file_carthago_v1_handshake_proto_rawDescGZIP() []byte {
 	return file_carthago_v1_handshake_proto_rawDescData
 }
 
-var file_carthago_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
-var file_carthago_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_carthago_v1_handshake_proto_enumTypes = make([]protoimpl.EnumInfo, 13)
+var file_carthago_v1_handshake_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_carthago_v1_handshake_proto_goTypes = []any{
 	(DeviceKeyAlg)(0),             // 0: carthago.v1.DeviceKeyAlg
-	(FindingCode)(0),              // 1: carthago.v1.FindingCode
-	(ObservedFlags)(0),            // 2: carthago.v1.ObservedFlags
-	(HolderFlags)(0),              // 3: carthago.v1.HolderFlags
-	(CodeChangeKind)(0),           // 4: carthago.v1.CodeChangeKind
-	(ModuleSignature)(0),          // 5: carthago.v1.ModuleSignature
-	(UnbackedFlags)(0),            // 6: carthago.v1.UnbackedFlags
-	(DebugSignal)(0),              // 7: carthago.v1.DebugSignal
-	(ModulePathClass)(0),          // 8: carthago.v1.ModulePathClass
-	(WatchedApi)(0),               // 9: carthago.v1.WatchedApi
-	(EnforcementCategory)(0),      // 10: carthago.v1.EnforcementCategory
-	(EnforcementSeverity)(0),      // 11: carthago.v1.EnforcementSeverity
-	(*DeviceKey)(nil),             // 12: carthago.v1.DeviceKey
-	(*TpmEnrollment)(nil),         // 13: carthago.v1.TpmEnrollment
-	(*EnvReport)(nil),             // 14: carthago.v1.EnvReport
-	(*Hello)(nil),                 // 15: carthago.v1.Hello
-	(*EkChallenge)(nil),           // 16: carthago.v1.EkChallenge
-	(*AttestRequest)(nil),         // 17: carthago.v1.AttestRequest
-	(*ChallengeBody)(nil),         // 18: carthago.v1.ChallengeBody
-	(*Challenge)(nil),             // 19: carthago.v1.Challenge
-	(*Pcr)(nil),                   // 20: carthago.v1.Pcr
-	(*TpmEvidence)(nil),           // 21: carthago.v1.TpmEvidence
-	(*Prove)(nil),                 // 22: carthago.v1.Prove
-	(*Session)(nil),               // 23: carthago.v1.Session
-	(*Finding)(nil),               // 24: carthago.v1.Finding
-	(*SchedSummary)(nil),          // 25: carthago.v1.SchedSummary
-	(*TimeSample)(nil),            // 26: carthago.v1.TimeSample
-	(*InputStats)(nil),            // 27: carthago.v1.InputStats
-	(*JobCoverage)(nil),           // 28: carthago.v1.JobCoverage
-	(*Heartbeat)(nil),             // 29: carthago.v1.Heartbeat
-	(*HeartbeatAck)(nil),          // 30: carthago.v1.HeartbeatAck
-	(*Kicked)(nil),                // 31: carthago.v1.Kicked
-	(*Error)(nil),                 // 32: carthago.v1.Error
-	(*EnforcementNoticeBody)(nil), // 33: carthago.v1.EnforcementNoticeBody
-	(*EnforcementNotice)(nil),     // 34: carthago.v1.EnforcementNotice
-	(*BanRefusalBody)(nil),        // 35: carthago.v1.BanRefusalBody
-	(*BanRefusal)(nil),            // 36: carthago.v1.BanRefusal
-	(*ClientMsg)(nil),             // 37: carthago.v1.ClientMsg
-	(*ServerMsg)(nil),             // 38: carthago.v1.ServerMsg
+	(DriverListUnavailable)(0),    // 1: carthago.v1.DriverListUnavailable
+	(FindingCode)(0),              // 2: carthago.v1.FindingCode
+	(ObservedFlags)(0),            // 3: carthago.v1.ObservedFlags
+	(HolderFlags)(0),              // 4: carthago.v1.HolderFlags
+	(CodeChangeKind)(0),           // 5: carthago.v1.CodeChangeKind
+	(ModuleSignature)(0),          // 6: carthago.v1.ModuleSignature
+	(UnbackedFlags)(0),            // 7: carthago.v1.UnbackedFlags
+	(DebugSignal)(0),              // 8: carthago.v1.DebugSignal
+	(ModulePathClass)(0),          // 9: carthago.v1.ModulePathClass
+	(WatchedApi)(0),               // 10: carthago.v1.WatchedApi
+	(EnforcementCategory)(0),      // 11: carthago.v1.EnforcementCategory
+	(EnforcementSeverity)(0),      // 12: carthago.v1.EnforcementSeverity
+	(*DeviceKey)(nil),             // 13: carthago.v1.DeviceKey
+	(*TpmEnrollment)(nil),         // 14: carthago.v1.TpmEnrollment
+	(*EnvReport)(nil),             // 15: carthago.v1.EnvReport
+	(*Hello)(nil),                 // 16: carthago.v1.Hello
+	(*EkChallenge)(nil),           // 17: carthago.v1.EkChallenge
+	(*AttestRequest)(nil),         // 18: carthago.v1.AttestRequest
+	(*ChallengeBody)(nil),         // 19: carthago.v1.ChallengeBody
+	(*Challenge)(nil),             // 20: carthago.v1.Challenge
+	(*Pcr)(nil),                   // 21: carthago.v1.Pcr
+	(*TpmEvidence)(nil),           // 22: carthago.v1.TpmEvidence
+	(*DriverList)(nil),            // 23: carthago.v1.DriverList
+	(*Prove)(nil),                 // 24: carthago.v1.Prove
+	(*Session)(nil),               // 25: carthago.v1.Session
+	(*Finding)(nil),               // 26: carthago.v1.Finding
+	(*SchedSummary)(nil),          // 27: carthago.v1.SchedSummary
+	(*TimeSample)(nil),            // 28: carthago.v1.TimeSample
+	(*InputStats)(nil),            // 29: carthago.v1.InputStats
+	(*JobCoverage)(nil),           // 30: carthago.v1.JobCoverage
+	(*Heartbeat)(nil),             // 31: carthago.v1.Heartbeat
+	(*HeartbeatAck)(nil),          // 32: carthago.v1.HeartbeatAck
+	(*Kicked)(nil),                // 33: carthago.v1.Kicked
+	(*Error)(nil),                 // 34: carthago.v1.Error
+	(*EnforcementNoticeBody)(nil), // 35: carthago.v1.EnforcementNoticeBody
+	(*EnforcementNotice)(nil),     // 36: carthago.v1.EnforcementNotice
+	(*BanRefusalBody)(nil),        // 37: carthago.v1.BanRefusalBody
+	(*BanRefusal)(nil),            // 38: carthago.v1.BanRefusal
+	(*ClientMsg)(nil),             // 39: carthago.v1.ClientMsg
+	(*ServerMsg)(nil),             // 40: carthago.v1.ServerMsg
 }
 var file_carthago_v1_handshake_proto_depIdxs = []int32{
 	0,  // 0: carthago.v1.DeviceKey.alg:type_name -> carthago.v1.DeviceKeyAlg
-	12, // 1: carthago.v1.Hello.device_key:type_name -> carthago.v1.DeviceKey
-	14, // 2: carthago.v1.Hello.env:type_name -> carthago.v1.EnvReport
-	13, // 3: carthago.v1.Hello.tpm_enrollment:type_name -> carthago.v1.TpmEnrollment
-	16, // 4: carthago.v1.AttestRequest.ek_challenge:type_name -> carthago.v1.EkChallenge
-	17, // 5: carthago.v1.ChallengeBody.attest:type_name -> carthago.v1.AttestRequest
-	20, // 6: carthago.v1.TpmEvidence.pcrs:type_name -> carthago.v1.Pcr
-	21, // 7: carthago.v1.Prove.attestation:type_name -> carthago.v1.TpmEvidence
-	25, // 8: carthago.v1.Heartbeat.sched:type_name -> carthago.v1.SchedSummary
-	24, // 9: carthago.v1.Heartbeat.findings:type_name -> carthago.v1.Finding
-	26, // 10: carthago.v1.Heartbeat.time:type_name -> carthago.v1.TimeSample
-	27, // 11: carthago.v1.Heartbeat.input:type_name -> carthago.v1.InputStats
-	28, // 12: carthago.v1.Heartbeat.coverage:type_name -> carthago.v1.JobCoverage
-	22, // 13: carthago.v1.ClientMsg.prove:type_name -> carthago.v1.Prove
-	29, // 14: carthago.v1.ClientMsg.heartbeat:type_name -> carthago.v1.Heartbeat
-	23, // 15: carthago.v1.ServerMsg.session:type_name -> carthago.v1.Session
-	30, // 16: carthago.v1.ServerMsg.heartbeat_ack:type_name -> carthago.v1.HeartbeatAck
-	31, // 17: carthago.v1.ServerMsg.kicked:type_name -> carthago.v1.Kicked
-	32, // 18: carthago.v1.ServerMsg.error:type_name -> carthago.v1.Error
-	34, // 19: carthago.v1.ServerMsg.enforcement_notice:type_name -> carthago.v1.EnforcementNotice
-	36, // 20: carthago.v1.ServerMsg.banned:type_name -> carthago.v1.BanRefusal
-	21, // [21:21] is the sub-list for method output_type
-	21, // [21:21] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	13, // 1: carthago.v1.Hello.device_key:type_name -> carthago.v1.DeviceKey
+	15, // 2: carthago.v1.Hello.env:type_name -> carthago.v1.EnvReport
+	14, // 3: carthago.v1.Hello.tpm_enrollment:type_name -> carthago.v1.TpmEnrollment
+	17, // 4: carthago.v1.AttestRequest.ek_challenge:type_name -> carthago.v1.EkChallenge
+	18, // 5: carthago.v1.ChallengeBody.attest:type_name -> carthago.v1.AttestRequest
+	21, // 6: carthago.v1.TpmEvidence.pcrs:type_name -> carthago.v1.Pcr
+	1,  // 7: carthago.v1.DriverList.unavailable:type_name -> carthago.v1.DriverListUnavailable
+	22, // 8: carthago.v1.Prove.attestation:type_name -> carthago.v1.TpmEvidence
+	23, // 9: carthago.v1.Prove.driver_list:type_name -> carthago.v1.DriverList
+	27, // 10: carthago.v1.Heartbeat.sched:type_name -> carthago.v1.SchedSummary
+	26, // 11: carthago.v1.Heartbeat.findings:type_name -> carthago.v1.Finding
+	28, // 12: carthago.v1.Heartbeat.time:type_name -> carthago.v1.TimeSample
+	29, // 13: carthago.v1.Heartbeat.input:type_name -> carthago.v1.InputStats
+	30, // 14: carthago.v1.Heartbeat.coverage:type_name -> carthago.v1.JobCoverage
+	24, // 15: carthago.v1.ClientMsg.prove:type_name -> carthago.v1.Prove
+	31, // 16: carthago.v1.ClientMsg.heartbeat:type_name -> carthago.v1.Heartbeat
+	25, // 17: carthago.v1.ServerMsg.session:type_name -> carthago.v1.Session
+	32, // 18: carthago.v1.ServerMsg.heartbeat_ack:type_name -> carthago.v1.HeartbeatAck
+	33, // 19: carthago.v1.ServerMsg.kicked:type_name -> carthago.v1.Kicked
+	34, // 20: carthago.v1.ServerMsg.error:type_name -> carthago.v1.Error
+	36, // 21: carthago.v1.ServerMsg.enforcement_notice:type_name -> carthago.v1.EnforcementNotice
+	38, // 22: carthago.v1.ServerMsg.banned:type_name -> carthago.v1.BanRefusal
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_carthago_v1_handshake_proto_init() }
@@ -3355,11 +3508,11 @@ func file_carthago_v1_handshake_proto_init() {
 	if File_carthago_v1_handshake_proto != nil {
 		return
 	}
-	file_carthago_v1_handshake_proto_msgTypes[25].OneofWrappers = []any{
+	file_carthago_v1_handshake_proto_msgTypes[26].OneofWrappers = []any{
 		(*ClientMsg_Prove)(nil),
 		(*ClientMsg_Heartbeat)(nil),
 	}
-	file_carthago_v1_handshake_proto_msgTypes[26].OneofWrappers = []any{
+	file_carthago_v1_handshake_proto_msgTypes[27].OneofWrappers = []any{
 		(*ServerMsg_Session)(nil),
 		(*ServerMsg_HeartbeatAck)(nil),
 		(*ServerMsg_Kicked)(nil),
@@ -3372,8 +3525,8 @@ func file_carthago_v1_handshake_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_handshake_proto_rawDesc), len(file_carthago_v1_handshake_proto_rawDesc)),
-			NumEnums:      12,
-			NumMessages:   27,
+			NumEnums:      13,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

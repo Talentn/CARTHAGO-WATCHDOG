@@ -120,6 +120,7 @@ type HandshakeVectors struct {
 	ServerSig          Hex               `json:"server_sig"`
 	ProveDigest        Hex               `json:"prove_digest"`
 	QuoteNonce         Hex               `json:"quote_nonce"`
+	DriverListNonce    Hex               `json:"driver_list_nonce"`
 	DeviceSig          Hex               `json:"device_sig"`
 	P256               P256Vector        `json:"p256_verify_only"`
 }
@@ -304,6 +305,8 @@ func BuildHandshakeVectors() (*HandshakeVectors, error) {
 	}
 	pd, qn := ProveDigest(th), QuoteNonce(th)
 	v.ProveDigest, v.QuoteNonce = pd[:], qn[:]
+	dn := DriverListNonce(th)
+	v.DriverListNonce = dn[:]
 	v.DeviceSig = ed25519.Sign(dev, pd[:])
 
 	ek, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

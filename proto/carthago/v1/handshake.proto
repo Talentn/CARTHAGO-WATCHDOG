@@ -112,10 +112,37 @@ message TpmEvidence {
   bytes device_key_public_area = 10; // TPMT_PUBLIC of the device key (Name check for the certify)
 }
 
+// Why a client has no driver list to send.
+enum DriverListUnavailable {
+  DRIVER_LIST_UNAVAILABLE_UNSPECIFIED = 0;
+  // This Windows has no GetRuntimeAttestationReport (older than Windows 11 24H2 with the
+  // update that added it), or the client does not run on Windows.
+  DRIVER_LIST_UNAVAILABLE_NO_INTERFACE = 1;
+  // Windows has the function and keeps no list: memory integrity (HVCI) is off.
+  DRIVER_LIST_UNAVAILABLE_HVCI_OFF = 2;
+  // Virtualization-based security is not running.
+  DRIVER_LIST_UNAVAILABLE_VBS_OFF = 3;
+  // Windows refused for another reason; win32_error says which.
+  DRIVER_LIST_UNAVAILABLE_FAILED = 4;
+}
+
+// Windows' signed list of the kernel drivers loaded since boot, as a user-mode program
+// gets it from GetRuntimeAttestationReport (driver report). The client passes the bytes
+// on unread; the gateway verifies and reads them. A client that cannot get the list says
+// why and carries on: the handshake never fails for it.
+message DriverList {
+  // The Runtime Report Package exactly as Windows returned it, asked for with the nonce
+  // driver_list_nonce(transcript). Empty when unavailable is set.
+  bytes package = 1;
+  DriverListUnavailable unavailable = 2;
+  uint32 win32_error = 3; // GetLastError of the refused call, 0 otherwise
+}
+
 // First sealed client message.
 message Prove {
   bytes device_sig = 1; // over prove_digest(transcript)
   TpmEvidence attestation = 2;
+  DriverList driver_list = 3; // absent from clients that predate it
 }
 
 // First sealed server message.
