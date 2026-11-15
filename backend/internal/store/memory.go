@@ -20,6 +20,7 @@ type Memory struct {
 	proposalAccounts map[string]int
 	dismissedCheats  map[[2]string]bool
 	econ             *memEconomy
+	drivers          *memDrivers
 }
 
 func NewMemory() *Memory {
