@@ -27,6 +27,9 @@ const (
 	sipaVBSMandatoryEnforce = 0x000A0006
 	sipaVBSHVCIPolicy       = 0x000A0007
 	sipaVBSMSBootChainReq   = 0x000A0008
+	// SIPAEVENT_VSM_IDKS_INFO: the public half of the Secure Kernel's identity signing
+	// key of this boot, which signs the runtime driver list (driverlist.go).
+	sipaVSMIDKSInfo = 0x00050023
 
 	evEventTag  = 0x6
 	evSeparator = 0x4
@@ -50,6 +53,12 @@ type VBSState struct {
 	BootDebugging *uint64 `json:"boot_debugging"`
 	CodeIntegrity *uint64 `json:"code_integrity"`
 	TestSigning   *uint64 `json:"test_signing"`
+
+	// IDKS is the payload of the one SIPAEVENT_VSM_IDKS_INFO event the boot loader
+	// measured, nil when there is none. idksConflict: two events that differ, so neither
+	// is used.
+	IDKS         []byte `json:"-"`
+	idksConflict bool
 }
 
 // HVCIEnforced reports whether the measured boot configuration launched the hypervisor
@@ -128,6 +137,16 @@ func (v *VBSState) walk(b []byte, depth int) error {
 		if typ&sipaTypeMask == sipaContainer {
 			if err := v.walk(payload, depth+1); err != nil {
 				return err
+			}
+			continue
+		}
+		if typ == sipaVSMIDKSInfo {
+			switch {
+			case v.idksConflict:
+			case v.IDKS == nil:
+				v.IDKS = append([]byte{}, payload...)
+			case !bytes.Equal(v.IDKS, payload):
+				v.IDKS, v.idksConflict = nil, true
 			}
 			continue
 		}

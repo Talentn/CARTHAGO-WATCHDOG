@@ -80,3 +80,30 @@ func TestParseVBSRejectsRelabelledEvents(t *testing.T) {
 		}
 	}
 }
+
+// The signing key of the driver list is only taken from before the separator, and two
+// different keys in one log are no key.
+func TestParseVBSKeepsTheDriverListSigningKey(t *testing.T) {
+	key := func(fill byte) []byte {
+		b := make([]byte, 8+20)
+		binary.LittleEndian.PutUint32(b[0:], sipaVSMIDKSInfo)
+		binary.LittleEndian.PutUint32(b[4:], 20)
+		for i := 8; i < len(b); i++ {
+			b[i] = fill
+		}
+		return b
+	}
+	v, err := ParseVBS([]goattest.Event{tagged(sipa(sipaCodeIntegrity, 1), key(1)), pcr12(evSeparator, []byte("WBCL")), tagged(key(2))})
+	if err != nil || len(v.IDKS) != 20 || v.IDKS[0] != 1 {
+		t.Fatalf("key % x, %v", v.IDKS, err)
+	}
+	if v, _ := ParseVBS([]goattest.Event{tagged(key(1)), tagged(key(1))}); len(v.IDKS) != 20 {
+		t.Errorf("the same key measured twice was dropped")
+	}
+	if v, _ := ParseVBS([]goattest.Event{tagged(key(1)), tagged(key(2)), tagged(key(1))}); v.IDKS != nil {
+		t.Errorf("two different keys left one standing: % x", v.IDKS)
+	}
+	if v, _ := ParseVBS([]goattest.Event{pcr12(evSeparator, []byte("WBCL")), tagged(key(1))}); v.IDKS != nil {
+		t.Errorf("a key from after the separator was used")
+	}
+}
