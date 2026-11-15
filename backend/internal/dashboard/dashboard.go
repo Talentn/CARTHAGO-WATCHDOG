@@ -94,6 +94,7 @@ type Server struct {
 	oracle       *OracleInfo
 	bans         *bans.Service
 	eco          *economy.Service
+	baselines    baselineCache
 }
 
 func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
@@ -434,8 +435,9 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 }
 
 type playersData struct {
-	All  bool
-	Rows []store.PlayerRow
+	All      bool
+	Rows     []store.PlayerRow
+	Baseline *baselineView
 }
 
 func (s *Server) players(w http.ResponseWriter, r *http.Request, tenant string) {
@@ -445,7 +447,12 @@ func (s *Server) players(w http.ResponseWriter, r *http.Request, tenant string) 
 		s.fail(w, err)
 		return
 	}
-	s.render(w, http.StatusOK, "players", page{Title: "Players", Nav: "players", Tenant: tenant, Data: playersData{all, rows}})
+	rows, base, err := s.reviewQueue(r.Context(), tenant, all, rows)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, http.StatusOK, "players", page{Title: "Players", Nav: "players", Tenant: tenant, Data: playersData{all, rows, base}})
 }
 
 type playerData struct {
@@ -453,6 +460,7 @@ type playerData struct {
 	Sessions []store.SessionRow
 	Evidence []store.Evidence
 	Oracle   *playerOracle
+	Baseline *baselineView
 }
 
 func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
@@ -498,7 +506,12 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 		s.fail(w, err)
 		return
 	}
-	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po}})
+	base, err := s.playerBaselineFor(ctx, tenant, hash)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po, base}})
 }
 
 func (s *Server) evidence(w http.ResponseWriter, r *http.Request, tenant string) {

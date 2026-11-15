@@ -12,6 +12,7 @@
   <div class="kpi"><span>Latest trust</span>{{if $r.Sessions}}<span class="trust t{{$r.TrustLevel}}">{{trust $r.TrustLevel}}</span><small>{{trustDesc $r.TrustLevel}}</small>{{else}}<b>—</b><small>no session</small>{{end}}</div>
 </section>
 {{with $d.Oracle}}{{template "playeroracle" .}}{{end}}
+{{with $d.Baseline}}{{template "playerbaseline" .}}{{end}}
 <section class="card"><h2>Evidence</h2>{{template "evidencetable" $d.Evidence}}</section>
 <section class="card no-player"><h2>Sessions</h2>{{template "sessiontable" $d.Sessions}}</section>
 {{end}}

@@ -123,6 +123,17 @@ type OracleFilter struct {
 	Limit      int
 }
 
+// OracleScoreLimit is the most score rows one read returns. It is as many as a tenant's
+// baseline learns from, which is more than the other lists show.
+const OracleScoreLimit = 5000
+
+func oracleScoreLimit(n int) int {
+	if n <= 0 {
+		return 100
+	}
+	return min(n, OracleScoreLimit)
+}
+
 // OracleStore keeps what the Carthago Oracle produces. Reads are tenant-scoped.
 type OracleStore interface {
 	PutOracleScore(ctx context.Context, s *OracleScore) error

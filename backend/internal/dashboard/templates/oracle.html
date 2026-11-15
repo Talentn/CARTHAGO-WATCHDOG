@@ -130,6 +130,20 @@
 </section>
 {{end}}
 
+{{define "playerbaseline"}}
+<section class="card" id="baseline">
+  <div class="card-head"><h2>Against this studio's own players</h2><span class="muted">learned from {{.Sessions}} of this studio's own sessions · no labels · advisory</span></div>
+  {{if .Learning}}<p class="empty">Learning what is normal for this studio: {{.Sessions}} of {{.Need}} sessions with gameplay so far. No score until then.</p>
+  {{else}}{{with .Player}}
+  <dl class="kv okv">
+    <dt>Player score</dt><dd><b>{{.Percent}}</b> <span class="tier tier-{{.Tier}}">{{.BandName}}</span></dd>
+    <dt>Sessions</dt><dd>{{.Sessions}} in the last 30 days, {{.Outside}} of them outside normal on their own</dd>
+    {{if .Signals}}<dt>Stands out in</dt><dd>{{.Signals}}</dd>{{end}}
+  </dl>
+  {{else}}<p class="empty">No session of this player in the last 30 days that the baseline can judge.</p>{{end}}{{end}}
+</section>
+{{end}}
+
 {{define "bancard"}}{{$csrf := .CSRF}}{{$id := .SessionID}}
 <section class="card" id="ban">
   <div class="card-head"><h2>Ban</h2><span class="muted">account and device key · <a href="/bans">all bans</a></span></div>

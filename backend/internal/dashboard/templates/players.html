@@ -1,5 +1,5 @@
 {{define "content"}}
-{{$d := .Data}}
+{{$d := .Data}}{{$b := $d.Baseline}}
 <div class="head">
   <h1>{{if $d.All}}All players{{else}}Flagged players{{end}}</h1>
   <div class="tabs"><a href="/players"{{if not $d.All}} class="on"{{end}}>Flagged</a><a href="/players?all=1"{{if $d.All}} class="on"{{end}}>All</a></div>
@@ -7,13 +7,14 @@
 <section class="card">
 {{if $d.Rows}}
 <table>
-  <thead><tr><th>Player</th><th>Status</th><th class="num">Risk</th><th class="num">Evidence</th><th>Severity</th><th class="num">Integrity</th><th>Top rule</th><th>Latest trust</th><th class="num">Sessions</th><th>Last seen</th></tr></thead>
+  <thead><tr><th>Player</th><th>Status</th><th class="num">Risk</th>{{if $b.Sessions}}<th title="How far the player sits outside this studio's own normal play, over the last 30 days">Against own players</th>{{end}}<th class="num">Evidence</th><th>Severity</th><th class="num">Integrity</th><th>Top rule</th><th>Latest trust</th><th class="num">Sessions</th><th>Last seen</th></tr></thead>
   <tbody>
   {{range $d.Rows}}
   <tr>
     <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a></td>
     <td>{{if .Bot}}<span class="tag" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{else}}<span class="tier tier-{{tier .Risk}}">{{tier .Risk}}</span>{{end}}</td>
     <td class="num">{{risk .Risk}}</td>
+    {{if $b.Sessions}}<td>{{with index $b.Players .PlayerHash}}<span class="tier tier-{{.Tier}}" title="{{.Sessions}} sessions in the last 30 days{{if .Signals}}; stands out in: {{.Signals}}{{end}}">{{.Percent}} · {{.BandName}}</span>{{else}}<span class="muted">—</span>{{end}}</td>{{end}}
     <td class="num">{{.EvidenceCount}}</td>
     <td>{{if ge .MaxSeverity 0}}<span class="sev sev-{{sev .MaxSeverity}}">{{sev .MaxSeverity}}</span>{{end}}</td>
     <td class="num">{{.Integrity}}</td>
@@ -27,5 +28,6 @@
 </table>
 {{else}}<p class="empty">{{if $d.All}}No players yet{{else}}No flagged players. Risk weights severity by confidence; a player is flagged at one confident medium or any high verdict.{{end}}</p>{{end}}
 </section>
+{{if $b.Sessions}}<p class="note">{{if $b.Learning}}Baseline: learning what is normal for this studio, {{$b.Sessions}} of {{$b.Need}} sessions with gameplay so far. Until then the list is ordered by rule risk only.{{else}}Order: players outside this studio's own normal play come first, the furthest first; the rest follow by rule risk. The baseline is learned from this studio's own sessions without labels. It is advice for a reviewer and never kicks or bans.{{end}}</p>{{end}}
 <p class="note">Behavioural evidence (aim, headshot rate, reaction time, macros) is statistical and meant for review; only client integrity evidence can trigger an automatic kick, and only when the gateway runs with auto-kick enabled.</p>
 {{end}}

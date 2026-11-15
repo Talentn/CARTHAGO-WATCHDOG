@@ -52,7 +52,7 @@ func (m *Memory) ListOracleScores(_ context.Context, tenant string, f OracleFilt
 		}
 		return out[i].SessionID < out[j].SessionID
 	})
-	if n := limitOr(f.Limit, 100); len(out) > n {
+	if n := oracleScoreLimit(f.Limit); len(out) > n {
 		out = out[:n]
 	}
 	return out, nil

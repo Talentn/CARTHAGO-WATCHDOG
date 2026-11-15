@@ -41,7 +41,7 @@ func (s *SQLite) ListOracleScores(ctx context.Context, tenant string, f OracleFi
 	if f.PlayerHash != "" {
 		q, args = q+` AND player_hash = ?`, append(args, f.PlayerHash)
 	}
-	rows, err := s.db.QueryContext(ctx, q+` ORDER BY updated_ms DESC LIMIT ?`, append(args, limitOr(f.Limit, 100))...)
+	rows, err := s.db.QueryContext(ctx, q+` ORDER BY updated_ms DESC LIMIT ?`, append(args, oracleScoreLimit(f.Limit))...)
 	if err != nil {
 		return nil, err
 	}

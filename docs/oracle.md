@@ -17,6 +17,9 @@ It has three parts:
 3. **Reviewer labels.** A reviewer marks a session as confirmed cheat, cleared or unsure on
    the dashboard. Labels are the ground truth the two models can later be tuned on.
 
+A fourth, smaller part needs no training: the **baseline** compares a player with the studio's
+own players. It is described in [oracle-baseline.md](oracle-baseline.md).
+
 **The Oracle is advisory.** It writes scores, opinions and labels to the store and the
 dashboard shows them beside the hard evidence. It cannot add evidence, change a player's risk,
 kick, ban or send anything to a client: the pipeline hands it copies of its numbers through a
