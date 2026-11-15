@@ -690,6 +690,41 @@ pub fn os_build() -> String {
     String::from_utf16_lossy(&buf[..(size as usize / 2).saturating_sub(1)])
 }
 
+/// Windows build with its update revision, such as `26100.7705`, for a person to read.
+pub fn os_build_full() -> String {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD};
+    let w = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    let (key, val) = (w(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"), w("UBR"));
+    let mut ubr = 0u32;
+    let mut size = 4u32;
+    let rc = unsafe {
+        RegGetValueW(HKEY_LOCAL_MACHINE, key.as_ptr(), val.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), (&mut ubr as *mut u32).cast(), &mut size)
+    };
+    match (os_build(), rc) {
+        (b, _) if b.is_empty() => "unknown".into(),
+        (b, 0) => format!("{b}.{ubr}"),
+        (b, _) => b,
+    }
+}
+
+/// Asks Windows for its signed driver list once, outside a session, and says in one line
+/// whether this PC has it and what came back. Read-only.
+pub fn driver_list_probe() -> (bool, String) {
+    let nonce = carthago_crypto::driver_list_nonce(&[0x5a; 32]);
+    let list = carthago_attest::driver_list(&nonce);
+    let line = if list.supported() {
+        format!("DRIVER LIST: supported on this PC (Windows build {}). {}.", os_build_full(), capitalised(&list.describe()))
+    } else {
+        format!("DRIVER LIST: not available on this PC (Windows build {}). {}. The session works without it.", os_build_full(), capitalised(&list.describe()))
+    };
+    (list.supported(), line)
+}
+
+fn capitalised(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,6 +14,7 @@ usage: carthago-cs16 --keys public-keys.json (--game-dir DIR | --exe PATH | --at
                      [-- game arguments]
        carthago-cs16 --test-alert [--player ID] [--alert-secs N] [--end-match-on-detect]
        carthago-cs16 --test-banned [--player ID] [--alert-secs N]
+       carthago-cs16 --driver-list
 
 Opens an attested session with the gateway, then starts the game (default arguments:
 -game cstrike) and watches it from outside with read-only access until it exits.
@@ -27,6 +28,11 @@ window of this program (--no-alert: only a log line). It closes on Esc, a click,
 --test-alert shows the alert at once, without a gateway or a game, and exits.
 --test-banned does the same for the BANNED screen, which a banned player gets instead of
 the game: the gateway refuses the session and the game is not started.
+
+--driver-list asks Windows once for its signed list of the kernel drivers loaded since
+boot and prints one line: whether this PC has it and how many drivers it lists. It reads
+only, needs no gateway and no game, and exits. Every session sends that list to the
+gateway when Windows has it, and opens just the same when it has not.
 
 The companion takes a picture of the game once it has finished starting: --baseline-secs
 (default 20) after the engine is loaded and no new module has arrived for a few seconds.
@@ -101,6 +107,8 @@ pub struct Options {
     /// Show the alert screen now, as a preview, and exit.
     pub test_alert: bool,
     pub test_banned: bool,
+    /// Print whether this PC has Windows' signed driver list, and exit.
+    pub driver_list: bool,
     /// Where the first start of this game is recorded.
     pub start_profile: Option<PathBuf>,
     /// Seconds after the engine is loaded before the picture of the started game is taken.
@@ -129,6 +137,7 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
         end_match_on_detect: false,
         test_alert: false,
         test_banned: false,
+        driver_list: false,
         start_profile: None,
         baseline_secs: 20,
     };
@@ -155,6 +164,7 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
             "--end-match-on-detect" => o.end_match_on_detect = true,
             "--test-alert" => o.test_alert = true,
             "--test-banned" => o.test_banned = true,
+            "--driver-list" => o.driver_list = true,
             "--start-profile" => o.start_profile = Some(val()?.into()),
             "--baseline-secs" => o.baseline_secs = val()?.parse().ok().filter(|s| (2..=600).contains(s)).ok_or("--baseline-secs: 2 to 600")?,
             other => return Err(format!("unknown argument {other}")),
@@ -166,6 +176,12 @@ pub fn parse_args(argv: &[String]) -> Result<Options, String> {
     if o.test_alert || o.test_banned {
         if exe.is_some() || attach.is_some() {
             return Err("--test-alert and --test-banned show a screen only; they take no game".into());
+        }
+        return Ok(o);
+    }
+    if o.driver_list {
+        if exe.is_some() || attach.is_some() {
+            return Err("--driver-list only asks Windows for its driver list; it takes no game".into());
         }
         return Ok(o);
     }
@@ -441,6 +457,9 @@ mod tests {
         let o = parse_args(&args(&["--test-banned", "--player", "ala"])).unwrap();
         assert!(o.test_banned && !o.test_alert && o.player == "ala");
         assert!(parse_args(&args(&["--test-banned", "--exe", "cstrike.exe"])).is_err());
+        // So does the driver list probe.
+        assert!(parse_args(&args(&["--driver-list"])).unwrap().driver_list);
+        assert!(parse_args(&args(&["--driver-list", "--attach", "4"])).is_err());
     }
 
     #[test]

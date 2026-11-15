@@ -291,6 +291,10 @@ mod win {
         if o.test_banned {
             return preview_banned(&o);
         }
+        if o.driver_list {
+            println!("{}", carthago_core::driver_list_probe().1);
+            return exit::OK;
+        }
         let log = Arc::new(Log { file: Mutex::new(o.log.as_ref().and_then(|p| std::fs::File::create(p).ok())), t0: Instant::now() });
         let keys = match std::fs::read_to_string(&o.keys).map_err(|e| format!("{}: {e}", o.keys.display())).and_then(|j| parse_keys(&j)) {
             Ok(k) => k,

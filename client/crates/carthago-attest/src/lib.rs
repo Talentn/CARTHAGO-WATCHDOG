@@ -3,6 +3,7 @@
 //! Everything goes through the Microsoft Platform Crypto Provider (PCP) and TPM Base
 //! Services, so no driver is needed. Keys are per-user PCP keys (no `NCRYPT_MACHINE_KEY_FLAG`).
 
+pub mod driver_list;
 pub mod ek_chain;
 mod error;
 mod pcp;
@@ -12,6 +13,7 @@ mod tpm2;
 
 use std::collections::BTreeMap;
 
+pub use driver_list::{driver_list, DriverList};
 pub use error::{Error, Result};
 pub use pcp::{Key, Provider, SigningAlg};
 pub use process::{current_token, ProcessToken};

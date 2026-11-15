@@ -159,7 +159,12 @@ pub fn handshake(p: &Params, device: &DeviceIdentity, log: &dyn Fn(u8, &str), on
     }
     let device_sig = device.sign_prove(&carthago_crypto::prove_digest(&th)).map_err(SessionError::Device)?;
     let tpm_ms = t_tpm.elapsed().as_millis();
-    send_sealed(&mut ws, &mut chan, pb::ClientMsg { body: Some(pb::client_msg::Body::Prove(pb::Prove { device_sig, attestation })), ..Default::default() })?;
+    // Windows' signed driver list, when this Windows has one. Without it the session is
+    // opened all the same.
+    let list = carthago_attest::driver_list(&carthago_crypto::driver_list_nonce(&th));
+    log(1, &format!("driver list: {}", list.describe()));
+    let driver_list = Some(driver_list_message(list));
+    send_sealed(&mut ws, &mut chan, pb::ClientMsg { body: Some(pb::client_msg::Body::Prove(pb::Prove { device_sig, attestation, driver_list })), ..Default::default() })?;
 
     let reply = read_binary(&mut ws)?;
     match open_server_msg(&mut chan, &reply)?.body {
@@ -181,6 +186,20 @@ pub fn handshake(p: &Params, device: &DeviceIdentity, log: &dyn Fn(u8, &str), on
         },
         _ => Err(SessionError::Protocol("expected Session".into())),
     }
+}
+
+/// The driver list as Prove carries it: the package, or why there is none.
+pub fn driver_list_message(list: carthago_attest::DriverList) -> pb::DriverList {
+    use carthago_attest::DriverList as L;
+    use pb::DriverListUnavailable as U;
+    let (package, unavailable, win32_error) = match list {
+        L::Package(p) => (p, U::Unspecified, 0),
+        L::NoInterface => (Vec::new(), U::NoInterface, 0),
+        L::HvciOff(e) => (Vec::new(), U::HvciOff, e),
+        L::VbsOff(e) => (Vec::new(), U::VbsOff, e),
+        L::Failed(e) => (Vec::new(), U::Failed, e),
+    };
+    pb::DriverList { package, unavailable: unavailable as i32, win32_error }
 }
 
 /// True for the read-timeout errors that just mean "no frame yet".
