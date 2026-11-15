@@ -9,7 +9,7 @@
 //! "busy" ack is retried after a short pause. Nothing here blocks the game's tick: `send`
 //! only enqueues, and a full queue hands the batch back to the caller.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::mpsc::{channel, sync_channel, Receiver, RecvTimeoutError, Sender, SyncSender, TryRecvError, TrySendError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -68,6 +68,7 @@ pub struct MatchRecorder {
     players_dirty: bool,
     aim: BTreeMap<u32, pb::AimTrack>,
     aim_done: Vec<pb::AimTrack>,
+    view_reset: BTreeSet<u32>,
     shots: Vec<pb::ShotEvent>,
     visibility: Vec<pb::VisibilityEvent>,
     commands: BTreeMap<u32, u32>,
@@ -105,6 +106,7 @@ impl MatchRecorder {
             players_dirty: false,
             aim: BTreeMap::new(),
             aim_done: Vec::new(),
+            view_reset: BTreeSet::new(),
             shots: Vec::new(),
             visibility: Vec::new(),
             commands: BTreeMap::new(),
@@ -368,8 +370,18 @@ impl MatchRecorder {
         self.tick = tick;
     }
 
+    /// The game itself set a slot's view: a spawn, a teleport, a forced camera. Call it before
+    /// `aim` for the tick the new view first shows in. That one sample is left out, so the
+    /// track ends there and the jump is not measured as the player's own aim movement.
+    pub fn view_reset(&mut self, slot: u32) {
+        self.view_reset.insert(slot);
+    }
+
     /// The view angles a slot's command carried for `tick`, in degrees.
     pub fn aim(&mut self, slot: u32, tick: u32, yaw: f32, pitch: f32) {
+        if self.view_reset.remove(&slot) {
+            return;
+        }
         let t = self.aim.entry(slot).or_insert_with(|| pb::AimTrack { slot, first_tick: tick, ..Default::default() });
         if !t.yaw.is_empty() && t.first_tick + t.yaw.len() as u32 != tick {
             let done = std::mem::replace(t, pb::AimTrack { slot, first_tick: tick, ..Default::default() });
@@ -645,6 +657,25 @@ mod tests {
         assert_eq!(*back, batch);
         drop(stream);
         assert!(events.try_recv().is_err());
+    }
+
+    #[test]
+    fn view_reset_ends_the_aim_track() {
+        let mut r = MatchRecorder::new("m", 64);
+        for t in 100..103 {
+            r.aim(1, t, 10.0, 0.0);
+        }
+        r.view_reset(1);
+        let _ = r.flush(false); // a reset outlives a flush
+        for t in 103..106 {
+            r.aim(1, t, 170.0, 0.0);
+            r.aim(2, t, 0.0, 0.0);
+        }
+        let b = r.flush(true);
+        let own: Vec<_> = b.aim.iter().filter(|a| a.slot == 1).collect();
+        assert_eq!(own.len(), 1);
+        assert_eq!((own[0].first_tick, own[0].yaw.len()), (104, 2));
+        assert_eq!(b.aim.iter().find(|a| a.slot == 2).unwrap().yaw.len(), 3);
     }
 
     #[test]
