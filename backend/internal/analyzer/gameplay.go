@@ -341,7 +341,7 @@ func (m *Match) Evaluate() map[uint32][]Evidence {
 
 	for slot, p := range m.Players {
 		if p.SnapLocks >= c.SnapMin {
-			add(slot, Evidence{Rule: "angle_snap", Severity: SeverityHigh, Score: score(float64(p.SnapLocks), float64(c.SnapMin)),
+			add(slot, Evidence{Rule: "angle_snap", Severity: SeverityLow, Score: score(float64(p.SnapLocks), float64(c.SnapMin)),
 				Summary: fmt.Sprintf("%d snap-and-lock aim movements (>%.0f° in one tick, then <%.1f°)", p.SnapLocks, c.SnapDeg, c.SnapSettleDeg)})
 		}
 		if tail, ok := c.headshotOutlier(p.Headshots, p.Hits, p.MMR); ok {
