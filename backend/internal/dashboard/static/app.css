@@ -375,3 +375,5 @@ a, button, input, summary { transition: color 140ms var(--ease), background-colo
 .pool td.num, .pool th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .poolacts { display: flex; gap: 12px; align-items: flex-end; }
 .poolacts + small { display: block; margin-top: 6px; }
+table.drivers td { vertical-align: top; }
+table.drivers td.wrapall { min-width: 18ch; font-size: 12px; }

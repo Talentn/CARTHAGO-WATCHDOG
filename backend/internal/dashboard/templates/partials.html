@@ -104,3 +104,43 @@
 </table>
 {{else}}<p class="empty">No telemetry v2 gameplay linked to this session</p>{{end}}
 {{end}}
+
+{{define "drivertable"}}
+<table class="compact drivers">
+  <thead><tr><th>Driver</th><th>Signed for</th><th>Image hash</th><th>Signer certificate</th><th class="num">Loads</th><th>Notes</th></tr></thead>
+  <tbody>{{range .}}<tr>
+    <td class="mono">{{if .Name}}{{.Name}}{{else}}<span class="muted">no name</span>{{end}}</td>
+    <td>{{if .OEM}}{{.OEM}}{{else}}<span class="muted">not given</span>{{end}}</td>
+    <td class="mono wrapall">{{.ImageHash}} <span class="muted">{{.HashAlg}}</span></td>
+    <td class="mono wrapall">{{if .Signer}}{{.Signer}}{{else}}<span class="bad">none</span>{{end}}</td>
+    <td class="num">{{.Loads}}</td>
+    <td><span class="tags">{{range .Flags}}<span class="tag bad">{{driverFlag .}}</span>{{end}}{{if .Unloaded}}<span class="tag">unloaded since</span>{{end}}{{if .Boot}}<span class="tag">boot driver</span>{{end}}</span></td>
+  </tr>{{end}}</tbody>
+</table>
+{{end}}
+
+{{define "drivercard"}}{{$l := .List}}
+<section class="card" id="drivers">
+  <div class="card-head"><h2>Kernel drivers</h2><span class="muted">Windows' own signed list of the drivers loaded since boot · for review, never a ban</span></div>
+  <dl class="kv okv">
+    <dt>List</dt><dd>
+      {{if eq $l.Status "verified"}}<span class="tag">Verified</span> <span class="muted">signed by the Windows secure kernel of this boot; the signing key is in this session's TPM-verified boot record</span>
+      {{else if eq $l.Status "unverified"}}<span class="tag bad">Not verified</span> <span class="muted">{{$l.Reason}}. The list below is what the client sent; treat it as a claim.</span>
+      {{else if eq $l.Status "unavailable"}}<span class="tag">Unavailable</span> <span class="muted">{{$l.Reason}}</span>
+      {{else if eq $l.Status "rejected"}}<span class="tag bad">Not accepted</span> <span class="muted">{{$l.Reason}}</span>
+      {{else}}<span class="tag">Not sent</span> <span class="muted">{{$l.Reason}}</span>{{end}}
+    </dd>
+    {{if .HasList}}
+    <dt>Drivers</dt><dd>{{len $l.Drivers}} loaded since boot{{if $l.Overflowed}} · <span class="bad">incomplete: Windows' table was full</span>{{end}}</dd>
+    <dt>For review</dt><dd>{{if or .Flagged $l.TestSigning}}{{if .Flagged}}<span class="bad">{{len .Flagged}} {{if eq (len .Flagged) 1}}driver{{else}}drivers{{end}} raised</span>{{end}}{{if and .Flagged $l.TestSigning}} · {{end}}{{if $l.TestSigning}}<span class="bad">Windows was started accepting test-signed drivers</span>{{end}}{{else}}nothing raised{{end}}</dd>
+    {{end}}
+    <dt>Unattested pool</dt><dd>{{if .Attested}}attested{{else}}unattested{{end}} <span class="muted">· {{if .PoolOn}}on: the game-server status call says this about the player's latest session{{else}}off for this studio, so the status call does not say it{{end}}</span></dd>
+  </dl>
+  {{if .Flagged}}{{template "drivertable" .Flagged}}{{end}}
+  {{if .HasList}}
+  <details><summary>The full list ({{len $l.Drivers}}), in load order</summary>
+    {{template "drivertable" $l.Drivers}}
+  </details>
+  {{end}}
+</section>
+{{end}}

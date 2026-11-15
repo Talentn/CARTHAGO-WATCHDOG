@@ -51,6 +51,7 @@ type Store interface {
 	store.BanStore
 	store.CheatStore
 	store.EconomyStore
+	store.DriverStore
 	ListBans(ctx context.Context, tenant string, limit int) ([]store.Ban, error)
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
@@ -129,6 +130,7 @@ func (s *Server) parse() error {
 	funcs := template.FuncMap{
 		"trust":      trustName,
 		"trustDesc":  trustDesc,
+		"driverFlag": driverFlag,
 		"sev":        sevName,
 		"ago":        func(t time.Time) string { return ago(s.now(), t) },
 		"when":       func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") },
@@ -362,6 +364,7 @@ type sessionData struct {
 	Oracle    *oracleView
 	Label     labelCard
 	Ban       banCard
+	Drivers   *driverCard
 }
 
 type labelCard struct {
@@ -420,6 +423,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 	}
 	d.Label = labelCard{View: lv, CSRF: s.csrfToken(r), SessionID: id}
 	if d.Ban, err = s.banCardFor(r, tenant, sess); err != nil {
+		s.fail(w, err)
+		return
+	}
+	if d.Drivers, err = s.driverCardFor(ctx, tenant, sess); err != nil {
 		s.fail(w, err)
 		return
 	}
