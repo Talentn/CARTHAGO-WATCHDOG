@@ -1,6 +1,7 @@
 //! Known-vulnerable kernel drivers by file name (a subset of the loldrivers.io dataset that
-//! cheat loaders use to map unsigned code: BYOVD, the kdmapper pattern). Only matches are
-//! reported, never the machine's driver list (plan §10). Several of these ship with
+//! cheat loaders use to map unsigned code: BYOVD, the kdmapper pattern). This scan reports
+//! only matches, never the machine's driver list (plan §10); the list Windows itself signs
+//! is sent whole at the handshake instead (`docs/driver-list.md`). Several of these ship with
 //! legitimate tools (RTCore64 with MSI Afterburner, procexp with Process Explorer), so the
 //! server treats a match as a risk signal for review, never a ban reason on its own.
 

@@ -55,6 +55,10 @@ under the tenant's server key (`Authorization: Bearer <key>`), like `/v1/economy
   `normal`; so is a banned one, who has no session to match.
 - On an error (401 without the key, 400 for a bad request, 500 when the pool cannot be
   read) ask again. Do not match on a guess.
+- While the studio's unattested pool is on (`docs/driver-list.md`), each answer of the
+  status call also carries `"attestation": "attested"` or `"unattested"`. It is a separate
+  answer, worked out without the shadow pool, and the same for a player in it as for any
+  other.
 - The server key must stay on the studio's servers. Do not pass the status on to any
   client, and do not let it show: no separate queue name, no different wait message.
 - When few players are in the pool their matches are short. Whether to fill them with
