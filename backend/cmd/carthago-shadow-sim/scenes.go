@@ -118,7 +118,7 @@ func (s *sim) signIn(name, pc string) (*player, error) {
 		return nil, err
 	}
 	s.pcs[name] = dk
-	p.play(s.ctx, every)
+	p.Play(s.ctx, every)
 	s.queue = append(s.queue, p)
 	if s.expect[name] == "" {
 		s.expect[name] = bans.StatusNormal
@@ -137,7 +137,7 @@ func (s *sim) signInAll(names ...string) error {
 
 func (s *sim) player(name string) *player {
 	for i := len(s.queue) - 1; i >= 0; i-- {
-		if s.queue[i].name == name {
+		if s.queue[i].Name == name {
 			return s.queue[i]
 		}
 	}
@@ -174,8 +174,8 @@ type round struct {
 func (s *sim) matchmake() (*round, error) {
 	var names []string
 	for _, p := range s.queue {
-		if p.online() {
-			names = append(names, p.name)
+		if p.Online() {
+			names = append(names, p.Name)
 		}
 	}
 	status, err := s.statuses(names)
@@ -259,7 +259,7 @@ func rendererReport(file string) *pb.Finding {
 // until the gateway has put them in the pool.
 func (s *sim) catch(file string, names ...string) error {
 	for _, n := range names {
-		if err := s.player(n).report(s.ctx, rendererReport(file)); err != nil {
+		if err := s.player(n).Report(s.ctx, rendererReport(file)); err != nil {
 			return fmt.Errorf("%s reports: %w", n, err)
 		}
 		s.expect[n] = bans.StatusShadow
@@ -301,24 +301,24 @@ func (s *sim) shadowLabels() (map[string]int, error) {
 // quiet says what a pooled client has received next to an honest one: heartbeat
 // acknowledgements and nothing else.
 func (s *sim) quiet(names []string, honest string, before map[string]seen) error {
-	h := s.player(honest).seen()
+	h := s.player(honest).Seen()
 	for _, n := range names {
 		p := s.player(n)
-		got := p.seen()
+		got := p.Seen()
 		switch {
-		case got.kicked != "" || got.closed:
-			return fmt.Errorf("the session of %s was ended (%q)", n, got.kicked)
-		case got.notices != 0:
-			return fmt.Errorf("the client of %s was sent %d notices", n, got.notices)
-		case got.acks <= before[n].acks:
+		case got.Kicked != "" || got.Closed:
+			return fmt.Errorf("the session of %s was ended (%q)", n, got.Kicked)
+		case got.Notices != 0:
+			return fmt.Errorf("the client of %s was sent %d notices", n, got.Notices)
+		case got.Acks <= before[n].Acks:
 			return fmt.Errorf("the heartbeats of %s are no longer acknowledged", n)
 		}
-		rec, err := s.local.st.GetSession(s.ctx, fmt.Sprintf("%x", p.sid))
+		rec, err := s.local.st.GetSession(s.ctx, fmt.Sprintf("%x", p.SID))
 		if err != nil || rec.State != store.SessionActive {
 			return fmt.Errorf("the session of %s is not active on the gateway", n)
 		}
 	}
-	if h.notices != 0 || h.kicked != "" {
+	if h.Notices != 0 || h.Kicked != "" {
 		return fmt.Errorf("the honest client of %s was sent a notice or a kick", honest)
 	}
 	return nil
@@ -384,12 +384,12 @@ func (s *sim) caught() (string, error) {
 	}
 	before := map[string]seen{}
 	for _, n := range cheats {
-		before[n] = s.player(n).seen()
+		before[n] = s.player(n).Seen()
 	}
 	// Three more heartbeats each, to see what comes back.
 	if !s.wait(5*time.Second, func() bool {
 		for _, n := range cheats {
-			if s.player(n).seen().acks < before[n].acks+3 {
+			if s.player(n).Seen().Acks < before[n].Acks+3 {
 				return false
 			}
 		}
@@ -468,8 +468,8 @@ func (s *sim) secondAccount() (string, error) {
 		return "", fmt.Errorf("kex2's ban takes effect at %v, kex's at %v", pool["kex2"], pool["kex"])
 	}
 	s.say("status of kex2: shadow, with the same end as kex")
-	before := map[string]seen{"kex2": p.seen()}
-	if !s.wait(5*time.Second, func() bool { return p.seen().acks >= 2 }) {
+	before := map[string]seen{"kex2": p.Seen()}
+	if !s.wait(5*time.Second, func() bool { return p.Seen().Acks >= 2 }) {
 		return "", errors.New("the heartbeats of kex2 are not acknowledged")
 	}
 	if err := s.quiet([]string{"kex2"}, "ana", before); err != nil {
@@ -533,7 +533,7 @@ func (s *sim) released() (string, error) {
 	if !s.matched(r, "nyx", bans.StatusNormal) {
 		return "", errors.New("nyx is not in a normal match")
 	}
-	if !s.player("nyx").online() {
+	if !s.player("nyx").Online() {
 		return "", errors.New("the release ended nyx's session")
 	}
 	return "nyx is normal again and plays with honest players; the others stay in the pool", nil
@@ -562,7 +562,7 @@ func (s *sim) landed() (string, error) {
 	}
 	if !s.wait(10*time.Second, func() bool {
 		for _, n := range pooled {
-			if s.player(n).online() {
+			if s.player(n).Online() {
 				return false
 			}
 		}
@@ -571,9 +571,9 @@ func (s *sim) landed() (string, error) {
 		return "", errors.New("a pooled player is still online after the period ended")
 	}
 	for _, n := range pooled {
-		got := s.player(n).seen()
-		if got.kicked != "banned" || got.notices != 0 {
-			return "", fmt.Errorf("the client of %s got kick %q and %d notices, want the ban and nothing before it", n, got.kicked, got.notices)
+		got := s.player(n).Seen()
+		if got.Kicked != "banned" || got.Notices != 0 {
+			return "", fmt.Errorf("the client of %s got kick %q and %d notices, want the ban and nothing before it", n, got.Kicked, got.Notices)
 		}
 		s.expect[n] = bans.StatusNormal
 	}
@@ -618,8 +618,8 @@ func (s *sim) landed() (string, error) {
 		}
 	}
 	for _, p := range s.queue {
-		if got := p.seen(); s.expect[p.name] == bans.StatusNormal && p.name != "kex" && p.name != "lod" && p.name != "mav" && p.name != "kex2" && (!p.online() || got.notices != 0) {
-			return "", fmt.Errorf("%s, who is not banned, lost the session or got a notice", p.name)
+		if got := p.Seen(); s.expect[p.Name] == bans.StatusNormal && p.Name != "kex" && p.Name != "lod" && p.Name != "mav" && p.Name != "kex2" && (!p.Online() || got.Notices != 0) {
+			return "", fmt.Errorf("%s, who is not banned, lost the session or got a notice", p.Name)
 		}
 	}
 	r, err := s.matchmake()

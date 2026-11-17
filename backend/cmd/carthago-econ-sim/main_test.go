@@ -20,7 +20,7 @@ func TestScenarios(t *testing.T) {
 	for i, run := range []string{"aaaa", "bbbb"} {
 		var out bytes.Buffer
 		g := newGameServer(srv.URL, demoServerKey)
-		g.run = run
+		g.Run = run
 		passed, total := scenarios(g, &out)
 		if i == 0 {
 			t.Log("\n" + out.String())
