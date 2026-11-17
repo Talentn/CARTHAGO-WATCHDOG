@@ -29,6 +29,7 @@ import (
 	"carthago/backend/internal/oracle"
 	"carthago/backend/internal/oracle/analyst"
 	"carthago/backend/internal/pipeline"
+	"carthago/backend/internal/reports"
 	"carthago/backend/internal/store"
 )
 
@@ -153,7 +154,7 @@ func Start(ctx context.Context, cfg Config) (*Gateway, error) {
 	g.Bans.AddHook(learning.NewLabeler(st, log))
 	gw = gateway.New(gateway.Config{
 		Tenants: map[string]string{Tenant: ServerKey}, HeartbeatInterval: cfg.HeartbeatInterval, HeartbeatTimeout: 30 * time.Second, EKRoots: roots,
-		Detections: detections, Bans: g.Bans, Pool: g.Bans, Drivers: st, Economy: ledger,
+		Detections: detections, Bans: g.Bans, Pool: g.Bans, Drivers: st, Economy: ledger, Reports: reports.New(st, nil),
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	g.Bans.SetEnder(gw.Sessions())

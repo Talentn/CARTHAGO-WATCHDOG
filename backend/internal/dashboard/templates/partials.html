@@ -174,3 +174,24 @@
   <p class="hint">Behaviour is advice for the community team. It never counts toward risk, a ban or the shadow pool. This studio's limits per match: {{.Limits}}</p>
 </section>
 {{end}}
+
+{{define "playerreports"}}
+<section class="card" id="reports">
+  <div class="card-head"><h2>Reports by players</h2><span class="muted">last 30 days · advisory</span></div>
+  <ul class="counts"><li><b class="mono">{{.Card.Tally.Reports}}</b> {{if eq .Card.Tally.Reports 1}}report{{else}}reports{{end}}</li><li><b class="mono">{{.Card.Tally.Reporters}}</b> {{if eq .Card.Tally.Reporters 1}}reporter{{else}}different reporters{{end}}</li></ul>
+  <table class="compact">
+    <thead><tr><th>Reason</th><th>Note</th><th>Reporter</th><th class="num" title="How the reporter's earlier reports turned out">Weight</th><th>Match</th><th>State</th><th>Received</th></tr></thead>
+    <tbody>{{range .Card.Rows}}<tr>
+      <td>{{.ReasonLabel}}</td>
+      <td class="sum">{{if .Note}}{{.Note}}{{else}}<span class="muted">–</span>{{end}}</td>
+      <td class="mono">{{short .Reporter}}</td>
+      <td class="num mono" title="{{.Weight.Basis}}">{{.Weight.Text}}</td>
+      <td>{{if .Recorded}}<a href="{{matchURL .MatchID}}?player={{query .Reported}}{{if .At}}&amp;t={{.MatchMs}}{{end}}">Replay{{if .At}} at <span class="mono">{{.At}}</span>{{end}}</a>{{else}}<span class="mono muted">{{short .MatchID}}{{if .At}} {{.At}}{{end}}</span>{{end}}</td>
+      <td>{{.State}}</td>
+      <td class="when" title="{{when .CreatedAt}}"><span class="mono">{{.CreatedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .CreatedAt}}</span></td>
+    </tr>{{end}}</tbody>
+  </table>
+  {{if .Card.More}}<p class="hint">{{.Card.More}} older reports are not listed</p>{{end}}
+  <p class="hint">Reports are what other players said. They never count toward risk, a ban or the shadow pool. Dismissed reports are listed and not counted. <a href="/reports?player={{query .Player}}">Open in the queue</a></p>
+</section>
+{{end}}

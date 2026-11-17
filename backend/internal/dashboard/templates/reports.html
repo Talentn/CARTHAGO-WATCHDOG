@@ -1,0 +1,40 @@
+{{define "content"}}
+{{$d := .Data}}{{$csrf := .CSRF}}
+<div class="head">
+  <h1>Reports{{if $d.Player}} about <span class="mono">{{short $d.Player}}</span>{{end}}</h1>
+  <div class="tabs">{{range $d.Tabs}}<a href="/reports?state={{.State}}{{if $d.Player}}&amp;player={{query $d.Player}}{{end}}"{{if eq .State $d.State}} class="on"{{end}}>{{.Label}} <span class="mono">{{.N}}</span></a>{{end}}</div>
+</div>
+<section class="card" id="reports">
+  <div class="card-head"><h2>{{range $d.Tabs}}{{if eq .State $d.State}}{{.Label}}{{end}}{{end}}</h2><span class="muted">sent by your game server · advisory</span></div>
+  {{if $d.Saved}}<p class="saved">Saved</p>{{end}}
+  {{if $d.Rows}}
+  <table class="reports">
+    <thead><tr><th>Reported player</th><th>Reason</th><th>Note</th><th>Reporter</th><th class="num" title="How the reporter's earlier reports turned out">Weight</th><th>Match</th><th>Received</th><th></th></tr></thead>
+    <tbody>
+    {{range $d.Rows}}
+    <tr>
+      <td><a class="mono" href="/players/{{path .Reported}}">{{short .Reported}}</a><br><small class="muted"><a href="/reports?player={{query .Reported}}">{{.Tally.Reports}} in 30 days</a> from {{.Tally.Reporters}} {{if eq .Tally.Reporters 1}}reporter{{else}}reporters{{end}}</small></td>
+      <td>{{.ReasonLabel}}</td>
+      <td class="sum">{{if .Note}}{{.Note}}{{else}}<span class="muted">–</span>{{end}}</td>
+      <td class="mono">{{short .Reporter}}</td>
+      <td class="num" title="{{.Weight.Basis}}"><span class="mono">{{.Weight.Text}}</span><br><small class="muted">{{.Weight.Confirmed}} of {{add .Weight.Confirmed .Weight.Rejected}} confirmed</small></td>
+      <td>{{if .Recorded}}<a href="{{matchURL .MatchID}}?player={{query .Reported}}{{if .At}}&amp;t={{.MatchMs}}{{end}}">Replay{{if .At}} at <span class="mono">{{.At}}</span>{{end}}</a>{{else}}<span class="mono muted">{{short .MatchID}}{{if .At}} {{.At}}{{end}}</span><br><small class="muted">not recorded</small>{{end}}</td>
+      <td class="when" title="{{when .CreatedAt}}"><span class="mono">{{.CreatedAt.UTC.Format "01-02 15:04"}}</span><br><small class="muted">{{if .DecidedBy}}{{.State}} by {{.DecidedBy}}{{else}}{{ago .CreatedAt}}{{end}}</small></td>
+      <td>{{if $d.CanAct}}
+        <form method="post" action="/reports/{{.ID}}/state" class="poolacts">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          {{if ne .State "reviewed"}}<button type="submit" name="state" value="reviewed" class="secondary" aria-label="Mark report {{.ID}} reviewed">Reviewed</button>{{end}}
+          {{if ne .State "dismissed"}}<button type="submit" name="state" value="dismissed" class="secondary" aria-label="Dismiss report {{.ID}}">Dismiss</button>{{end}}
+          {{if ne .State "open"}}<button type="submit" name="state" value="open" class="secondary" aria-label="Open report {{.ID}} again">Reopen</button>{{end}}
+        </form>
+        {{else}}<span class="muted">–</span>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{if $d.More}}<p class="hint">Only the newest 100 are listed</p>{{end}}
+  {{else}}<p class="empty">No {{$d.State}} reports{{if $d.Player}} about this player{{end}}</p>{{end}}
+</section>
+<p class="note">A report is what one player said about another. It never bans, never puts anyone in the shadow pool and is not something the Oracle learns from: it tells a reviewer where to look. Reviewed and Dismiss record your conclusion and are in the audit log.{{if not $d.CanAct}} They need the reviewer role.{{end}} A dismissed report no longer counts toward the player's 30 days.</p>
+<p class="note">Weight is how the reporter's earlier reports turned out: (confirmed + 1) / (confirmed + dismissed + 2). A report is confirmed when the reported player has a standing ban or a session labelled a confirmed cheat; a new reporter starts at 0.50. The note is the reporter's own words and is deleted with the report after 90 days.</p>
+{{end}}

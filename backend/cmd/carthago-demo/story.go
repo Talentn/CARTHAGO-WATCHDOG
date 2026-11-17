@@ -47,6 +47,10 @@ type story struct {
 	// What the chapters leave for the dashboard check.
 	bannedRef, pooled string
 	outside           []string
+	// shotBySami: the first two players sami shot in the match, and the tick.
+	shotBySami []hit
+	// teamKilled: the teammate walid killed in the spoiled match.
+	teamKilled string
 }
 
 // actor is one simulated client with the telemetry of a healthy scanner.
@@ -198,6 +202,7 @@ func (s *story) play() (passed, total int) {
 		{"A caught player is held in the shadow pool", s.shadow},
 		{"The Oracle puts the players outside the studio's normal play first", s.oracle},
 		{"A player who spoils matches is noted for the community team, and nothing more", s.toxic},
+		{"Players report what they saw: a queue for the reviewer, and nothing more", s.reports},
 	} {
 		total++
 		fmt.Fprintf(s.out, "\n%d. %s\n", i+1, ch.title)
@@ -309,6 +314,7 @@ func (s *story) match() error {
 	if err := s.ingest(batches); err != nil {
 		return err
 	}
+	s.shotBySami = firstHits(batches, players[len(players)-1].Slot, players, 2)
 	leak := func(name string) *store.Evidence {
 		ev, _ := s.gw.Store.ListEvidence(s.ctx, localgw.Tenant, store.EvidenceFilter{PlayerHash: name, Limit: 100})
 		for i := range ev {

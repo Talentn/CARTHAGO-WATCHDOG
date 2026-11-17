@@ -418,5 +418,10 @@ table.drivers td.wrapall { min-width: 18ch; font-size: 12px; }
 .counts { display: flex; flex-wrap: wrap; gap: 4px 24px; list-style: none; margin: 0 0 12px; padding: 0; color: var(--text-2); }
 .counts b { margin-right: 4px; color: var(--text); }
 .counts .muted b { color: var(--muted); }
-#behaviour .hint { margin-top: 12px; }
+#behaviour .hint, #reports .hint { margin-top: 12px; }
+/* Reports queue: the note is a player's own words, so it wraps and never widens the table. */
+.reports td.sum { max-width: 40ch; overflow-wrap: anywhere; }
+.reports td.when, .reports td.num { white-space: nowrap; }
+.reports .poolacts { gap: 8px; }
+.tabs a .mono { margin-left: 6px; }
 .mark-low { color: var(--text-2); }

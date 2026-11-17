@@ -23,6 +23,7 @@ type Memory struct {
 	drivers          *memDrivers
 	replays          map[[2]string]MatchReplay
 	toxicity         *memToxicity
+	reports          *memReports
 }
 
 func NewMemory() *Memory {

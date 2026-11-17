@@ -28,6 +28,7 @@ import (
 	"carthago/backend/internal/knowledge"
 	"carthago/backend/internal/learning"
 	"carthago/backend/internal/pipeline"
+	"carthago/backend/internal/reports"
 	"carthago/backend/internal/store"
 )
 
@@ -42,6 +43,7 @@ type evidenceStore interface {
 	store.DriverStore
 	store.ReplayStore
 	store.ToxicityStore
+	store.ReportStore
 }
 
 type tenantFlag map[string]string
@@ -228,7 +230,7 @@ func main() {
 	banning.AddHook(learning.NewLabeler(st, log))
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections, Bans: banning, Pool: banning, Drivers: st, Economy: ledger, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
+		Detections: detections, Bans: banning, Pool: banning, Drivers: st, Economy: ledger, Reports: reports.New(st, nil), MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	banning.SetEnder(gw.Sessions())

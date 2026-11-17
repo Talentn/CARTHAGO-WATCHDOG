@@ -41,6 +41,17 @@ func (s *story) toxic() error {
 	}
 	batches := synth.Batches(synth.Spec{MatchID: toxicMatch, Mode: mode, TickRate: 64, Seconds: toxicSeconds, Seed: seed + 7, Players: players})
 	synth.Spoil(batches, 64, me.Slot, mates, enemies)
+	for _, b := range batches {
+		for _, e := range b.Shots {
+			if e.Slot == me.Slot && e.Kill && e.TargetSlot > 0 {
+				for i := range players {
+					if players[i].Slot == uint32(e.TargetSlot) {
+						s.teamKilled = names[i]
+					}
+				}
+			}
+		}
+	}
 	if err := s.ingest(batches); err != nil {
 		return err
 	}

@@ -13,6 +13,7 @@
 </section>
 {{with $d.Oracle}}{{template "playeroracle" .}}{{end}}
 {{with $d.Baseline}}{{template "playerbaseline" .}}{{end}}
+{{with $d.Reports}}{{template "playerreports" (reportsCard . $r.PlayerHash)}}{{end}}
 {{with $d.Behaviour}}{{template "playerbehaviour" .}}{{end}}
 {{if $d.Replays}}<section class="card"><h2>Recorded matches</h2>{{template "replaytable" (replays $d.Replays $r.PlayerHash)}}</section>{{end}}
 <section class="card"><h2>Evidence</h2>{{template "evidencetable" $d.Evidence}}</section>

@@ -55,6 +55,7 @@ type Store interface {
 	store.DriverStore
 	store.ReplayStore
 	store.ToxicityStore
+	store.ReportStore
 	ListBans(ctx context.Context, tenant string, limit int) ([]store.Ban, error)
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
@@ -157,9 +158,15 @@ func (s *Server) parse() error {
 				Player string
 			}{list, player}
 		},
-		"amount":     economy.Amount,
-		"query":      url.QueryEscape,
-		"add":        func(a, b int) int { return a + b },
+		"amount": economy.Amount,
+		"query":  url.QueryEscape,
+		"add":    func(a, b int) int { return a + b },
+		"reportsCard": func(c *playerReports, player string) any {
+			return struct {
+				Card   *playerReports
+				Player string
+			}{c, player}
+		},
 		"bar":        trustBar,
 		"leak":       parseLeak,
 		"decoy":      parseDecoy,
@@ -224,6 +231,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
+	mux.HandleFunc("GET /reports", s.auth(s.reportsPage))
+	mux.HandleFunc("POST /reports/{id}/state", s.require(RoleReviewer, s.setReportState))
 	mux.HandleFunc("GET /matches/{id}", s.auth(s.match))
 	mux.HandleFunc("GET /matches/{id}/replay.json", s.auth(s.matchReplay))
 	return s.securityHeaders(s.hostCheck(mux))
@@ -457,6 +466,8 @@ type playersData struct {
 	All      bool
 	Rows     []store.PlayerRow
 	Baseline *baselineView
+	// Reports: how often each player was reported in the last 30 days.
+	Reports map[string]store.ReportTally
 }
 
 func (s *Server) players(w http.ResponseWriter, r *http.Request, tenant string) {
@@ -471,7 +482,12 @@ func (s *Server) players(w http.ResponseWriter, r *http.Request, tenant string) 
 		s.fail(w, err)
 		return
 	}
-	s.render(w, http.StatusOK, "players", page{Title: "Players", Nav: "players", Tenant: tenant, Data: playersData{all, rows, base}})
+	tally, err := s.st.TallyPlayerReports(r.Context(), tenant, s.now().Add(-reportWindow))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, http.StatusOK, "players", page{Title: "Players", Nav: "players", Tenant: tenant, Data: playersData{all, rows, base, tally}})
 }
 
 type playerData struct {
@@ -482,6 +498,7 @@ type playerData struct {
 	Baseline  *baselineView
 	Replays   []store.MatchReplay
 	Behaviour *behaviourView
+	Reports   *playerReports
 }
 
 func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
@@ -502,7 +519,12 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 		s.fail(w, err)
 		return
 	}
-	if len(sess) == 0 && len(evs) == 0 && behaviour == nil {
+	reported, err := s.reportsAbout(ctx, tenant, hash)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if len(sess) == 0 && len(evs) == 0 && behaviour == nil && reported == nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -542,7 +564,7 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 		s.fail(w, err)
 		return
 	}
-	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po, base, replays, behaviour}})
+	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po, base, replays, behaviour, reported}})
 }
 
 func (s *Server) evidence(w http.ResponseWriter, r *http.Request, tenant string) {

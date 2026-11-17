@@ -7,7 +7,7 @@
 <section class="card">
 {{if $d.Rows}}
 <table>
-  <thead><tr><th>Player</th><th>Status</th><th class="num">Risk</th>{{if $b.Sessions}}<th title="How far the player sits outside this studio's own normal play, over the last 30 days">Against own players</th>{{end}}<th class="num">Evidence</th><th>Severity</th><th class="num">Integrity</th><th>Top rule</th><th>Latest trust</th><th class="num">Sessions</th><th>Last seen</th></tr></thead>
+  <thead><tr><th>Player</th><th>Status</th><th class="num">Risk</th>{{if $b.Sessions}}<th title="How far the player sits outside this studio's own normal play, over the last 30 days">Against own players</th>{{end}}<th class="num" title="Reports by other players in the last 30 days, and how many different players made them. Advice only">Reports</th><th class="num">Evidence</th><th>Severity</th><th class="num">Integrity</th><th>Top rule</th><th>Latest trust</th><th class="num">Sessions</th><th>Last seen</th></tr></thead>
   <tbody>
   {{range $d.Rows}}
   <tr>
@@ -15,6 +15,7 @@
     <td>{{if .Bot}}<span class="tag" title="Computer-controlled slot: shown for reference, never counted toward risk">bot</span>{{else}}<span class="tier tier-{{tier .Risk}}">{{tier .Risk}}</span>{{end}}</td>
     <td class="num">{{risk .Risk}}</td>
     {{if $b.Sessions}}<td>{{with index $b.Players .PlayerHash}}<span class="tier tier-{{.Tier}}" title="{{.Sessions}} sessions in the last 30 days{{if .Signals}}; stands out in: {{.Signals}}{{end}}">{{.Percent}} · {{.BandName}}</span>{{else}}<span class="muted">—</span>{{end}}</td>{{end}}
+    <td class="num">{{$p := .PlayerHash}}{{with index $d.Reports .PlayerHash}}<a href="/reports?player={{query $p}}" title="{{.Reports}} in 30 days from {{.Reporters}} {{if eq .Reporters 1}}reporter{{else}}reporters{{end}}">{{.Reports}} <small class="muted">/ {{.Reporters}}</small></a>{{else}}<span class="muted">–</span>{{end}}</td>
     <td class="num">{{.EvidenceCount}}</td>
     <td>{{if ge .MaxSeverity 0}}<span class="sev sev-{{sev .MaxSeverity}}">{{sev .MaxSeverity}}</span>{{end}}</td>
     <td class="num">{{.Integrity}}</td>

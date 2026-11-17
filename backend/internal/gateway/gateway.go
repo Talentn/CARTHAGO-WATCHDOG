@@ -17,6 +17,7 @@ import (
 	"carthago/backend/internal/attest/ekroots"
 	"carthago/backend/internal/economy"
 	"carthago/backend/internal/protocol"
+	"carthago/backend/internal/reports"
 	"carthago/backend/internal/store"
 )
 
@@ -60,6 +61,9 @@ type Config struct {
 	// Drivers, when set, keeps the driver list each client sends at its handshake and
 	// answers the unattested pool on /v1/shadow/status. Without it the list is ignored.
 	Drivers DriverLists
+	// Reports, when set, serves POST /v1/reports: reports players make about other
+	// players, kept for reviewers (internal/reports).
+	Reports *reports.Service
 	// TestNoticeAfter sends every session an enforcement notice of category TEST this long
 	// after its client connected, to try a game's alert screen. Zero disables it.
 	TestNoticeAfter time.Duration
@@ -179,6 +183,9 @@ func (g *Gateway) Handler() http.Handler {
 		mux.HandleFunc("GET /v1/shadow/status", g.handleShadowStatus)
 		mux.HandleFunc("POST /v1/shadow/status", g.handleShadowStatus)
 		mux.HandleFunc("GET /v1/shadow/pool", g.handleShadowPool)
+	}
+	if g.cfg.Reports != nil {
+		mux.HandleFunc("POST /v1/reports", g.handleReport)
 	}
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
