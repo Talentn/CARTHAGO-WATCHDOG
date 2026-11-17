@@ -38,6 +38,10 @@ type PlayerSummary struct {
 	// under fireFastMs and within fireWindowMs of each other.
 	FireDelays int
 	FireTimed  float64
+
+	// Sight (sight.go), as counts: the Oracle turns them into shares.
+	HiddenSamples, HiddenTracked int
+	Appearances, PreAimed        int
 }
 
 // A person cannot keep answering the sight of an enemy under the crosshair in less than a
@@ -93,5 +97,6 @@ func (m *Match) Summary(slot uint32) (s PlayerSummary, ok bool) {
 	}
 	s.TriggerCV, s.TriggerPresses, s.TriggerOK = triggerCV(p.triggerUs, c.TriggerMaxCV)
 	s.FireDelays, s.FireTimed = len(p.FireDelayMs), fireTimed(p.FireDelayMs)
+	s.HiddenSamples, s.HiddenTracked, s.Appearances, s.PreAimed = p.HiddenSamples, p.HiddenTracked, p.Appearances, p.PreAimed
 	return s, true
 }

@@ -71,6 +71,7 @@ pub struct MatchRecorder {
     view_reset: BTreeSet<u32>,
     shots: Vec<pb::ShotEvent>,
     visibility: Vec<pb::VisibilityEvent>,
+    seen: BTreeMap<u32, BTreeSet<u32>>,
     crosshair: Vec<pb::CrosshairEvent>,
     commands: BTreeMap<u32, u32>,
     triggers: BTreeMap<u32, Vec<u64>>,
@@ -110,6 +111,7 @@ impl MatchRecorder {
             view_reset: BTreeSet::new(),
             shots: Vec::new(),
             visibility: Vec::new(),
+            seen: BTreeMap::new(),
             crosshair: Vec::new(),
             commands: BTreeMap::new(),
             triggers: BTreeMap::new(),
@@ -407,6 +409,28 @@ impl MatchRecorder {
         self.visibility.push(pb::VisibilityEvent { observer_slot: observer, target_slot: target, tick, visible });
     }
 
+    /// Which opponents `observer` could see at `tick`, by the server's own line-of-sight
+    /// test: the whole list, every time it is called. The recorder keeps the last list and
+    /// records only what changed, as `visibility` would. Use this or `visibility` for an
+    /// observer, not both. Call it as often as the server tests sight, a few times a second
+    /// at least, and with an empty list when the observer sees nobody or dies. Optional:
+    /// with it and `motion` the gateway measures how much a player's aim follows opponents
+    /// the player cannot see and has no word of, which is what gives a wallhack away;
+    /// without it those signals stay unknown and everything else is unchanged.
+    pub fn visible_now(&mut self, observer: u32, tick: u32, opponents: &[u32]) {
+        let now: BTreeSet<u32> = opponents.iter().copied().collect();
+        let before = self.seen.remove(&observer).unwrap_or_default();
+        for &target in now.difference(&before) {
+            self.visibility(observer, target, tick, true);
+        }
+        for &target in before.difference(&now) {
+            self.visibility(observer, target, tick, false);
+        }
+        if !now.is_empty() {
+            self.seen.insert(observer, now);
+        }
+    }
+
     /// The crosshair of `slot` came onto the enemy `target`: the server's trace along the
     /// player's view direction first met that enemy's body at `tick`. Call it once each time
     /// the crosshair arrives, not on every tick it stays there. The gateway measures how soon
@@ -668,6 +692,28 @@ mod tests {
         assert_eq!(*back, batch);
         drop(stream);
         assert!(events.try_recv().is_err());
+    }
+
+    #[test]
+    fn visible_now_records_only_what_changed() {
+        let mut r = MatchRecorder::new("m", 64);
+        r.visible_now(1, 10, &[]);
+        r.visible_now(1, 20, &[4, 2]);
+        r.visible_now(1, 30, &[2, 4]);
+        r.visible_now(1, 40, &[4, 7]);
+        r.visible_now(3, 40, &[1]);
+        r.visible_now(1, 50, &[]);
+        let got: Vec<(u32, u32, u32, bool)> =
+            r.flush(false).visibility.iter().map(|v| (v.observer_slot, v.target_slot, v.tick, v.visible)).collect();
+        assert_eq!(
+            got,
+            vec![(1, 2, 20, true), (1, 4, 20, true), (1, 7, 40, true), (1, 2, 40, false), (3, 1, 40, true), (1, 4, 50, false), (1, 7, 50, false)]
+        );
+        // The last list is kept across a flush.
+        r.visible_now(3, 60, &[1]);
+        r.visible_now(3, 70, &[]);
+        let got: Vec<(u32, u32, bool)> = r.flush(true).visibility.iter().map(|v| (v.target_slot, v.tick, v.visible)).collect();
+        assert_eq!(got, vec![(1, 70, false)]);
     }
 
     #[test]

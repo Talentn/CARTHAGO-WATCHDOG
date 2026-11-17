@@ -20,6 +20,7 @@ type Match struct {
 	Players  map[uint32]*Player
 	// open exposures: observer<<32|target -> tick the target became visible
 	visible map[uint64]uint32
+	sight   *sightState
 }
 
 // Player is the per-slot accumulator.
@@ -47,6 +48,12 @@ type Player struct {
 	FireDelayMs []float64
 	onTarget    uint32
 	haveTarget  bool
+
+	// Sight (sight.go): moments with a close opponent the player could not see, and those
+	// of them with the crosshair staying on such an opponent; opponents who came into
+	// view after being hidden, and those of them the crosshair was already on.
+	HiddenSamples, HiddenTracked int
+	Appearances, PreAimed        int
 
 	CmdTicks, Cmds uint64
 	cmdTo          uint32 // end of the latest command window
@@ -171,6 +178,7 @@ func (m *Match) Add(b *pb.GameplayBatch) {
 		}
 	}
 	m.addCombat(b.Shots, b.Visibility, b.Crosshair)
+	m.addSight(b)
 	// A stalled client sends nothing and then catches up; the SDK reports no window for the
 	// silent stretch. Those ticks still passed, so a short gap between two windows counts as
 	// ticks without commands. A long gap is an absence, not a stall.
