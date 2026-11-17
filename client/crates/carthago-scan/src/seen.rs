@@ -24,6 +24,10 @@ impl Seen {
         Self { keys: Vec::with_capacity(cap.min(64)), cap }
     }
 
+    pub fn contains(&self, key: u64) -> bool {
+        self.keys.contains(&key)
+    }
+
     /// True the first time a key is seen. When full, the oldest key is forgotten, so a
     /// long-lived observation can be reported again (the server deduplicates too).
     pub fn first(&mut self, key: u64) -> bool {
