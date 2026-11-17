@@ -60,6 +60,9 @@ var sqlitePlayerReports string
 //go:embed sqlite/0031_map_outlines.sql
 var sqliteMapOutlines string
 
+//go:embed sqlite/0032_community_review.sql
+var sqliteCommunityReview string
+
 // SQLiteNumbered lists the numbered migrations in ascending order. They run after every
 // migration in SQLite.
 var SQLiteNumbered = []Numbered{
@@ -76,4 +79,5 @@ var SQLiteNumbered = []Numbered{
 	{Number: 29, Name: "toxicity", SQL: sqliteToxicity},
 	{Number: 30, Name: "player_reports", SQL: sqlitePlayerReports},
 	{Number: 31, Name: "map_outlines", SQL: sqliteMapOutlines},
+	{Number: 32, Name: "community_review", SQL: sqliteCommunityReview},
 }

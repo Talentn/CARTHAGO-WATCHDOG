@@ -96,6 +96,8 @@ func (s *story) pages() (ok, total int) {
 		{"Maps", "/maps", []string{"carthago-yard", "wall lines"}},
 		{"Player " + toxicPlayer, "/players/" + toxicPlayer, []string{"Behaviour", "Killed 2 teammates", "Left at 05:30", "Replay at"}},
 		{"Reports", "/reports", []string{"sami", "Cheating", "Toxic behaviour", "0.67", "Replay at"}},
+		{"Community review", "/community", []string{"sami", "sees through walls", "80%", "Confirm"}},
+		{"Reviewers", "/community/reviewers", []string{carelessPlayer, "No longer", "First correct verdict"}},
 		{"Behaviour on the replay", "/matches/" + toxicMatch, []string{toxicPlayer, "team_kill", "left_early", "Behaviour"}},
 	}
 	// The session of the first ban and a piece of its evidence.
@@ -134,7 +136,7 @@ func (s *story) pages() (ok, total int) {
 		s.say("FAIL: %s", b)
 	}
 	s.say("%d of %d pages opened with the demo login show the story's data: Overview, Sessions, Players, Bans,", ok, total)
-	s.say("Reports, Shadow pool, Known cheats, Economy, Maps, the replays of both matches, and the pages of two players, one")
-	s.say("session and one piece of evidence.")
+	s.say("Reports, Community review, Reviewers, Shadow pool, Known cheats, Economy, Maps, the replays of both matches,")
+	s.say("and the pages of two players, one session and one piece of evidence.")
 	return ok, total
 }

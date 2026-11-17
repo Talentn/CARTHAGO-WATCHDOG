@@ -20,6 +20,9 @@ type Keys struct {
 	IdentityKID string
 	Token       ed25519.PrivateKey // signs session tokens; game servers verify offline
 	TokenKID    string
+	// Review signs community review links (internal/review). It is a key of its own, so
+	// a review link says nothing about the keys clients and game servers trust.
+	Review []byte
 	// TLSPins are the hex SHA-256 SPKI pins of the gateway TLS keys (current, then
 	// backups) that clients and game servers pin; empty when serving plaintext.
 	TLSPins []string
@@ -69,7 +72,12 @@ func LoadOrCreateKeys(dir string) (*Keys, error) {
 	if err != nil {
 		return nil, err
 	}
+	rev, err := loadOrCreateSeed(filepath.Join(dir, "review.key"))
+	if err != nil {
+		return nil, err
+	}
 	return &Keys{
+		Review:   rev.Seed(),
 		Identity: id, IdentityKID: protocol.KeyID(id.Public().(ed25519.PublicKey)),
 		Token: tok, TokenKID: protocol.KeyID(tok.Public().(ed25519.PublicKey)),
 	}, nil

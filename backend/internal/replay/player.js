@@ -1,7 +1,8 @@
 // The match replay: draws the recording of one match from above and lets a reviewer play,
-// pause, scrub and jump to what was found. This is the dashboard's only script. It is
-// served from this origin, loads nothing else and sends nothing anywhere; the match page's
-// Content-Security-Policy allows exactly that.
+// pause, scrub and jump to what was found. It is the only script of the dashboard (the
+// match page) and of the community review page. Each serves it from its own origin; it
+// loads nothing else and sends nothing anywhere, and the page's Content-Security-Policy
+// allows exactly that.
 (function () {
   "use strict";
 

@@ -55,7 +55,7 @@ func run(listen, dash string, matches int, exit, admin bool, out io.Writer) int 
 	if err != nil {
 		return fail(err)
 	}
-	gw, err := localgw.Start(ctx, localgw.Config{Dir: dir, Listen: listen, DashboardListen: dash, OracleDir: filepath.Join(dir, "oracle")})
+	gw, err := localgw.Start(ctx, localgw.Config{Dir: dir, Listen: listen, DashboardListen: dash, OracleDir: filepath.Join(dir, "oracle"), ReviewLinkTTL: reviewLinkTTL})
 	if err != nil {
 		return fail(err)
 	}
@@ -73,6 +73,12 @@ func run(listen, dash string, matches int, exit, admin bool, out io.Writer) int 
 		}
 	}
 	fmt.Fprintf(out, "\nDashboard: %s   studio: %s   key: %s   (the \"Demo login\" box of the sign-in page)\n", gw.Dashboard, localgw.Tenant, localgw.DashboardKey)
+	if s.reviewURL != "" {
+		fmt.Fprintf(out, "Review as a player: %s\n", s.reviewURL)
+		fmt.Fprintf(out, "   Open it in a browser (no sign-in: the link is the key, for %d hours here), watch, give a verdict, then look at\n", int(reviewLinkTTL.Hours()))
+		fmt.Fprintf(out, "   %s/community/reviewers. For the next case, ask as the game server would:\n", gw.Dashboard)
+		fmt.Fprintf(out, "   curl -X POST -H \"Authorization: Bearer %s\" -d \"{\\\"player\\\":\\\"%s\\\"}\" %s/v1/review/links\n", localgw.ServerKey, visitorReviewer, gw.API)
+	}
 	if invite != "" {
 		fmt.Fprintf(out, "Admin: open this one-time link instead, choose a password and sign in as admin: %s\n", invite)
 	}

@@ -1,0 +1,86 @@
+{{define "content"}}
+{{$d := .Data}}{{$csrf := .CSRF}}
+<div class="head">
+  <h1>Community review</h1>
+  <div class="tabs"><a href="/community" class="on">Cases</a><a href="/community/reviewers">Reviewers</a></div>
+</div>
+{{if $d.Error}}<p class="alert" role="alert">{{$d.Error}}</p>{{end}}
+<section class="kpis">
+  <div class="kpi"><span>Community review</span><b>{{if $d.Set.Enabled}}On{{else}}Off{{end}}</b><small>{{if $d.Set.Enabled}}your game server can ask for review links{{else}}no cases are made and no links handed out{{end}}</small></div>
+  <div class="kpi"><span>Verdicts that close a case</span><b>{{$d.Set.Quorum}}</b><small>decided from {{$d.AgreePct}}% weighted agreement</small></div>
+  <div class="kpi"><span>Waiting for your reviewers</span><b>{{range $d.Tabs}}{{if eq .Key "decided"}}{{.N}}{{end}}{{end}}</b><small>cases the players decided</small></div>
+</section>
+<section class="card" id="cases">
+  <div class="card-head"><h2>Cases</h2><div class="tabs">{{range $d.Tabs}}<a href="/community?tab={{.Key}}"{{if eq .Key $d.Tab}} class="on"{{end}}>{{.Label}} <span class="mono">{{.N}}</span></a>{{end}}</div></div>
+  {{if $d.Notice}}<p class="saved">{{$d.Notice}}</p>{{end}}
+  {{if $d.Rows}}
+  <table class="reports">
+    <thead><tr><th>Suspect</th><th>From</th><th>Match</th><th class="num">Verdicts</th><th>Vote split</th><th>{{if eq $d.Tab "calibration"}}Known answer{{else}}Players' answer{{end}}</th><th>{{if eq $d.Tab "calibration"}}Scored{{else}}Your decision{{end}}</th><th>Opened</th></tr></thead>
+    <tbody>
+    {{range $d.Rows}}
+    <tr>
+      <td><a class="mono" href="/players/{{path .Suspect}}">{{short .Suspect}}</a></td>
+      <td>{{.SourceLabel}}</td>
+      <td>{{if .Recorded}}<a href="{{matchURL .MatchID}}?player={{query .Suspect}}">Replay</a>{{else}}<span class="mono muted">{{short .MatchID}}</span>{{end}}</td>
+      <td class="num"><span class="mono">{{.Tally.Votes}}</span>{{if not .Calibration}} <small class="muted">of {{$d.Set.Quorum}}</small>{{end}}</td>
+      <td>{{if .Split}}{{range $i, $s := .Split}}{{if $i}} · {{end}}{{$s.Label}} <span class="mono">{{$s.N}}</span>{{end}}{{else}}<span class="muted">–</span>{{end}}</td>
+      <td>{{if .Calibration}}{{.Expected}}
+        {{else if eq .State "decided"}}{{if eq .Verdict "insufficient"}}<span class="mark mark-low">{{.Answer}}</span>{{else}}<span class="mark mark-act">{{.Answer}}</span>{{end}}<br><small class="muted">{{score .Agreement}} weighted agreement</small>
+        {{else if eq .State "undecided"}}<span class="muted">No agreement</span><br><small class="muted">the leading answer had {{score .Agreement}}</small>
+        {{else}}<span class="muted">waiting for verdicts</span>{{end}}</td>
+      <td>{{if .Calibration}}<span class="mono">{{.Correct}}</span> correct · <span class="mono">{{.Wrong}}</span> wrong
+        {{else if .Decision}}{{if eq .Decision "confirmed"}}Confirmed{{else}}Dismissed{{end}}<br><small class="muted">by {{.DecidedBy}} {{ago .DecidedAt}}</small>
+        {{else if and (eq .State "decided") $d.CanAct}}
+        <form method="post" action="/community/cases/{{.ID}}/decide" class="poolacts">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <button type="submit" name="decision" value="confirmed" class="secondary" aria-label="Confirm case {{.ID}}">Confirm</button>
+          <button type="submit" name="decision" value="dismissed" class="secondary" aria-label="Dismiss case {{.ID}}">Dismiss</button>
+        </form>
+        {{else}}<span class="muted">–</span>{{end}}</td>
+      <td class="when" title="{{when .CreatedAt}}">{{ago .CreatedAt}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">{{if eq $d.Tab "calibration"}}No calibration cases yet{{else}}No {{$d.Tab}} cases{{end}}</p>{{end}}
+  {{if and (eq $d.Tab "calibration") $d.CanAct}}
+  <form method="post" action="/community/calibration" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label class="grow">Match, as on its replay page
+      <input type="text" name="match" class="mono" maxlength="128" autocomplete="off" required>
+    </label>
+    <label>Player in that match
+      <input type="text" name="suspect" class="mono" maxlength="128" autocomplete="off" required>
+    </label>
+    <label>Known answer
+      <select name="expected"><option value="cheating">Cheating</option><option value="toxic">Toxic behaviour</option><option value="insufficient">Not enough evidence</option></select>
+    </label>
+    <button type="submit" class="secondary">Add calibration case</button>
+  </form>
+  {{end}}
+</section>
+{{if $d.CanAdmin}}
+<section class="card">
+  <h2>Settings</h2>
+  <form method="post" action="/community/settings" class="labelform first">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Community review
+      <select name="enabled"><option value="0"{{if not $d.Set.Enabled}} selected{{end}}>Off</option><option value="1"{{if $d.Set.Enabled}} selected{{end}}>On</option></select>
+    </label>
+    <label>Verdicts that close a case
+      <input type="number" name="quorum" min="3" max="25" value="{{$d.Set.Quorum}}" required>
+    </label>
+    <label>Agreement that decides it, %
+      <input type="number" name="agreement" min="50" max="100" value="{{$d.AgreePct}}" required>
+    </label>
+    <label>Report weight that makes a case
+      <input type="number" name="report_weight" min="0.5" max="20" step="0.1" value="{{fixed 1 $d.Set.ReportWeight}}" required>
+    </label>
+    <button type="submit" class="secondary">Save settings</button>
+  </form>
+</section>
+{{end}}
+<p class="note">Players see the match from above with the suspect named Suspect and everyone else numbered: no accounts, no findings, no scores, no report text. A case closes when {{$d.Set.Quorum}} players have given a verdict. It is decided when the answer with the most weight behind it has {{$d.AgreePct}}% of the weight, and undecided otherwise. A player's weight comes from how often their earlier verdicts were right.</p>
+<p class="note">A decided case is advice for you. It never bans, never ends a session, never puts anyone in the shadow pool and is not something the Oracle learns from. Confirm and Dismiss record your conclusion in the audit log and score the players who voted; a ban is still your own action on the player's page.{{if not $d.CanAct}} Confirm, Dismiss and calibration cases need the reviewer role.{{end}}{{if not $d.CanAdmin}} The settings need the admin role.{{end}}</p>
+<p class="note">A calibration case is a recorded match and a player whose answer you already know. It is handed to players among the real cases and scores them at once: a reviewer's first case is one, then about one in four, and every case of a reviewer who has been wrong more often than right.</p>
+{{end}}

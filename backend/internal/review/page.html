@@ -1,0 +1,71 @@
+{{define "page"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}} · Community review</title>
+<link rel="stylesheet" href="/review/static/review.css">
+</head>
+<body>
+{{if eq .View "watch"}}
+<main class="wrap">
+  <div class="head">
+    <h1>Review a match</h1>
+    <span class="muted">This link works until <span class="mono">{{.Expires}}</span> UTC and gives one verdict</span>
+  </div>
+  <section class="card">
+    <h2>What to do</h2>
+    <ul class="rules">
+      <li>Watch the player named Suspect, ringed on the map. The other players are numbered</li>
+      <li>Judge only what you see in the play. You are not told why this match was picked, and it may be an ordinary one</li>
+      <li>If you are not sure, say there is not enough evidence. A wrong accusation counts against you; an honest "not enough" does not</li>
+    </ul>
+  </section>
+  <section class="card">
+    <h2>Replay</h2>
+    <div class="mr" id="match-replay" data-src="{{.Base}}/replay.json" data-t="0" data-focus="1"{{if .Outline}} data-outline="{{.Base}}/outline.json"{{end}}>
+      <canvas class="mr-view" width="960" height="540">Top-down view of the match</canvas>
+      <div class="mr-line">
+        <input type="range" class="mr-seek" min="0" max="{{.DurationMs}}" step="50" value="0" aria-label="Match time" disabled>
+        <div class="mr-ticks"></div>
+      </div>
+      <div class="mr-bar">
+        <button type="button" class="secondary mr-play" disabled>Play</button>
+        <label>Speed <select class="mr-speed" disabled><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option></select></label>
+        <span class="mr-status muted" role="status">The replay needs JavaScript from this page</span>
+        <span class="mono mr-clock">00:00 / {{.Duration}}</span>
+      </div>
+    </div>
+    <p class="key">
+      <span><span class="dot d-ring"></span>the suspect</span>
+      <span><span class="dot"></span>team one</span>
+      <span><span class="dot d-b"></span>team two</span>
+      <span>a line is a shot, × where it killed</span>
+    </p>
+  </section>
+  <section class="card">
+    <h2>Your verdict</h2>
+    <form method="post" action="{{.Base}}/verdict">
+      <fieldset class="verdicts">
+        <legend>What did the suspect do in this match?</legend>
+        {{range .Verdicts}}<label class="verdict"><input type="radio" name="verdict" value="{{.Value}}" required><span><b>{{.Label}}</b><small>{{.Hint}}</small></span></label>
+        {{end}}
+      </fieldset>
+      <button type="submit" class="primary">Give verdict</button>
+    </form>
+  </section>
+  <p class="note">Your verdict is one of several and is advice for the studio's own reviewers, who decide. Nobody is banned by this page.</p>
+</main>
+<script src="/review/static/replay.js" defer></script>
+{{else}}
+<main class="wrap">
+  <section class="card narrow">
+    <h1>{{.Title}}</h1>
+    <p class="muted">{{.Text}}</p>
+  </section>
+</main>
+{{end}}
+</body>
+</html>
+{{end}}

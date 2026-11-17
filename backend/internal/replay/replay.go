@@ -264,11 +264,24 @@ func (r *Recorder) Encode() ([]byte, error) {
 			d.Bounds[0], d.Bounds[1] = min(d.Bounds[0], p.X[i]), min(d.Bounds[1], p.Y[i])
 			d.Bounds[2], d.Bounds[3] = max(d.Bounds[2], p.X[i]), max(d.Bounds[3], p.Y[i])
 		}
-		c := *p
-		c.T, c.X, c.Y, c.Yaw = delta(p.T), delta(p.X), delta(p.Y), delta(p.Yaw)
-		d.Players = append(d.Players, c)
+		d.Players = append(d.Players, *p)
 	}
-	raw, err := json.Marshal(d)
+	return d.Encode()
+}
+
+// Encode writes a recording whose players' lists hold absolute values, as Decode returns
+// it, in the stored form. d is not changed.
+func (d *Data) Encode() ([]byte, error) {
+	out := *d
+	out.Players = make([]Player, len(d.Players))
+	for i, p := range d.Players {
+		p.T, p.X, p.Y, p.Yaw = delta(p.T), delta(p.X), delta(p.Y), delta(p.Yaw)
+		out.Players[i] = p
+	}
+	if out.Shots == nil {
+		out.Shots = []Shot{}
+	}
+	raw, err := json.Marshal(out)
 	if err != nil {
 		return nil, err
 	}

@@ -29,6 +29,7 @@ import (
 	"carthago/backend/internal/learning"
 	"carthago/backend/internal/pipeline"
 	"carthago/backend/internal/reports"
+	"carthago/backend/internal/review"
 	"carthago/backend/internal/store"
 )
 
@@ -45,6 +46,7 @@ type evidenceStore interface {
 	store.ToxicityStore
 	store.ReportStore
 	store.MapOutlineStore
+	store.ReviewStore
 }
 
 type tenantFlag map[string]string
@@ -105,6 +107,8 @@ func main() {
 	clientNotices := flag.Bool("client-notices", false, "tell a client when its session is flagged by evidence that stands on its own (a signed notice with a category and a severity; it never kicks)")
 	allowRendererLibrary := flag.Bool("allow-renderer-library", false, "for a game build that ships its own renderer library: an unsigned opengl32, d3d9, ddraw or glu32 loaded from outside the system directory is excused when the first recorded start of the game had it. By default it always counts as a replaced renderer (a wallhack) and raises the notice")
 	clientNoticesStrict := flag.Bool("client-notices-strict", false, "with -client-notices: also send the notices that are held back by default because an honest, modified game build can produce the same evidence (things present since the first recorded start of a game, changed or new files of the game folder, read-only handles, engine code rewritten while server add-ons are loaded)")
+	reviewURL := flag.String("review-url", "", "public address of this gateway as players reach it, e.g. https://ac.example.com; community review links start with it (default: the address the game server called the gateway by)")
+	reviewTTL := flag.Duration("review-link-ttl", review.DefaultLinkTTL, "how long a community review link works")
 	mapPins := flag.String("map-pins", "", "file of trusted map geometries, one `map_id sha256` per line (the line carthago-cs16-bridge map-hash prints); a geometry uploaded for a listed map with another hash is refused and that match is not scored for information leaks")
 	mapPinsRequired := flag.Bool("map-pins-required", false, "with -map-pins: also refuse geometry for maps the file does not list")
 	leakAlert := flag.Bool("leak-alert", false, "opt-in live wallhack rule: a player whose information-leak score is strong in two separate windows of one match gets information_leak_live evidence during the match and, with -client-notices, a notice of the visibility category when the slot is bound to a verified session. Off, information_leak is evidence for review at the end of a match and never tells the player")
@@ -231,7 +235,7 @@ func main() {
 	banning.AddHook(learning.NewLabeler(st, log))
 	gw = gateway.New(gateway.Config{
 		Tenants: tenants, HeartbeatInterval: *hbInterval, HeartbeatTimeout: *hbTimeout, TokenTTL: *ttl, FetchEKCerts: *fetchEK, EKRoots: roots,
-		Detections: detections, Bans: banning, Pool: banning, Drivers: st, Economy: ledger, Reports: reports.New(st, nil), Maps: st, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
+		Detections: detections, Bans: banning, Pool: banning, Drivers: st, Economy: ledger, Reports: reports.New(st, nil), Maps: st, Review: review.New(st, review.Config{Key: keys.Review, LinkTTL: *reviewTTL}), ReviewURL: *reviewURL, MaxHandshakes: *maxHandshakes, MaxHandshakesPerIP: *maxHandshakesIP, TestNoticeAfter: *testNotice,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	banning.SetEnder(gw.Sessions())

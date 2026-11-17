@@ -1,0 +1,33 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="head">
+  <h1>Community review</h1>
+  <div class="tabs"><a href="/community">Cases</a><a href="/community/reviewers" class="on">Reviewers</a></div>
+</div>
+<section class="card" id="reviewers">
+  <div class="card-head"><h2>Reviewers</h2><span class="muted">players your game server asked a review link for</span></div>
+  {{if $d.Rows}}
+  <table class="reports">
+    <thead><tr><th>Player</th><th>Level</th><th class="num">Verdicts</th><th class="num" title="Verdicts whose answer is known: calibration cases and cases you confirmed or dismissed">Scored</th><th class="num">Correct</th><th class="num">Accuracy</th><th class="num" title="(correct + 1) / (scored + 2)">Weight</th><th class="num" title="Correct of the calibration cases answered">Calibration</th><th>Badges</th><th>Handed cases</th></tr></thead>
+    <tbody>
+    {{range $d.Rows}}
+    <tr>
+      <td><a class="mono" href="/players/{{path .Reviewer}}">{{short .Reviewer}}</a></td>
+      <td>{{.LevelName}}</td>
+      <td class="num mono">{{.Verdicts}}</td>
+      <td class="num mono">{{.Scored}}</td>
+      <td class="num mono">{{.Correct}}</td>
+      <td class="num mono">{{if .Scored}}{{score .Accuracy}}{{else}}<span class="muted">–</span>{{end}}</td>
+      <td class="num mono">{{fixed 2 .Weight}}</td>
+      <td class="num mono">{{if .Calibration}}{{.CalibrationCorrect}} of {{.Calibration}}{{else}}<span class="muted">–</span>{{end}}</td>
+      <td>{{if .Badges}}<span class="tags">{{range .Badges}}<span class="tag">{{.}}</span>{{end}}</span>{{else}}<span class="muted">–</span>{{end}}</td>
+      <td>{{if .Eligible}}Yes{{else}}<span class="mark mark-act">No longer</span>{{end}}<br><small class="muted">last {{ago .LastAt}}</small></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">No reviewers yet</p>{{end}}
+</section>
+<p class="note">A verdict is scored when its answer is known: at once on a calibration case, and on a real case when one of your reviewers confirms or dismisses what the players decided. Weight is (correct + 1) / (scored + 2), so a new reviewer starts at 0.50, and it is how much that reviewer's verdict counts in a case. A reviewer whose weight falls below {{fixed 2 $d.MinWeight}} with at least {{$d.MinScored}} scored verdicts is no longer handed cases.</p>
+<p class="note">Levels come from correct verdicts: {{range $i, $l := $d.Levels}}{{if $i}}, {{end}}{{$l.Name}} at {{$l.Correct}}{{end}}. Reaching a level earns its badge. The gateway grants nothing in your game: your game server reads standing and new badges (<span class="mono">GET /v1/review/standing</span>, <span class="mono">GET /v1/review/badges</span>) and grants what you decide.</p>
+{{end}}

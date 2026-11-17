@@ -25,6 +25,7 @@ type Memory struct {
 	toxicity         *memToxicity
 	reports          *memReports
 	outlines         map[[2]string]MapOutline
+	review           *memReview
 }
 
 func NewMemory() *Memory {

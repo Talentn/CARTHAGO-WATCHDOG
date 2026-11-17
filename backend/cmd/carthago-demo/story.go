@@ -51,6 +51,8 @@ type story struct {
 	shotBySami []hit
 	// teamKilled: the teammate walid killed in the spoiled match.
 	teamKilled string
+	// reviewURL: a community review link for the person watching the demo.
+	reviewURL string
 }
 
 // actor is one simulated client with the telemetry of a healthy scanner.
@@ -203,6 +205,7 @@ func (s *story) play() (passed, total int) {
 		{"The Oracle puts the players outside the studio's normal play first", s.oracle},
 		{"A player who spoils matches is noted for the community team, and nothing more", s.toxic},
 		{"Players report what they saw: a queue for the reviewer, and nothing more", s.reports},
+		{"Players review a suspicious match: five verdicts, a calibration case, and advice for the studio", s.community},
 	} {
 		total++
 		fmt.Fprintf(s.out, "\n%d. %s\n", i+1, ch.title)

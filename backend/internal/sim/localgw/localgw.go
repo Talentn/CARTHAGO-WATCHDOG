@@ -1,6 +1,6 @@
 // Package localgw starts a complete Carthago gateway inside a demo tool: the real
 // handshake with TPM attestation, the detection pipeline, the ban service with the shadow
-// pool, the known-cheat list, the economy ledger, the Oracle when it is given a bundle,
+// pool, the known-cheat list, the economy ledger, community review, the Oracle when it is given a bundle,
 // the game-server API and the dashboard, over a SQLite database in a folder the tool
 // chooses. It is wired the way cmd/carthago-gateway wires it, with client notices and
 // automatic bans on, and listens on loopback only.
@@ -30,6 +30,7 @@ import (
 	"carthago/backend/internal/oracle/analyst"
 	"carthago/backend/internal/pipeline"
 	"carthago/backend/internal/reports"
+	"carthago/backend/internal/review"
 	"carthago/backend/internal/store"
 )
 
@@ -50,6 +51,8 @@ type Config struct {
 	// OracleDir, when set, holds an Oracle bundle: sessions are scored, and the built-in
 	// analyst without a language model writes the opinions.
 	OracleDir string
+	// ReviewLinkTTL is how long a community review link works. Default 30 minutes.
+	ReviewLinkTTL time.Duration
 	// Log receives the gateway's own log lines. Default: none.
 	Log io.Writer
 }
@@ -58,6 +61,7 @@ type Config struct {
 type Gateway struct {
 	Store    *store.SQLite
 	Bans     *bans.Service
+	Review   *review.Service
 	Oracle   *oracle.Engine
 	Bundle   *oracle.Bundle
 	Identity ed25519.PublicKey
@@ -152,9 +156,10 @@ func Start(ctx context.Context, cfg Config) (*Gateway, error) {
 	ledger := economy.New(st, g.Bans, log)
 	g.Bans.AddHook(ledger)
 	g.Bans.AddHook(learning.NewLabeler(st, log))
+	g.Review = review.New(st, review.Config{Key: keys.Review, LinkTTL: cfg.ReviewLinkTTL})
 	gw = gateway.New(gateway.Config{
 		Tenants: map[string]string{Tenant: ServerKey}, HeartbeatInterval: cfg.HeartbeatInterval, HeartbeatTimeout: 30 * time.Second, EKRoots: roots,
-		Detections: detections, Bans: g.Bans, Pool: g.Bans, Drivers: st, Economy: ledger, Reports: reports.New(st, nil), Maps: st,
+		Detections: detections, Bans: g.Bans, Pool: g.Bans, Drivers: st, Economy: ledger, Reports: reports.New(st, nil), Maps: st, Review: g.Review,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	g.Bans.SetEnder(gw.Sessions())

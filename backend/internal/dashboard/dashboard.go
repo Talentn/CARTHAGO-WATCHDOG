@@ -14,6 +14,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"embed"
@@ -36,6 +37,8 @@ import (
 	"carthago/backend/internal/bans"
 	"carthago/backend/internal/economy"
 	"carthago/backend/internal/protocol"
+	"carthago/backend/internal/replay"
+	"carthago/backend/internal/review"
 	"carthago/backend/internal/store"
 )
 
@@ -57,6 +60,7 @@ type Store interface {
 	store.ToxicityStore
 	store.ReportStore
 	store.MapOutlineStore
+	store.ReviewStore
 	ListBans(ctx context.Context, tenant string, limit int) ([]store.Ban, error)
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
@@ -99,6 +103,7 @@ type Server struct {
 	oracle       *OracleInfo
 	bans         *bans.Service
 	eco          *economy.Service
+	rev          *review.Service
 	baselines    baselineCache
 }
 
@@ -117,6 +122,8 @@ func New(cfg Config, st Store, log *slog.Logger) (*Server, error) {
 	// The Economy page reads the ledger through the service; it reports nothing itself.
 	s.eco = economy.New(st, nil, log)
 	s.eco.Now = cfg.Now
+	// The dashboard's community review hands out no links, so it holds no key.
+	s.rev = review.New(st, review.Config{Now: cfg.Now})
 	if len(cfg.AllowedHosts) > 0 {
 		s.hosts = map[string]bool{}
 		for _, h := range cfg.AllowedHosts {
@@ -238,6 +245,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /matches/{id}/replay.json", s.auth(s.matchReplay))
 	mux.HandleFunc("GET /matches/{id}/outline.json", s.auth(s.matchOutlineJSON))
 	mux.HandleFunc("GET /matches/{id}/map.png", s.auth(s.matchMapPNG))
+	mux.HandleFunc("GET /community", s.auth(s.communityPage))
+	mux.HandleFunc("GET /community/reviewers", s.auth(s.reviewersPage))
+	mux.HandleFunc("POST /community/settings", s.require(RoleAdmin, s.setCommunitySettings))
+	mux.HandleFunc("POST /community/cases/{id}/decide", s.require(RoleReviewer, s.decideCommunityCase))
+	mux.HandleFunc("POST /community/calibration", s.require(RoleReviewer, s.addCalibrationCase))
 	mux.HandleFunc("GET /maps", s.auth(s.mapsPage))
 	mux.HandleFunc("POST /maps/lines", s.require(RoleAdmin, s.putMapLines))
 	mux.HandleFunc("POST /maps/picture", s.require(RoleAdmin, s.putMapPicture))
@@ -284,6 +296,11 @@ func staticFiles() http.Handler {
 		etags[name] = `"` + hex.EncodeToString(sum[:12]) + `"`
 		return nil
 	})
+	// The replay's script lives with the recording it plays (internal/replay), because the
+	// community review page serves the same file.
+	const script = "replay.js"
+	sum := sha256.Sum256(replay.PlayerJS)
+	etags[script] = `"` + hex.EncodeToString(sum[:12]) + `"`
 	files := http.FileServerFS(static)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tag, ok := etags[r.URL.Path]
@@ -293,6 +310,12 @@ func staticFiles() http.Handler {
 		}
 		hd := w.Header()
 		hd.Set("ETag", tag)
+		if r.URL.Path == script {
+			hd.Set("Cache-Control", "no-cache")
+			hd.Set("Content-Type", "text/javascript; charset=utf-8")
+			http.ServeContent(w, r, script, time.Time{}, bytes.NewReader(replay.PlayerJS))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, ".woff2") {
 			hd.Set("Cache-Control", "public, max-age=604800")
 		} else {

@@ -18,6 +18,7 @@ import (
 	"carthago/backend/internal/economy"
 	"carthago/backend/internal/protocol"
 	"carthago/backend/internal/reports"
+	"carthago/backend/internal/review"
 	"carthago/backend/internal/store"
 )
 
@@ -67,6 +68,12 @@ type Config struct {
 	// Maps, when set, serves /v1/maps: the outlines of maps the match replay draws
 	// (internal/outline).
 	Maps store.MapOutlineStore
+	// Review, when set, is community review (internal/review): /v1/review/ for the game
+	// server, and the page a player opens with a review link under /review/. ReviewURL is
+	// the public address of this gateway that links are made under (https://host); empty
+	// uses the address the game server called.
+	Review    *review.Service
+	ReviewURL string
 	// TestNoticeAfter sends every session an enforcement notice of category TEST this long
 	// after its client connected, to try a game's alert screen. Zero disables it.
 	TestNoticeAfter time.Duration
@@ -194,6 +201,13 @@ func (g *Gateway) Handler() http.Handler {
 		mux.HandleFunc("POST /v1/maps", g.handleMapPut)
 		mux.HandleFunc("GET /v1/maps", g.handleMapList)
 		mux.HandleFunc("DELETE /v1/maps", g.handleMapDelete)
+	}
+	if g.cfg.Review != nil {
+		mux.HandleFunc("POST /v1/review/links", g.handleReviewLink)
+		mux.HandleFunc("GET /v1/review/standing", g.handleReviewStanding)
+		mux.HandleFunc("GET /v1/review/badges", g.handleReviewBadges)
+		mux.HandleFunc("POST /v1/review/badges/ack", g.handleReviewBadgesAck)
+		mux.Handle("/review/", g.cfg.Review.Handler())
 	}
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
