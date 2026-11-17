@@ -92,7 +92,8 @@ func (s *story) pages() (ok, total int) {
 		{"Shadow pool", "/shadow", []string{"tarek"}},
 		{"Known cheats", "/cheats", []string{"aimhelper-loader", "OPENGL32.dll"}},
 		{"Economy", "/economy", []string{"economy_balance_mismatch", "robbery"}},
-		{"Match replay", "/matches/" + demoMatch, []string{"sami", "information_leak", "Moment", "/static/replay.js"}},
+		{"Match replay", "/matches/" + demoMatch, []string{"sami", "information_leak", "Moment", "/static/replay.js", "outline.json", "Shots across a wall line"}},
+		{"Maps", "/maps", []string{"carthago-yard", "wall lines"}},
 		{"Player " + toxicPlayer, "/players/" + toxicPlayer, []string{"Behaviour", "Killed 2 teammates", "Left at 05:30", "Replay at"}},
 		{"Reports", "/reports", []string{"sami", "Cheating", "Toxic behaviour", "0.67", "Replay at"}},
 		{"Behaviour on the replay", "/matches/" + toxicMatch, []string{toxicPlayer, "team_kill", "left_early", "Behaviour"}},
@@ -133,7 +134,7 @@ func (s *story) pages() (ok, total int) {
 		s.say("FAIL: %s", b)
 	}
 	s.say("%d of %d pages opened with the demo login show the story's data: Overview, Sessions, Players, Bans,", ok, total)
-	s.say("Reports, Shadow pool, Known cheats, Economy, the replays of both matches, and the pages of two players, one")
+	s.say("Reports, Shadow pool, Known cheats, Economy, Maps, the replays of both matches, and the pages of two players, one")
 	s.say("session and one piece of evidence.")
 	return ok, total
 }

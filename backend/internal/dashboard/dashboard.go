@@ -56,6 +56,7 @@ type Store interface {
 	store.ReplayStore
 	store.ToxicityStore
 	store.ReportStore
+	store.MapOutlineStore
 	ListBans(ctx context.Context, tenant string, limit int) ([]store.Ban, error)
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
@@ -235,6 +236,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /reports/{id}/state", s.require(RoleReviewer, s.setReportState))
 	mux.HandleFunc("GET /matches/{id}", s.auth(s.match))
 	mux.HandleFunc("GET /matches/{id}/replay.json", s.auth(s.matchReplay))
+	mux.HandleFunc("GET /matches/{id}/outline.json", s.auth(s.matchOutlineJSON))
+	mux.HandleFunc("GET /matches/{id}/map.png", s.auth(s.matchMapPNG))
+	mux.HandleFunc("GET /maps", s.auth(s.mapsPage))
+	mux.HandleFunc("POST /maps/lines", s.require(RoleAdmin, s.putMapLines))
+	mux.HandleFunc("POST /maps/picture", s.require(RoleAdmin, s.putMapPicture))
+	mux.HandleFunc("POST /maps/remove", s.require(RoleAdmin, s.removeMap))
 	return s.securityHeaders(s.hostCheck(mux))
 }
 

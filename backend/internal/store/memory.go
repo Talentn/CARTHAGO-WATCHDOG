@@ -24,6 +24,7 @@ type Memory struct {
 	replays          map[[2]string]MatchReplay
 	toxicity         *memToxicity
 	reports          *memReports
+	outlines         map[[2]string]MapOutline
 }
 
 func NewMemory() *Memory {

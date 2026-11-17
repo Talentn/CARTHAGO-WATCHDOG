@@ -110,3 +110,18 @@ func YardGeometry() *pb.MapGeometry {
 	}
 	return g
 }
+
+// YardWallLines is the outline of the test map for the match replay: the four sides of
+// every wall, building and pillar a standing player cannot see over, as line segments in
+// centimetres (x0, y0, x1, y1). The low crates are left out: they block nothing standing.
+func YardWallLines() [][4]int32 {
+	var out [][4]int32
+	for _, b := range yardBoxes {
+		if b.h <= EyeHeight {
+			continue
+		}
+		x0, y0, x1, y1 := cmv(b.x0), cmv(b.y0), cmv(b.x1), cmv(b.y1)
+		out = append(out, [4]int32{x0, y0, x1, y0}, [4]int32{x1, y0, x1, y1}, [4]int32{x1, y1, x0, y1}, [4]int32{x0, y1, x0, y0})
+	}
+	return out
+}

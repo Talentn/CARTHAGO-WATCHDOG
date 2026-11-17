@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 
+	"carthago/backend/internal/outline"
 	"carthago/backend/internal/replay"
 	"carthago/backend/internal/store"
 )
@@ -59,6 +60,15 @@ type matchData struct {
 	Focus    int
 	Duration string
 	Src      string
+	// Map is the map the game server named for the match; empty for none. Outline is the
+	// studio's outline of it ("lines" or "image"; empty for none), OutlineSrc where the
+	// replay script reads it, and WallShots the shots at a player whose line crosses a
+	// wall line: a reviewer's aid, not marks.
+	Map        string
+	Outline    string
+	OutlineSrc string
+	WallShots  []wallShot
+	WallMore   bool
 }
 
 func matchURL(id string) string { return "/matches/" + url.PathEscape(id) }
@@ -142,6 +152,24 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request, tenant string) {
 				d.Players[j].Marks++
 			}
 		}
+	}
+	d.Map = data.Map
+	o, lines, err := s.matchOutline(ctx, tenant, data)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if o != nil {
+		d.Outline, d.OutlineSrc = o.Kind, matchURL(id)+"/outline.json"
+		hashOf := map[int]string{}
+		for _, p := range rec.Players {
+			hashOf[int(p.Slot)] = p.PlayerHash
+		}
+		for _, c := range outline.Crossings(data, lines, maxCrossings) {
+			d.WallShots = append(d.WallShots, wallShot{Ms: c.Ms, At: clock(c.Ms), Slot: int(c.Slot), Target: int(c.Target),
+				Player: hashOf[int(c.Slot)], Victim: hashOf[int(c.Target)], Hit: c.Hit, Kill: c.Kill})
+		}
+		d.WallMore = len(d.WallShots) == maxCrossings
 	}
 	w.Header().Set("Content-Security-Policy", matchCSP)
 	s.render(w, http.StatusOK, "match", page{Title: "Match " + short(id), Nav: "players", Tenant: tenant, Data: d})

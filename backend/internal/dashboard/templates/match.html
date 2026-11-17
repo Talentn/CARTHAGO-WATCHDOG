@@ -10,7 +10,7 @@
 </section>
 <section class="card">
   <h2>Replay</h2>
-  <div class="mr" id="match-replay" data-src="{{$d.Src}}" data-t="{{$d.StartMs}}" data-focus="{{$d.Focus}}">
+  <div class="mr" id="match-replay" data-src="{{$d.Src}}" data-t="{{$d.StartMs}}" data-focus="{{$d.Focus}}"{{if $d.OutlineSrc}} data-outline="{{$d.OutlineSrc}}"{{end}}>
     <canvas class="mr-view" width="960" height="540">Top-down view of the match</canvas>
     <div class="mr-line">
       <input type="range" class="mr-seek" min="0" max="{{$r.DurationMs}}" step="50" value="{{$d.StartMs}}" aria-label="Match time" disabled>
@@ -29,9 +29,29 @@
     <span><span class="dot d-watch"></span>has a medium mark</span>
     <span><span class="dot d-act"></span>has a high mark</span>
     <span><span class="key k-viewer"></span>shot, × where it killed</span>
+    {{if eq $d.Outline "lines"}}<span><span class="key k-wall"></span>wall line</span>
+    <span><span class="key k-cross"></span>shot across a wall line</span>{{end}}
   </p>
-  <p class="replay-note">Positions are what the game server sent, kept four times a second. The frame is the area the players covered; no map is drawn. The recording is a picture for review and no rule reads it.</p>
+  <p class="replay-note">Positions are what the game server sent, kept four times a second. {{if $d.Outline}}The outline is the one your studio registered for the map <span class="mono">{{$d.Map}}</span>; it is a drawing and no rule reads it.{{else}}The frame is the area the players covered; no map is drawn{{if $d.Map}} because the map <span class="mono">{{$d.Map}}</span> has no outline{{end}}.{{end}} The recording is a picture for review and no rule reads it. <a href="/maps">Map outlines</a></p>
 </section>
+{{if eq $d.Outline "lines"}}
+<section class="card" id="wall-shots">
+  <div class="card-head"><h2>Shots across a wall line</h2><span class="muted">a reviewer's aid · not a finding</span></div>
+  {{if $d.WallShots}}
+  <table class="compact marks">
+    <thead><tr><th>Match time</th><th>Shooter</th><th>Shot at</th><th>Result</th></tr></thead>
+    <tbody>{{range $d.WallShots}}<tr>
+      <td><button type="button" class="link mono mr-jump" data-t="{{.Ms}}" data-slot="{{.Slot}}" data-level="low" data-kind="wall" title="{{.At}} · shot across a wall line · {{.Player}}">{{.At}}</button></td>
+      <td><a class="mono" href="/players/{{path .Player}}">{{short .Player}}</a></td>
+      <td><a class="mono" href="/players/{{path .Victim}}">{{short .Victim}}</a></td>
+      <td>{{if .Kill}}Kill{{else if .Hit}}Hit{{else}}<span class="muted">Miss</span>{{end}}</td>
+    </tr>{{end}}</tbody>
+  </table>
+  {{if $d.WallMore}}<p class="hint">Only the first 200 are listed</p>{{end}}
+  {{else}}<p class="empty">No shot in this match crosses a wall line</p>{{end}}
+  <p class="replay-note">The line from the shooter to the player shot at crosses a wall line of the outline. The outline is flat and positions are a quarter of a second apart, so a shot over a low wall or through a window is listed too, and a shot through a wall within 80 cm of its end is not. Nothing is scored, flagged or banned from this list.</p>
+</section>
+{{end}}
 <section class="card">
   <h2>Findings, Oracle flags and behaviour</h2>
   {{if $d.Marks}}

@@ -64,6 +64,9 @@ type Config struct {
 	// Reports, when set, serves POST /v1/reports: reports players make about other
 	// players, kept for reviewers (internal/reports).
 	Reports *reports.Service
+	// Maps, when set, serves /v1/maps: the outlines of maps the match replay draws
+	// (internal/outline).
+	Maps store.MapOutlineStore
 	// TestNoticeAfter sends every session an enforcement notice of category TEST this long
 	// after its client connected, to try a game's alert screen. Zero disables it.
 	TestNoticeAfter time.Duration
@@ -186,6 +189,11 @@ func (g *Gateway) Handler() http.Handler {
 	}
 	if g.cfg.Reports != nil {
 		mux.HandleFunc("POST /v1/reports", g.handleReport)
+	}
+	if g.cfg.Maps != nil {
+		mux.HandleFunc("POST /v1/maps", g.handleMapPut)
+		mux.HandleFunc("GET /v1/maps", g.handleMapList)
+		mux.HandleFunc("DELETE /v1/maps", g.handleMapDelete)
 	}
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -26,6 +26,9 @@
   var mono = token("--mono") || "monospace";
 
   var rec = null;        // the recording
+  var outline = null;    // the outline of the match's map, when the studio registered one
+  var mapImg = null;     // its picture, once loaded
+  var crossing = {};     // index of a shot whose line crosses a wall line -> true
   var t = Number(root.dataset.t) || 0;
   var focus = Number(root.dataset.focus);
   var playing = false;
@@ -111,13 +114,37 @@
       ctx.moveTo(sx(b[0]), Math.round(sy(gy)) + 0.5); ctx.lineTo(sx(b[2]), Math.round(sy(gy)) + 0.5);
     }
     ctx.stroke();
-    ctx.strokeStyle = col.line;
-    ctx.strokeRect(Math.round(sx(b[0])) + 0.5, Math.round(sy(b[3])) + 0.5, Math.round((b[2] - b[0]) * view.k), Math.round((b[3] - b[1]) * view.k));
+    if (outline) drawOutline();
+    else {
+      ctx.strokeStyle = col.line;
+      ctx.strokeRect(Math.round(sx(b[0])) + 0.5, Math.round(sy(b[3])) + 0.5, Math.round((b[2] - b[0]) * view.k), Math.round((b[3] - b[1]) * view.k));
+    }
     ctx.fillStyle = col.muted;
     ctx.font = "12px " + mono;
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "left";
     ctx.fillText("grid " + cell / 100 + " m", 12, view.h - 12);
+  }
+
+  // The map, under everything that moves: the studio's picture of it, or its wall lines.
+  function drawOutline() {
+    var r = outline.rect;
+    if (mapImg) {
+      ctx.globalAlpha = 0.7;
+      ctx.drawImage(mapImg, sx(r[0]), sy(r[3]), (r[2] - r[0]) * view.k, (r[3] - r[1]) * view.k);
+      ctx.globalAlpha = 1;
+    }
+    if (!outline.lines) return;
+    ctx.strokeStyle = col.text2;
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = "square";
+    ctx.beginPath();
+    for (var i = 0; i < outline.lines.length; i++) {
+      var l = outline.lines[i];
+      ctx.moveTo(sx(l[0]), sy(l[1])); ctx.lineTo(sx(l[2]), sy(l[3]));
+    }
+    ctx.stroke();
+    ctx.lineCap = "butt";
   }
 
   function drawShots() {
@@ -134,7 +161,16 @@
       var from = shooter && pose(shooter, s[0]);
       if (!from) continue;
       var to = target && pose(target, s[0]);
-      if (age <= SHOT_MS) {
+      // A shot across a wall line stays longer and is dashed, so it reads without colour.
+      var across = crossing[i] === true;
+      if (across && to && age <= KILL_MS) {
+        ctx.globalAlpha = 1 - age / KILL_MS * 0.6;
+        ctx.strokeStyle = col.text;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.moveTo(sx(from.x), sy(from.y)); ctx.lineTo(sx(to.x), sy(to.y)); ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (age <= SHOT_MS) {
         var ex, ey;
         if (to) { ex = sx(to.x); ey = sy(to.y); } else {
           var rad = from.yaw * Math.PI / 180, reach = 1500;
@@ -284,6 +320,17 @@
 
   function start(data) {
     rec = data;
+    if (outline) {
+      // Show the whole map, not only where the players went.
+      var r = outline.rect, b = rec.bounds;
+      rec.bounds = [Math.min(b[0], r[0]), Math.min(b[1], r[1]), Math.max(b[2], r[2]), Math.max(b[3], r[3])];
+      (outline.crossings || []).forEach(function (i) { crossing[i] = true; });
+      if (outline.kind === "image" && outline.src) {
+        var img = new Image();
+        img.onload = function () { mapImg = img; draw(); };
+        img.src = outline.src;
+      }
+    }
     rec.players.forEach(function (p) {
       undelta(p.t); undelta(p.x); undelta(p.y); undelta(p.yaw);
       p.label = p.name.length > 14 ? p.name.slice(0, 13) + "…" : p.name;
@@ -307,11 +354,17 @@
   fit();
   draw();
   statusEl.textContent = "Loading the recording";
-  fetch(root.dataset.src, { credentials: "same-origin" })
+  // The outline is optional: a match whose map has none, or an outline that fails to load,
+  // plays as a match without one.
+  var outlineLoaded = !root.dataset.outline ? Promise.resolve(null) :
+    fetch(root.dataset.outline, { credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .catch(function () { return null; });
+  Promise.all([fetch(root.dataset.src, { credentials: "same-origin" })
     .then(function (res) {
       if (!res.ok) throw new Error("status " + res.status);
       return res.json();
-    })
-    .then(start)
+    }), outlineLoaded])
+    .then(function (got) { outline = got[1]; start(got[0]); })
     .catch(function () { statusEl.textContent = "The recording could not be loaded. Reload the page to try again"; });
 })();

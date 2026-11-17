@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -127,5 +128,62 @@ func TestRecorderStopsAtItsCaps(t *testing.T) {
 func TestDecodeRefusesGarbage(t *testing.T) {
 	if _, err := Decode([]byte("not gzip")); err == nil {
 		t.Fatal("garbage decoded")
+	}
+}
+
+func TestRecorderKeepsTheMapName(t *testing.T) {
+	at := time.UnixMilli(1_800_000_000_000)
+	batch := func(seq uint64, m *pb.MapRef) *pb.GameplayBatch {
+		return &pb.GameplayBatch{MatchId: "m", BatchSeq: seq, TickRate: 64, Map: m, Motion: []*pb.MotionTrack{walk(1, uint32(seq)*64, 0)}}
+	}
+	// The first name a match gives is its map; a name too long to be one is not kept.
+	for name, c := range map[string]struct {
+		first, second *pb.MapRef
+		want          string
+	}{
+		"named":             {&pb.MapRef{MapId: "de_test", Version: 3}, &pb.MapRef{MapId: "other"}, "de_test"},
+		"no map":            {nil, nil, ""},
+		"named later":       {nil, &pb.MapRef{MapId: "de_late"}, "de_late"},
+		"too long a name":   {&pb.MapRef{MapId: strings.Repeat("m", MaxMapID+1)}, nil, ""},
+		"with the geometry": {nil, nil, "de_geo"},
+	} {
+		r := NewRecorder("m")
+		b := batch(0, c.first)
+		if name == "with the geometry" {
+			b.MapGeometry = &pb.MapGeometry{MapId: "de_geo", Version: 1}
+		}
+		r.Add(b, at)
+		r.Add(batch(1, c.second), at)
+		enc, err := r.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := Decode(enc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Map != c.want {
+			t.Errorf("%s: map %q, want %q", name, d.Map, c.want)
+		}
+	}
+}
+
+func TestPose(t *testing.T) {
+	d := &Data{StepMs: 250, Players: []Player{{Slot: 7, T: []int32{0, 4, 40}, X: []int32{0, 400, 400}, Y: []int32{100, 100, 900}}}}
+	if x, y, ok := d.Pose(7, 500); !ok || x != 200 || y != 100 {
+		t.Fatalf("between two positions: %v %v %v", x, y, ok)
+	}
+	if x, y, ok := d.Pose(7, 1000); !ok || x != 400 || y != 100 {
+		t.Fatalf("at a position: %v %v %v", x, y, ok)
+	}
+	// Past a gap the player is not in play: no position is made up across it.
+	if _, _, ok := d.Pose(7, 5000); ok {
+		t.Fatal("a position inside a gap")
+	}
+	if _, _, ok := d.Pose(7, 10_000+2500); ok {
+		t.Fatal("a position long after the last one")
+	}
+	if _, _, ok := d.Pose(8, 500); ok {
+		t.Fatal("a position of a slot that is not in the recording")
 	}
 }

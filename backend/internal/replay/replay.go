@@ -39,6 +39,12 @@ const (
 	maxDecoded = 64 << 20
 
 	defaultTickRate = 64
+
+	// MaxMapID is the longest map name kept with a recording, in bytes.
+	MaxMapID = 128
+	// gapSteps: a player whose next position is more than this many steps away is not in
+	// play in between (dead, left, not spawned). The dashboard's player uses the same.
+	gapSteps = 8
 )
 
 // Player is one slot of the match. T, X, Y and Yaw are parallel: sample i was taken at
@@ -63,8 +69,11 @@ type Shot [5]int32
 
 // Data is a recording as the dashboard's player reads it.
 type Data struct {
-	V          int      `json:"v"`
-	Match      string   `json:"match"`
+	V     int    `json:"v"`
+	Match string `json:"match"`
+	// Map is the map the game server named for the match (GameplayBatch.map); empty when
+	// it named none. The dashboard draws the studio's outline of that map, if it has one.
+	Map        string   `json:"map,omitempty"`
 	TickRate   uint32   `json:"tick_rate"`
 	StepMs     int      `json:"step_ms"`
 	DurationMs int64    `json:"duration_ms"`
@@ -82,6 +91,7 @@ type Data struct {
 // concurrent use.
 type Recorder struct {
 	match     string
+	mapID     string
 	tickRate  uint32
 	players   map[uint32]*Player
 	shots     []Shot
@@ -130,6 +140,13 @@ func (r *Recorder) ms(tick uint32) int64 { return int64(tick) * 1000 / int64(r.t
 
 // Add takes the positions, view angles and shots of one batch, received at the given time.
 func (r *Recorder) Add(b *pb.GameplayBatch, at time.Time) {
+	if r.mapID == "" {
+		if id := b.GetMap().GetMapId(); id != "" && len(id) <= MaxMapID {
+			r.mapID = id
+		} else if id := b.GetMapGeometry().GetMapId(); id != "" && len(id) <= MaxMapID {
+			r.mapID = id
+		}
+	}
 	if r.tickRate == 0 {
 		if r.tickRate = b.TickRate; r.tickRate == 0 {
 			r.tickRate = defaultTickRate
@@ -225,7 +242,7 @@ func undelta(v []int32) {
 // Encode is the recording so far: gzip-compressed JSON, which the dashboard hands to the
 // browser as it is.
 func (r *Recorder) Encode() ([]byte, error) {
-	d := Data{V: 1, Match: r.match, TickRate: r.tickRate, StepMs: StepMs, DurationMs: r.endMs, Shots: r.shots, Batches: r.batches, Truncated: r.truncated}
+	d := Data{V: 1, Match: r.match, Map: r.mapID, TickRate: r.tickRate, StepMs: StepMs, DurationMs: r.endMs, Shots: r.shots, Batches: r.batches, Truncated: r.truncated}
 	if d.Shots == nil {
 		d.Shots = []Shot{}
 	}
@@ -329,4 +346,34 @@ func (d *Data) TickMs(tick uint32) int64 {
 		rate = defaultTickRate
 	}
 	return int64(tick) * 1000 / int64(rate)
+}
+
+// Pose is where the player of a slot stood at a match time, between the two positions
+// kept around it, and whether the player was in play then. It is what the dashboard's
+// player draws.
+func (d *Data) Pose(slot uint32, ms int64) (x, y float64, ok bool) {
+	step := d.StepMs
+	if step <= 0 {
+		step = StepMs
+	}
+	for i := range d.Players {
+		p := &d.Players[i]
+		if p.Slot != slot {
+			continue
+		}
+		f := float64(ms) / float64(step)
+		n := min(len(p.T), len(p.X), len(p.Y))
+		// The first sample after f; the one before it is the last at or before f.
+		next := sort.Search(n, func(k int) bool { return float64(p.T[k]) > f })
+		at := next - 1
+		if at < 0 {
+			return 0, 0, false
+		}
+		if next >= n || p.T[next]-p.T[at] > gapSteps {
+			return float64(p.X[at]), float64(p.Y[at]), f-float64(p.T[at]) <= gapSteps
+		}
+		a := (f - float64(p.T[at])) / float64(p.T[next]-p.T[at])
+		return float64(p.X[at]) + float64(p.X[next]-p.X[at])*a, float64(p.Y[at]) + float64(p.Y[next]-p.Y[at])*a, true
+	}
+	return 0, 0, false
 }

@@ -281,6 +281,8 @@ select, button.secondary { transition: border-color 140ms var(--ease); }
 /* Each swatch in the key is drawn like its line in the replay: solid, thin, dashed, filled. */
 .key { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 8px; }
 .k-viewer { background: var(--text); }
+.k-wall { background: var(--text-2); height: 2px; }
+.k-cross { background: repeating-linear-gradient(90deg, var(--text) 0 4px, transparent 4px 8px); }
 .k-ray { background: var(--accent); }
 .k-target { background: linear-gradient(90deg, var(--act) 0 5px, transparent 5px 8px, var(--act) 8px 13px, transparent 13px 16px); }
 .k-decoy { height: 2px; background: radial-gradient(circle at 1px 1px, var(--act) 1px, transparent 1.2px) 0 0 / 5px 2px repeat-x; }
@@ -321,6 +323,8 @@ details p { margin: 0; max-width: 88ch; }
 .labelform { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .labelform label { flex: 0 1 200px; }
 .labelform label.grow { flex: 1 1 320px; }
+.labelform label.coord { flex: 0 1 112px; }
+input[type=file] { height: auto; padding: 8px 12px; font-size: 13px; }
 
 /* Motion marks a change of state under the pointer or the keyboard and nothing else: 140ms,
    one easing, on links, buttons, inputs and the disclosure. Nothing animates on page load,
@@ -394,6 +398,8 @@ table.drivers td.wrapall { min-width: 18ch; font-size: 12px; }
 .mr-tick { position: absolute; top: 0; width: 12px; height: 16px; margin-left: -6px; padding: 0; border: 0; border-radius: 2px; background: none; cursor: pointer; }
 .mr-tick::before { content: ""; position: absolute; left: 5px; top: 0; width: 2px; height: 16px; border-radius: 1px; background: var(--muted); }
 .mr-tick.kind-moment::before { top: 6px; height: 10px; }
+/* A shot across a wall line is an aid, not a mark: a short neutral tick. */
+.mr-tick.kind-wall::before { top: 10px; height: 6px; background: var(--text-2); }
 .mr-tick.lvl-watch::before { background: var(--accent); }
 .mr-tick.lvl-act::before { background: var(--act); }
 .mr-tick:hover::before { left: 4px; width: 4px; }

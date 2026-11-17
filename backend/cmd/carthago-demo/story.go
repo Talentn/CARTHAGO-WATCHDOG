@@ -346,6 +346,12 @@ func (s *story) match() error {
 	}
 	s.say("The positions also make a replay of the whole match (%d KB stored): %s/matches/%s?player=sami", (len(rec.Data)+1023)/1024, s.gw.Dashboard, demoMatch)
 	s.say("plays it from above, with sami's flagged moments on the timeline.")
+	walls, err := s.registerMap()
+	if err != nil {
+		return fmt.Errorf("the map outline was not registered: %w", err)
+	}
+	s.say("The game server also registers the outline of the map %s (%d wall lines), so the replay shows the", synth.YardID, walls)
+	s.say("walls and points out shots whose line crosses one: an aid for the reviewer, not a finding.")
 	return nil
 }
 

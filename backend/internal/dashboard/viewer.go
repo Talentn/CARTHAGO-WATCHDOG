@@ -127,7 +127,8 @@ func (s *Server) require(min Role, h vhandler) http.HandlerFunc { return s.guard
 
 func safeMethod(m string) bool { return m == http.MethodGet || m == http.MethodHead }
 
-// maxFormBytes bounds the body of any dashboard form.
+// maxFormBytes bounds the body of any dashboard form but the ones that carry a file
+// (uploadLimits).
 const maxFormBytes = 16 << 10
 
 func (s *Server) guard(min Role, h vhandler) http.HandlerFunc {
@@ -163,7 +164,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, st *reqState, min
 	r = r.WithContext(context.WithValue(r.Context(), stateKey{}, st))
 	rw := &respWriter{ResponseWriter: w, st: st, status: http.StatusOK}
 	if unsafe {
-		r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+		limit := int64(maxFormBytes)
+		if up, ok := uploadLimits[r.URL.Path]; ok {
+			limit = up
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		if !sameOrigin(r) || !s.csrfOK(r) {
 			http.Error(w, "cross-site request, or a form from a session that has ended; reload the page and try again", http.StatusForbidden)
 			return

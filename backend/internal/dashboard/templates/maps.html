@@ -1,0 +1,69 @@
+{{define "content"}}
+{{$d := .Data}}{{$csrf := .CSRF}}
+<div class="head">
+  <h1>Maps</h1>
+</div>
+{{if $d.Error}}<p class="alert" role="alert">{{$d.Error}}</p>{{end}}
+<section class="card" id="maps">
+  <div class="card-head"><h2>Map outlines</h2><span class="muted">drawn under the match replay · one per map</span></div>
+  {{if $d.Notice}}<p class="saved">{{$d.Notice}}</p>{{end}}
+  {{if $d.Rows}}
+  <table class="compact">
+    <thead><tr><th>Map</th><th>Outline</th><th>World rectangle, cm</th><th>Uploaded by</th><th>When</th><th></th></tr></thead>
+    <tbody>
+    {{range $d.Rows}}
+    <tr>
+      <td class="mono">{{.MapID}}</td>
+      <td>{{if eq .Kind "lines"}}<span class="mono">{{.Segments}}</span> wall lines{{else}}Picture <span class="mono">{{.Width}} × {{.Height}}</span>{{end}}</td>
+      <td class="mono">{{index .Rect 0}}, {{index .Rect 1}} to {{index .Rect 2}}, {{index .Rect 3}}</td>
+      <td>{{.UpdatedBy}}</td>
+      <td class="when" title="{{when .UpdatedAt}}">{{ago .UpdatedAt}}</td>
+      <td>{{if $d.CanEdit}}
+        <form method="post" action="/maps/remove">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="map" value="{{.MapID}}">
+          <button type="submit" class="secondary" aria-label="Remove the outline of {{.MapID}}">Remove</button>
+        </form>{{else}}<span class="muted">–</span>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="empty">No outlines yet</p>{{end}}
+  {{if $d.CanEdit}}
+  <form method="post" action="/maps/lines" enctype="multipart/form-data" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Map name
+      <input type="text" name="map" class="mono" maxlength="128" placeholder="de_dust2" autocomplete="off" required>
+    </label>
+    <label class="grow">Wall lines, a JSON file
+      <input type="file" name="file" accept="application/json,.json" required>
+    </label>
+    <button type="submit" class="secondary">Upload wall lines</button>
+  </form>
+  <form method="post" action="/maps/picture" enctype="multipart/form-data" class="labelform">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Map name
+      <input type="text" name="map" class="mono" maxlength="128" placeholder="de_dust2" autocomplete="off" required>
+    </label>
+    <label class="grow">Picture from above, a PNG file
+      <input type="file" name="file" accept="image/png,.png" required>
+    </label>
+    <label class="coord">Min x, cm
+      <input type="number" name="min_x" step="1" required>
+    </label>
+    <label class="coord">Min y, cm
+      <input type="number" name="min_y" step="1" required>
+    </label>
+    <label class="coord">Max x, cm
+      <input type="number" name="max_x" step="1" required>
+    </label>
+    <label class="coord">Max y, cm
+      <input type="number" name="max_y" step="1" required>
+    </label>
+    <button type="submit" class="secondary">Upload picture</button>
+  </form>
+  {{else}}<p class="note">Uploading and removing an outline needs the admin role.</p>{{end}}
+</section>
+<p class="note">The map name is the one your game server sends with a match (<span class="mono">GameplayBatch.map.map_id</span>). Wall lines are a JSON file, <span class="mono">{"lines":[[x0,y0,x1,y1],...]}</span>, in centimetres in the coordinates of the match's positions, at most {{$d.MaxLines}} lines. A picture is a PNG of at most {{$d.MaxPNGMB}} MB and {{$d.MaxSide}} pixels on a side, with the world rectangle it covers; its top edge is max y. The gateway decodes a picture and writes it out again, so what it keeps and shows is its own copy of the pixels. An upload replaces the map's previous outline.</p>
+<p class="note">An outline is a drawing. With wall lines the replay also points out shots at a player whose line crosses a wall line. That is an aid for whoever watches the replay: it is not a finding, it has no score and nothing acts on it. Your game server can upload outlines too, with <span class="mono">POST /v1/maps</span>.</p>
+{{end}}

@@ -154,7 +154,7 @@ func Start(ctx context.Context, cfg Config) (*Gateway, error) {
 	g.Bans.AddHook(learning.NewLabeler(st, log))
 	gw = gateway.New(gateway.Config{
 		Tenants: map[string]string{Tenant: ServerKey}, HeartbeatInterval: cfg.HeartbeatInterval, HeartbeatTimeout: 30 * time.Second, EKRoots: roots,
-		Detections: detections, Bans: g.Bans, Pool: g.Bans, Drivers: st, Economy: ledger, Reports: reports.New(st, nil),
+		Detections: detections, Bans: g.Bans, Pool: g.Bans, Drivers: st, Economy: ledger, Reports: reports.New(st, nil), Maps: st,
 	}, keys, st, log)
 	detections.SetNotifier(gw)
 	g.Bans.SetEnder(gw.Sessions())
