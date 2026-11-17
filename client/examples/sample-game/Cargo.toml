@@ -13,6 +13,3 @@ carthago-sentinel = { path = "../../crates/carthago-sentinel" }
 
 [build-dependencies]
 cc = "1"
-
-[lints.cargo]
-unused_dependencies = "allow"

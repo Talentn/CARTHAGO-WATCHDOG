@@ -329,6 +329,15 @@ impl Runtime {
     pub fn shutdown(&self) {
         self.inner.stop.store(true, Relaxed);
         lock(&self.cmd).take();
+        // An established session sees `stop` within one read timeout and closes the
+        // WebSocket itself, so the gateway gets a closing handshake. Give it that long
+        // before the socket is cut underneath it.
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < deadline
+            && lock(&self.thread).as_ref().is_some_and(|t| t.thread().id() != std::thread::current().id() && !t.is_finished())
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
         // A handshake waiting on a silent gateway would otherwise hold the join below for
         // the socket timeout (30 s per read).
         if let Some(c) = lock(&self.inner.conn).take() {
@@ -643,7 +652,11 @@ fn run_session(inner: &Inner, device: &DeviceIdentity, player_id_hash: String, o
             Ok(_) => {}
             Err(e) if session::is_timeout(&e) => {}
             Err(e) => {
-                inner.log(LOG_WARN, &format!("connection lost: {e}"));
+                // shutdown() cuts the socket under a read that outlasted its wait; that is
+                // the game leaving, not a lost connection.
+                if !inner.stop.load(Relaxed) {
+                    inner.log(LOG_WARN, &format!("connection lost: {e}"));
+                }
                 inner.set_state(State::Disconnected);
                 return;
             }
