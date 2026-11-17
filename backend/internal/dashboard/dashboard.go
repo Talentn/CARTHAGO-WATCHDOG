@@ -54,6 +54,7 @@ type Store interface {
 	store.EconomyStore
 	store.DriverStore
 	store.ReplayStore
+	store.ToxicityStore
 	ListBans(ctx context.Context, tenant string, limit int) ([]store.Ban, error)
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
@@ -474,12 +475,13 @@ func (s *Server) players(w http.ResponseWriter, r *http.Request, tenant string) 
 }
 
 type playerData struct {
-	Row      store.PlayerRow
-	Sessions []store.SessionRow
-	Evidence []store.Evidence
-	Oracle   *playerOracle
-	Baseline *baselineView
-	Replays  []store.MatchReplay
+	Row       store.PlayerRow
+	Sessions  []store.SessionRow
+	Evidence  []store.Evidence
+	Oracle    *playerOracle
+	Baseline  *baselineView
+	Replays   []store.MatchReplay
+	Behaviour *behaviourView
 }
 
 func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
@@ -495,7 +497,12 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 		s.fail(w, err)
 		return
 	}
-	if len(sess) == 0 && len(evs) == 0 {
+	behaviour, err := s.behaviourFor(ctx, tenant, hash)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if len(sess) == 0 && len(evs) == 0 && behaviour == nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -535,7 +542,7 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 		s.fail(w, err)
 		return
 	}
-	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po, base, replays}})
+	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po, base, replays, behaviour}})
 }
 
 func (s *Server) evidence(w http.ResponseWriter, r *http.Request, tenant string) {

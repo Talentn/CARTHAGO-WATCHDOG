@@ -93,6 +93,8 @@ func (s *story) pages() (ok, total int) {
 		{"Known cheats", "/cheats", []string{"aimhelper-loader", "OPENGL32.dll"}},
 		{"Economy", "/economy", []string{"economy_balance_mismatch", "robbery"}},
 		{"Match replay", "/matches/" + demoMatch, []string{"sami", "information_leak", "Moment", "/static/replay.js"}},
+		{"Player " + toxicPlayer, "/players/" + toxicPlayer, []string{"Behaviour", "Killed 2 teammates", "Left at 05:30", "Replay at"}},
+		{"Behaviour on the replay", "/matches/" + toxicMatch, []string{toxicPlayer, "team_kill", "left_early", "Behaviour"}},
 	}
 	// The session of the first ban and a piece of its evidence.
 	if a := s.players["zied"]; a != nil {
@@ -130,7 +132,7 @@ func (s *story) pages() (ok, total int) {
 		s.say("FAIL: %s", b)
 	}
 	s.say("%d of %d pages opened with the demo login show the story's data: Overview, Sessions, Players, Bans,", ok, total)
-	s.say("Shadow pool, Known cheats, Economy, the replay of the match, and the pages of one player, one session and one")
-	s.say("piece of evidence.")
+	s.say("Shadow pool, Known cheats, Economy, the replays of both matches, and the pages of two players, one session")
+	s.say("and one piece of evidence.")
 	return ok, total
 }

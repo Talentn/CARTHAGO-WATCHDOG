@@ -27,7 +27,7 @@ const maxMatchMarks = 400
 type matchMark struct {
 	Ms   int64
 	At   string // mm:ss into the match
-	Kind string // finding | moment | oracle
+	Kind string // finding | moment | oracle | behaviour
 	// Level is how the mark is drawn: act, watch or low.
 	Level  string
 	Slot   int // -1 when the mark is not about one slot
@@ -51,6 +51,8 @@ type matchData struct {
 	Players []matchPlayer
 	Marks   []matchMark
 	More    int // marks left out past maxMatchMarks
+	// Flagged: at least one mark is a finding or an Oracle flag, not only behaviour.
+	Flagged bool
 	// StartMs and Focus are where the page opens: a moment (?t=, milliseconds) and a
 	// player to ring (?player=).
 	StartMs  int64
@@ -113,6 +115,15 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request, tenant string) {
 		s.fail(w, err)
 		return
 	}
+	behaviour, err := s.behaviourMarks(ctx, tenant, id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	for i := range behaviour {
+		behaviour[i].Ms = min(behaviour[i].Ms, rec.DurationMs)
+	}
+	d.Marks = append(d.Marks, behaviour...)
 	sort.SliceStable(d.Marks, func(i, j int) bool { return d.Marks[i].Ms < d.Marks[j].Ms })
 	if len(d.Marks) > maxMatchMarks {
 		d.More, d.Marks = len(d.Marks)-maxMatchMarks, d.Marks[:maxMatchMarks]
@@ -120,6 +131,7 @@ func (s *Server) match(w http.ResponseWriter, r *http.Request, tenant string) {
 	for i := range d.Marks {
 		m := &d.Marks[i]
 		m.At = clock(m.Ms)
+		d.Flagged = d.Flagged || m.Kind != "behaviour"
 		if m.Slot < 0 {
 			if slot, ok := slotOf[m.Player]; ok {
 				m.Slot = slot

@@ -197,6 +197,7 @@ func (s *story) play() (passed, total int) {
 		{"An in-game money exploit is caught by the ledger", s.ledger},
 		{"A caught player is held in the shadow pool", s.shadow},
 		{"The Oracle puts the players outside the studio's normal play first", s.oracle},
+		{"A player who spoils matches is noted for the community team, and nothing more", s.toxic},
 	} {
 		total++
 		fmt.Fprintf(s.out, "\n%d. %s\n", i+1, ch.title)

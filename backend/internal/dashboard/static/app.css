@@ -412,3 +412,11 @@ table.drivers td.wrapall { min-width: 18ch; font-size: 12px; }
 .d-b { background: none; }
 .d-watch { background: var(--accent); box-shadow: none; }
 .d-act { background: var(--act); box-shadow: none; }
+
+/* Behaviour card: one count per kind, in the order of the rules. No colour: behaviour is
+   advice, never "act" or "watch". */
+.counts { display: flex; flex-wrap: wrap; gap: 4px 24px; list-style: none; margin: 0 0 12px; padding: 0; color: var(--text-2); }
+.counts b { margin-right: 4px; color: var(--text); }
+.counts .muted b { color: var(--muted); }
+#behaviour .hint { margin-top: 12px; }
+.mark-low { color: var(--text-2); }

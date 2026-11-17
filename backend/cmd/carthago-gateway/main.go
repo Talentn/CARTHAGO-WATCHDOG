@@ -41,6 +41,7 @@ type evidenceStore interface {
 	store.EconomyStore
 	store.DriverStore
 	store.ReplayStore
+	store.ToxicityStore
 }
 
 type tenantFlag map[string]string
@@ -61,6 +62,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "shadow" {
 		os.Exit(shadowCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "toxicity" {
+		os.Exit(toxicityCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "drivers" {
 		os.Exit(driversCommand(os.Args[2:], os.Stdout, os.Stderr))

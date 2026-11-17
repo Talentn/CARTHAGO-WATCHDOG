@@ -156,3 +156,21 @@
   </tr>{{end}}</tbody>
 </table>
 {{end}}
+
+{{define "playerbehaviour"}}
+<section class="card" id="behaviour">
+  <div class="card-head"><h2>Behaviour</h2><span class="muted">last 30 days · from game-server events, no chat · advisory</span></div>
+  <ul class="counts">{{range .Counts}}<li{{if not .N}} class="muted"{{end}}><b class="mono">{{.N}}</b> {{.Label}}</li>{{end}}</ul>
+  <table class="compact">
+    <thead><tr><th>Kind</th><th>What happened</th><th>Match</th><th>Observed</th></tr></thead>
+    <tbody>{{range .Rows}}<tr>
+      <td><span class="mark mark-low">{{.Label}}</span>{{if .Bot}} <span class="tag" title="Computer-controlled slot">bot</span>{{end}}</td>
+      <td class="sum">{{.Summary}}</td>
+      <td>{{if .Recorded}}<a href="{{matchURL .MatchID}}?player={{query .PlayerHash}}&amp;t={{.MatchMs}}">Replay at <span class="mono">{{.At}}</span></a>{{else}}<span class="mono muted">{{short .MatchID}} {{.At}}</span>{{end}}</td>
+      <td class="when" title="{{when .ObservedAt}}"><span class="mono">{{.ObservedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .ObservedAt}}</span></td>
+    </tr>{{end}}</tbody>
+  </table>
+  {{if .More}}<p class="hint">{{.More}} older findings are counted above and not listed</p>{{end}}
+  <p class="hint">Behaviour is advice for the community team. It never counts toward risk, a ban or the shadow pool. This studio's limits per match: {{.Limits}}</p>
+</section>
+{{end}}

@@ -25,6 +25,7 @@ import (
 	"carthago/backend/internal/analyzer"
 	"carthago/backend/internal/knowledge"
 	"carthago/backend/internal/store"
+	"carthago/backend/internal/toxicity"
 )
 
 // Kicker is satisfied by gateway.Manager.
@@ -79,6 +80,8 @@ type Config struct {
 	// batch, and ReplayFlush how often the recording of a match in progress is written.
 	ReplayRetention time.Duration
 	ReplayFlush     time.Duration
+	// ToxicityRetention is how long behaviour findings are kept.
+	ToxicityRetention time.Duration
 	// Observer, when set, is told about finished matches and session heartbeats (see
 	// Observer). It is how the Carthago Oracle sees the pipeline's numbers.
 	Observer Observer
@@ -112,6 +115,9 @@ func (c *Config) defaults() {
 	}
 	if c.ReplayRetention == 0 {
 		c.ReplayRetention = 30 * 24 * time.Hour
+	}
+	if c.ToxicityRetention == 0 {
+		c.ToxicityRetention = 90 * 24 * time.Hour
 	}
 	if c.ReplayFlush == 0 {
 		c.ReplayFlush = 30 * time.Second
@@ -149,6 +155,8 @@ type Pipeline struct {
 	maps          map[mapKey]*knowledge.Map
 	// replays is where match recordings go; nil when the store does not keep them.
 	replays store.ReplayStore
+	// tox is where behaviour findings go; nil when the store does not keep them.
+	tox store.ToxicityStore
 }
 
 type clientState struct {
@@ -172,6 +180,7 @@ type matchState struct {
 	lastSeen time.Time
 	v2       *v2State
 	replay   *replayState
+	tox      *toxicity.Match
 	teams    map[uint32]uint32 // slot to team, for the recording
 	observed bool              // the observer has been told this match finished
 }
@@ -193,6 +202,7 @@ func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker
 		maps: map[mapKey]*knowledge.Map{},
 	}
 	p.replays, _ = st.(store.ReplayStore)
+	p.tox, _ = st.(store.ToxicityStore)
 	go p.run()
 	return p
 }
@@ -560,6 +570,7 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 	}
 	ms.m.Add(b)
 	p.record(tenant, ms, b, at)
+	p.behaviour(tenant, b.MatchId, ms, b, b.MatchOver, at)
 
 	var evs []store.Evidence
 	for slot, list := range ms.m.Evaluate() {
@@ -627,6 +638,7 @@ func (p *Pipeline) prune() {
 	for k, m := range p.matches {
 		if now.Sub(m.lastSeen) > p.cfg.MatchIdle {
 			p.saveReplay(k[0], k[1], m, now)
+			p.behaviour(k[0], k[1], m, nil, true, now)
 			p.matchFinished(k, m, now)
 			p.closeMatch(k)
 		}
@@ -639,6 +651,13 @@ func (p *Pipeline) prune() {
 		p.log.Warn("prune gameplay batches", "err", err)
 	} else if n > 0 {
 		p.log.Info("pruned gameplay batches", "rows", n)
+	}
+	if p.tox != nil {
+		if n, err := p.tox.PruneToxicityFindings(context.Background(), now.Add(-p.cfg.ToxicityRetention)); err != nil {
+			p.log.Warn("prune behaviour findings", "err", err)
+		} else if n > 0 {
+			p.log.Info("pruned behaviour findings", "rows", n)
+		}
 	}
 	if p.replays != nil {
 		if n, err := p.replays.PruneMatchReplays(context.Background(), now.Add(-p.cfg.ReplayRetention)); err != nil {

@@ -21,7 +21,9 @@ match. It is a picture for review. No rule reads it and it changes nothing about
   - gameplay findings of the match, at the batch that raised them;
   - each moment an information-leak or decoy finding lists, at its own time;
   - client findings of a player's session made while the match was being received;
-  - the Oracle's score of a player's session for this match, when it is Watch or Review.
+  - the Oracle's score of a player's session for this match, when it is Watch or Review;
+  - behaviour findings of the match (`docs/toxicity.md`), in grey: they are advice and do
+    not colour the player.
 - **Links.** A player's page and a session's page list their recorded matches with a
   "Watch replay" link. `?t=<milliseconds>` opens the page at a moment and
   `?player=<player>` highlights a player.

@@ -51,6 +51,9 @@ var sqliteDriverList string
 //go:embed sqlite/0028_match_replay.sql
 var sqliteMatchReplay string
 
+//go:embed sqlite/0029_toxicity.sql
+var sqliteToxicity string
+
 // SQLiteNumbered lists the numbered migrations in ascending order. They run after every
 // migration in SQLite.
 var SQLiteNumbered = []Numbered{
@@ -64,4 +67,5 @@ var SQLiteNumbered = []Numbered{
 	{Number: 26, Name: "shadow", SQL: sqliteShadow},
 	{Number: 27, Name: "driver_list", SQL: sqliteDriverList},
 	{Number: 28, Name: "match_replay", SQL: sqliteMatchReplay},
+	{Number: 29, Name: "toxicity", SQL: sqliteToxicity},
 }

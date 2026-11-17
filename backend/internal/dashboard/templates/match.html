@@ -6,7 +6,7 @@
 <section class="kpis">
   <div class="kpi"><span>Length recorded</span><b>{{$d.Duration}}</b><small>{{if $r.Truncated}}cut off at the recording's size cap{{else}}first batch received {{ago $r.StartedAt}}{{end}}</small></div>
   <div class="kpi"><span>Players</span><b>{{len $d.Players}}</b><small>{{$r.Samples}} positions kept</small></div>
-  <div class="kpi{{if $d.Marks}} warn{{end}}"><span>Marks</span><b>{{add (len $d.Marks) $d.More}}</b><small>findings, their moments and Oracle flags</small></div>
+  <div class="kpi{{if $d.Flagged}} warn{{end}}"><span>Marks</span><b>{{add (len $d.Marks) $d.More}}</b><small>findings, their moments, Oracle flags and behaviour</small></div>
 </section>
 <section class="card">
   <h2>Replay</h2>
@@ -33,17 +33,17 @@
   <p class="replay-note">Positions are what the game server sent, kept four times a second. The frame is the area the players covered; no map is drawn. The recording is a picture for review and no rule reads it.</p>
 </section>
 <section class="card">
-  <h2>Findings and Oracle flags</h2>
+  <h2>Findings, Oracle flags and behaviour</h2>
   {{if $d.Marks}}
   <table class="compact marks">
     <thead><tr><th>Match time</th><th>Mark</th><th>Player</th><th>Rule</th><th>What was found</th><th></th></tr></thead>
     <tbody>{{range $d.Marks}}<tr>
       <td><button type="button" class="link mono mr-jump" data-t="{{.Ms}}" data-slot="{{.Slot}}" data-level="{{.Level}}" data-kind="{{.Kind}}" title="{{.At}} · {{.Rule}} · {{.Player}}">{{.At}}</button>{{if .Approx}} <small class="muted" title="The gateway knows the match this belongs to, not the moment">end</small>{{end}}</td>
-      <td><span class="mark mark-{{.Level}}">{{if eq .Kind "oracle"}}Oracle{{else if eq .Kind "moment"}}Moment{{else}}Finding{{end}}</span></td>
+      <td><span class="mark mark-{{.Level}}">{{if eq .Kind "oracle"}}Oracle{{else if eq .Kind "moment"}}Moment{{else if eq .Kind "behaviour"}}Behaviour{{else}}Finding{{end}}</span></td>
       <td><a class="mono" href="/players/{{path .Player}}">{{short .Player}}</a></td>
       <td class="mono">{{.Rule}}</td>
       <td class="sum">{{.Text}}</td>
-      <td><a href="{{.Href}}">{{if eq .Kind "oracle"}}Session{{else}}Evidence{{end}}</a></td>
+      <td><a href="{{.Href}}">{{if eq .Kind "oracle"}}Session{{else if eq .Kind "behaviour"}}Player{{else}}Evidence{{end}}</a></td>
     </tr>{{end}}</tbody>
   </table>
   {{if $d.More}}<p class="hint">{{$d.More}} later marks are not listed</p>{{end}}

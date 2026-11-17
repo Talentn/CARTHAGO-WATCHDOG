@@ -22,6 +22,7 @@ type Memory struct {
 	econ             *memEconomy
 	drivers          *memDrivers
 	replays          map[[2]string]MatchReplay
+	toxicity         *memToxicity
 }
 
 func NewMemory() *Memory {
