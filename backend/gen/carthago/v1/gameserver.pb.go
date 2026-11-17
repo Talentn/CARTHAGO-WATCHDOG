@@ -960,6 +960,70 @@ func (x *VisibilityEvent) GetVisible() bool {
 	return false
 }
 
+// The player's crosshair came onto an enemy: the server's trace along the player's view
+// direction first met target_slot's body at this tick. One event each time the crosshair
+// arrives on the target, not one per tick it stays there. The gateway measures how soon and
+// how evenly the player's fire follows.
+type CrosshairEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slot          uint32                 `protobuf:"varint,1,opt,name=slot,proto3" json:"slot,omitempty"`
+	TargetSlot    uint32                 `protobuf:"varint,2,opt,name=target_slot,json=targetSlot,proto3" json:"target_slot,omitempty"`
+	Tick          uint32                 `protobuf:"varint,3,opt,name=tick,proto3" json:"tick,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CrosshairEvent) Reset() {
+	*x = CrosshairEvent{}
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosshairEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosshairEvent) ProtoMessage() {}
+
+func (x *CrosshairEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosshairEvent.ProtoReflect.Descriptor instead.
+func (*CrosshairEvent) Descriptor() ([]byte, []int) {
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *CrosshairEvent) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *CrosshairEvent) GetTargetSlot() uint32 {
+	if x != nil {
+		return x.TargetSlot
+	}
+	return 0
+}
+
+func (x *CrosshairEvent) GetTick() uint32 {
+	if x != nil {
+		return x.Tick
+	}
+	return 0
+}
+
 // User commands the server received from a player over [tick_from, tick_to).
 type CommandWindow struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -973,7 +1037,7 @@ type CommandWindow struct {
 
 func (x *CommandWindow) Reset() {
 	*x = CommandWindow{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[10]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -985,7 +1049,7 @@ func (x *CommandWindow) String() string {
 func (*CommandWindow) ProtoMessage() {}
 
 func (x *CommandWindow) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[10]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -998,7 +1062,7 @@ func (x *CommandWindow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandWindow.ProtoReflect.Descriptor instead.
 func (*CommandWindow) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{10}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CommandWindow) GetSlot() uint32 {
@@ -1042,7 +1106,7 @@ type TriggerPresses struct {
 
 func (x *TriggerPresses) Reset() {
 	*x = TriggerPresses{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[11]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1054,7 +1118,7 @@ func (x *TriggerPresses) String() string {
 func (*TriggerPresses) ProtoMessage() {}
 
 func (x *TriggerPresses) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[11]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1067,7 +1131,7 @@ func (x *TriggerPresses) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerPresses.ProtoReflect.Descriptor instead.
 func (*TriggerPresses) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{11}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TriggerPresses) GetSlot() uint32 {
@@ -1104,7 +1168,7 @@ type MotionTrack struct {
 
 func (x *MotionTrack) Reset() {
 	*x = MotionTrack{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1116,7 +1180,7 @@ func (x *MotionTrack) String() string {
 func (*MotionTrack) ProtoMessage() {}
 
 func (x *MotionTrack) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[12]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1129,7 +1193,7 @@ func (x *MotionTrack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MotionTrack.ProtoReflect.Descriptor instead.
 func (*MotionTrack) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{12}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MotionTrack) GetSlot() uint32 {
@@ -1212,7 +1276,7 @@ type SoundEvent struct {
 
 func (x *SoundEvent) Reset() {
 	*x = SoundEvent{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1224,7 +1288,7 @@ func (x *SoundEvent) String() string {
 func (*SoundEvent) ProtoMessage() {}
 
 func (x *SoundEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[13]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1237,7 +1301,7 @@ func (x *SoundEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SoundEvent.ProtoReflect.Descriptor instead.
 func (*SoundEvent) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{13}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SoundEvent) GetTick() uint32 {
@@ -1308,7 +1372,7 @@ type TeamInfo struct {
 
 func (x *TeamInfo) Reset() {
 	*x = TeamInfo{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[14]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1320,7 +1384,7 @@ func (x *TeamInfo) String() string {
 func (*TeamInfo) ProtoMessage() {}
 
 func (x *TeamInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[14]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1397,7 @@ func (x *TeamInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamInfo.ProtoReflect.Descriptor instead.
 func (*TeamInfo) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{14}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TeamInfo) GetTick() uint32 {
@@ -1422,7 +1486,7 @@ type ItemEvent struct {
 
 func (x *ItemEvent) Reset() {
 	*x = ItemEvent{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[15]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1434,7 +1498,7 @@ func (x *ItemEvent) String() string {
 func (*ItemEvent) ProtoMessage() {}
 
 func (x *ItemEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[15]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1447,7 +1511,7 @@ func (x *ItemEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ItemEvent.ProtoReflect.Descriptor instead.
 func (*ItemEvent) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{15}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ItemEvent) GetItemId() uint32 {
@@ -1509,7 +1573,7 @@ type MapRef struct {
 
 func (x *MapRef) Reset() {
 	*x = MapRef{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[16]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1521,7 +1585,7 @@ func (x *MapRef) String() string {
 func (*MapRef) ProtoMessage() {}
 
 func (x *MapRef) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[16]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1534,7 +1598,7 @@ func (x *MapRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MapRef.ProtoReflect.Descriptor instead.
 func (*MapRef) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{16}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MapRef) GetMapId() string {
@@ -1565,7 +1629,7 @@ type Occluder struct {
 
 func (x *Occluder) Reset() {
 	*x = Occluder{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[17]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1577,7 +1641,7 @@ func (x *Occluder) String() string {
 func (*Occluder) ProtoMessage() {}
 
 func (x *Occluder) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[17]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1590,7 +1654,7 @@ func (x *Occluder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Occluder.ProtoReflect.Descriptor instead.
 func (*Occluder) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{17}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Occluder) GetXyCm() []int32 {
@@ -1625,7 +1689,7 @@ type Zone struct {
 
 func (x *Zone) Reset() {
 	*x = Zone{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[18]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1637,7 +1701,7 @@ func (x *Zone) String() string {
 func (*Zone) ProtoMessage() {}
 
 func (x *Zone) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[18]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1650,7 +1714,7 @@ func (x *Zone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Zone.ProtoReflect.Descriptor instead.
 func (*Zone) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{18}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Zone) GetName() string {
@@ -1680,7 +1744,7 @@ type LootSpawn struct {
 
 func (x *LootSpawn) Reset() {
 	*x = LootSpawn{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[19]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1692,7 +1756,7 @@ func (x *LootSpawn) String() string {
 func (*LootSpawn) ProtoMessage() {}
 
 func (x *LootSpawn) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[19]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1705,7 +1769,7 @@ func (x *LootSpawn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LootSpawn.ProtoReflect.Descriptor instead.
 func (*LootSpawn) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{19}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *LootSpawn) GetSpawnId() uint32 {
@@ -1755,7 +1819,7 @@ type SolidTree struct {
 
 func (x *SolidTree) Reset() {
 	*x = SolidTree{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1767,7 +1831,7 @@ func (x *SolidTree) String() string {
 func (*SolidTree) ProtoMessage() {}
 
 func (x *SolidTree) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[20]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1780,7 +1844,7 @@ func (x *SolidTree) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SolidTree.ProtoReflect.Descriptor instead.
 func (*SolidTree) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{20}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SolidTree) GetPlanes() []float32 {
@@ -1819,7 +1883,7 @@ type MapGeometry struct {
 
 func (x *MapGeometry) Reset() {
 	*x = MapGeometry{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1831,7 +1895,7 @@ func (x *MapGeometry) String() string {
 func (*MapGeometry) ProtoMessage() {}
 
 func (x *MapGeometry) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[21]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1844,7 +1908,7 @@ func (x *MapGeometry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MapGeometry.ProtoReflect.Descriptor instead.
 func (*MapGeometry) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{21}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *MapGeometry) GetMapId() string {
@@ -1928,7 +1992,7 @@ type DecoyTrack struct {
 
 func (x *DecoyTrack) Reset() {
 	*x = DecoyTrack{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1940,7 +2004,7 @@ func (x *DecoyTrack) String() string {
 func (*DecoyTrack) ProtoMessage() {}
 
 func (x *DecoyTrack) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[22]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1953,7 +2017,7 @@ func (x *DecoyTrack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecoyTrack.ProtoReflect.Descriptor instead.
 func (*DecoyTrack) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{22}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DecoyTrack) GetDecoyId() uint32 {
@@ -2018,23 +2082,24 @@ type GameplayBatch struct {
 	Triggers   []*TriggerPresses      `protobuf:"bytes,9,rep,name=triggers,proto3" json:"triggers,omitempty"`
 	MatchOver  bool                   `protobuf:"varint,10,opt,name=match_over,json=matchOver,proto3" json:"match_over,omitempty"`
 	// v2
-	SchemaVersion uint32         `protobuf:"varint,11,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"` // 0 or 1 = v1, 2 = v2
-	Mode          GameMode       `protobuf:"varint,12,opt,name=mode,proto3,enum=carthago.v1.GameMode" json:"mode,omitempty"`
-	Map           *MapRef        `protobuf:"bytes,13,opt,name=map,proto3" json:"map,omitempty"`
-	MapGeometry   *MapGeometry   `protobuf:"bytes,14,opt,name=map_geometry,json=mapGeometry,proto3" json:"map_geometry,omitempty"` // the geometry for `map`, sent with a match's first batch
-	Motion        []*MotionTrack `protobuf:"bytes,15,rep,name=motion,proto3" json:"motion,omitempty"`
-	Sounds        []*SoundEvent  `protobuf:"bytes,16,rep,name=sounds,proto3" json:"sounds,omitempty"`
-	TeamInfo      []*TeamInfo    `protobuf:"bytes,17,rep,name=team_info,json=teamInfo,proto3" json:"team_info,omitempty"`
-	Items         []*ItemEvent   `protobuf:"bytes,18,rep,name=items,proto3" json:"items,omitempty"`
-	DroppedEvents uint32         `protobuf:"varint,19,opt,name=dropped_events,json=droppedEvents,proto3" json:"dropped_events,omitempty"` // v2 samples or events the recorder dropped at its per-batch caps
-	Decoys        []*DecoyTrack  `protobuf:"bytes,20,rep,name=decoys,proto3" json:"decoys,omitempty"`
+	SchemaVersion uint32            `protobuf:"varint,11,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"` // 0 or 1 = v1, 2 = v2
+	Mode          GameMode          `protobuf:"varint,12,opt,name=mode,proto3,enum=carthago.v1.GameMode" json:"mode,omitempty"`
+	Map           *MapRef           `protobuf:"bytes,13,opt,name=map,proto3" json:"map,omitempty"`
+	MapGeometry   *MapGeometry      `protobuf:"bytes,14,opt,name=map_geometry,json=mapGeometry,proto3" json:"map_geometry,omitempty"` // the geometry for `map`, sent with a match's first batch
+	Motion        []*MotionTrack    `protobuf:"bytes,15,rep,name=motion,proto3" json:"motion,omitempty"`
+	Sounds        []*SoundEvent     `protobuf:"bytes,16,rep,name=sounds,proto3" json:"sounds,omitempty"`
+	TeamInfo      []*TeamInfo       `protobuf:"bytes,17,rep,name=team_info,json=teamInfo,proto3" json:"team_info,omitempty"`
+	Items         []*ItemEvent      `protobuf:"bytes,18,rep,name=items,proto3" json:"items,omitempty"`
+	DroppedEvents uint32            `protobuf:"varint,19,opt,name=dropped_events,json=droppedEvents,proto3" json:"dropped_events,omitempty"` // v2 samples or events the recorder dropped at its per-batch caps
+	Decoys        []*DecoyTrack     `protobuf:"bytes,20,rep,name=decoys,proto3" json:"decoys,omitempty"`
+	Crosshair     []*CrosshairEvent `protobuf:"bytes,21,rep,name=crosshair,proto3" json:"crosshair,omitempty"` // optional; without it the fire-timing signal stays unknown
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GameplayBatch) Reset() {
 	*x = GameplayBatch{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2046,7 +2111,7 @@ func (x *GameplayBatch) String() string {
 func (*GameplayBatch) ProtoMessage() {}
 
 func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[23]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2059,7 +2124,7 @@ func (x *GameplayBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GameplayBatch.ProtoReflect.Descriptor instead.
 func (*GameplayBatch) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{23}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GameplayBatch) GetMatchId() string {
@@ -2202,6 +2267,13 @@ func (x *GameplayBatch) GetDecoys() []*DecoyTrack {
 	return nil
 }
 
+func (x *GameplayBatch) GetCrosshair() []*CrosshairEvent {
+	if x != nil {
+		return x.Crosshair
+	}
+	return nil
+}
+
 type IngestAck struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	MatchId  string                 `protobuf:"bytes,1,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`
@@ -2217,7 +2289,7 @@ type IngestAck struct {
 
 func (x *IngestAck) Reset() {
 	*x = IngestAck{}
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[24]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2229,7 +2301,7 @@ func (x *IngestAck) String() string {
 func (*IngestAck) ProtoMessage() {}
 
 func (x *IngestAck) ProtoReflect() protoreflect.Message {
-	mi := &file_carthago_v1_gameserver_proto_msgTypes[24]
+	mi := &file_carthago_v1_gameserver_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2242,7 +2314,7 @@ func (x *IngestAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IngestAck.ProtoReflect.Descriptor instead.
 func (*IngestAck) Descriptor() ([]byte, []int) {
-	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{24}
+	return file_carthago_v1_gameserver_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *IngestAck) GetMatchId() string {
@@ -2344,7 +2416,12 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\vtarget_slot\x18\x02 \x01(\rR\n" +
 	"targetSlot\x12\x12\n" +
 	"\x04tick\x18\x03 \x01(\rR\x04tick\x12\x18\n" +
-	"\avisible\x18\x04 \x01(\bR\avisible\"u\n" +
+	"\avisible\x18\x04 \x01(\bR\avisible\"Y\n" +
+	"\x0eCrosshairEvent\x12\x12\n" +
+	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1f\n" +
+	"\vtarget_slot\x18\x02 \x01(\rR\n" +
+	"targetSlot\x12\x12\n" +
+	"\x04tick\x18\x03 \x01(\rR\x04tick\"u\n" +
 	"\rCommandWindow\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x1b\n" +
 	"\ttick_from\x18\x02 \x01(\rR\btickFrom\x12\x17\n" +
@@ -2436,7 +2513,7 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"spawn_tick\x18\x04 \x01(\rR\tspawnTick\x12!\n" +
 	"\fdespawn_tick\x18\x05 \x01(\rR\vdespawnTick\x12.\n" +
 	"\x05track\x18\x06 \x01(\v2\x18.carthago.v1.MotionTrackR\x05track\x12(\n" +
-	"\x10cloned_from_slot\x18\a \x01(\x05R\x0eclonedFromSlot\"\x90\a\n" +
+	"\x10cloned_from_slot\x18\a \x01(\x05R\x0eclonedFromSlot\"\xcb\a\n" +
 	"\rGameplayBatch\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1b\n" +
@@ -2461,7 +2538,8 @@ const file_carthago_v1_gameserver_proto_rawDesc = "" +
 	"\tteam_info\x18\x11 \x03(\v2\x15.carthago.v1.TeamInfoR\bteamInfo\x12,\n" +
 	"\x05items\x18\x12 \x03(\v2\x16.carthago.v1.ItemEventR\x05items\x12%\n" +
 	"\x0edropped_events\x18\x13 \x01(\rR\rdroppedEvents\x12/\n" +
-	"\x06decoys\x18\x14 \x03(\v2\x17.carthago.v1.DecoyTrackR\x06decoys\"\x8f\x01\n" +
+	"\x06decoys\x18\x14 \x03(\v2\x17.carthago.v1.DecoyTrackR\x06decoys\x129\n" +
+	"\tcrosshair\x18\x15 \x03(\v2\x1b.carthago.v1.CrosshairEventR\tcrosshair\"\x8f\x01\n" +
 	"\tIngestAck\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tbatch_seq\x18\x02 \x01(\x04R\bbatchSeq\x12\x1a\n" +
@@ -2505,7 +2583,7 @@ func file_carthago_v1_gameserver_proto_rawDescGZIP() []byte {
 }
 
 var file_carthago_v1_gameserver_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_carthago_v1_gameserver_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_carthago_v1_gameserver_proto_goTypes = []any{
 	(InputDevice)(0),        // 0: carthago.v1.InputDevice
 	(GameMode)(0),           // 1: carthago.v1.GameMode
@@ -2521,21 +2599,22 @@ var file_carthago_v1_gameserver_proto_goTypes = []any{
 	(*AimTrack)(nil),        // 11: carthago.v1.AimTrack
 	(*ShotEvent)(nil),       // 12: carthago.v1.ShotEvent
 	(*VisibilityEvent)(nil), // 13: carthago.v1.VisibilityEvent
-	(*CommandWindow)(nil),   // 14: carthago.v1.CommandWindow
-	(*TriggerPresses)(nil),  // 15: carthago.v1.TriggerPresses
-	(*MotionTrack)(nil),     // 16: carthago.v1.MotionTrack
-	(*SoundEvent)(nil),      // 17: carthago.v1.SoundEvent
-	(*TeamInfo)(nil),        // 18: carthago.v1.TeamInfo
-	(*ItemEvent)(nil),       // 19: carthago.v1.ItemEvent
-	(*MapRef)(nil),          // 20: carthago.v1.MapRef
-	(*Occluder)(nil),        // 21: carthago.v1.Occluder
-	(*Zone)(nil),            // 22: carthago.v1.Zone
-	(*LootSpawn)(nil),       // 23: carthago.v1.LootSpawn
-	(*SolidTree)(nil),       // 24: carthago.v1.SolidTree
-	(*MapGeometry)(nil),     // 25: carthago.v1.MapGeometry
-	(*DecoyTrack)(nil),      // 26: carthago.v1.DecoyTrack
-	(*GameplayBatch)(nil),   // 27: carthago.v1.GameplayBatch
-	(*IngestAck)(nil),       // 28: carthago.v1.IngestAck
+	(*CrosshairEvent)(nil),  // 14: carthago.v1.CrosshairEvent
+	(*CommandWindow)(nil),   // 15: carthago.v1.CommandWindow
+	(*TriggerPresses)(nil),  // 16: carthago.v1.TriggerPresses
+	(*MotionTrack)(nil),     // 17: carthago.v1.MotionTrack
+	(*SoundEvent)(nil),      // 18: carthago.v1.SoundEvent
+	(*TeamInfo)(nil),        // 19: carthago.v1.TeamInfo
+	(*ItemEvent)(nil),       // 20: carthago.v1.ItemEvent
+	(*MapRef)(nil),          // 21: carthago.v1.MapRef
+	(*Occluder)(nil),        // 22: carthago.v1.Occluder
+	(*Zone)(nil),            // 23: carthago.v1.Zone
+	(*LootSpawn)(nil),       // 24: carthago.v1.LootSpawn
+	(*SolidTree)(nil),       // 25: carthago.v1.SolidTree
+	(*MapGeometry)(nil),     // 26: carthago.v1.MapGeometry
+	(*DecoyTrack)(nil),      // 27: carthago.v1.DecoyTrack
+	(*GameplayBatch)(nil),   // 28: carthago.v1.GameplayBatch
+	(*IngestAck)(nil),       // 29: carthago.v1.IngestAck
 }
 var file_carthago_v1_gameserver_proto_depIdxs = []int32{
 	4,  // 0: carthago.v1.GsClientMsg.watch:type_name -> carthago.v1.WatchSession
@@ -2546,30 +2625,31 @@ var file_carthago_v1_gameserver_proto_depIdxs = []int32{
 	2,  // 5: carthago.v1.SoundEvent.kind:type_name -> carthago.v1.SoundKind
 	3,  // 6: carthago.v1.TeamInfo.kind:type_name -> carthago.v1.TeamInfoKind
 	1,  // 7: carthago.v1.MapGeometry.mode:type_name -> carthago.v1.GameMode
-	21, // 8: carthago.v1.MapGeometry.occluders:type_name -> carthago.v1.Occluder
-	22, // 9: carthago.v1.MapGeometry.zones:type_name -> carthago.v1.Zone
-	23, // 10: carthago.v1.MapGeometry.loot_spawns:type_name -> carthago.v1.LootSpawn
-	24, // 11: carthago.v1.MapGeometry.solid:type_name -> carthago.v1.SolidTree
-	16, // 12: carthago.v1.DecoyTrack.track:type_name -> carthago.v1.MotionTrack
+	22, // 8: carthago.v1.MapGeometry.occluders:type_name -> carthago.v1.Occluder
+	23, // 9: carthago.v1.MapGeometry.zones:type_name -> carthago.v1.Zone
+	24, // 10: carthago.v1.MapGeometry.loot_spawns:type_name -> carthago.v1.LootSpawn
+	25, // 11: carthago.v1.MapGeometry.solid:type_name -> carthago.v1.SolidTree
+	17, // 12: carthago.v1.DecoyTrack.track:type_name -> carthago.v1.MotionTrack
 	10, // 13: carthago.v1.GameplayBatch.players:type_name -> carthago.v1.MatchPlayer
 	11, // 14: carthago.v1.GameplayBatch.aim:type_name -> carthago.v1.AimTrack
 	12, // 15: carthago.v1.GameplayBatch.shots:type_name -> carthago.v1.ShotEvent
 	13, // 16: carthago.v1.GameplayBatch.visibility:type_name -> carthago.v1.VisibilityEvent
-	14, // 17: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
-	15, // 18: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
+	15, // 17: carthago.v1.GameplayBatch.commands:type_name -> carthago.v1.CommandWindow
+	16, // 18: carthago.v1.GameplayBatch.triggers:type_name -> carthago.v1.TriggerPresses
 	1,  // 19: carthago.v1.GameplayBatch.mode:type_name -> carthago.v1.GameMode
-	20, // 20: carthago.v1.GameplayBatch.map:type_name -> carthago.v1.MapRef
-	25, // 21: carthago.v1.GameplayBatch.map_geometry:type_name -> carthago.v1.MapGeometry
-	16, // 22: carthago.v1.GameplayBatch.motion:type_name -> carthago.v1.MotionTrack
-	17, // 23: carthago.v1.GameplayBatch.sounds:type_name -> carthago.v1.SoundEvent
-	18, // 24: carthago.v1.GameplayBatch.team_info:type_name -> carthago.v1.TeamInfo
-	19, // 25: carthago.v1.GameplayBatch.items:type_name -> carthago.v1.ItemEvent
-	26, // 26: carthago.v1.GameplayBatch.decoys:type_name -> carthago.v1.DecoyTrack
-	27, // [27:27] is the sub-list for method output_type
-	27, // [27:27] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	21, // 20: carthago.v1.GameplayBatch.map:type_name -> carthago.v1.MapRef
+	26, // 21: carthago.v1.GameplayBatch.map_geometry:type_name -> carthago.v1.MapGeometry
+	17, // 22: carthago.v1.GameplayBatch.motion:type_name -> carthago.v1.MotionTrack
+	18, // 23: carthago.v1.GameplayBatch.sounds:type_name -> carthago.v1.SoundEvent
+	19, // 24: carthago.v1.GameplayBatch.team_info:type_name -> carthago.v1.TeamInfo
+	20, // 25: carthago.v1.GameplayBatch.items:type_name -> carthago.v1.ItemEvent
+	27, // 26: carthago.v1.GameplayBatch.decoys:type_name -> carthago.v1.DecoyTrack
+	14, // 27: carthago.v1.GameplayBatch.crosshair:type_name -> carthago.v1.CrosshairEvent
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_carthago_v1_gameserver_proto_init() }
@@ -2591,7 +2671,7 @@ func file_carthago_v1_gameserver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_carthago_v1_gameserver_proto_rawDesc), len(file_carthago_v1_gameserver_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

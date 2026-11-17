@@ -42,6 +42,12 @@ type Player struct {
 	lastShot        uint32 // tick of the player's latest shot, hit or miss
 	haveShot        bool
 
+	// FireDelayMs are the times from the crosshair arriving on an enemy to the player's
+	// next shot. onTarget is the tick of an arrival no shot has followed yet.
+	FireDelayMs []float64
+	onTarget    uint32
+	haveTarget  bool
+
 	CmdTicks, Cmds uint64
 	cmdTo          uint32 // end of the latest command window
 	haveCmd        bool
@@ -52,6 +58,7 @@ type Player struct {
 const (
 	maxTriggerSamples = 512
 	maxTTDSamples     = 2048
+	maxFireSamples    = 2048
 	// MaxSlots bounds the slot numbers a match may use.
 	MaxSlots = 256
 	// refTickRate is the tick rate the per-tick thresholds are written for.
@@ -86,6 +93,11 @@ func CheckBatch(b *pb.GameplayBatch) error {
 	for _, v := range b.Visibility {
 		if !slot(v.ObserverSlot) || !slot(v.TargetSlot) {
 			return fmt.Errorf("visibility %d->%d: slots are 0-%d", v.ObserverSlot, v.TargetSlot, MaxSlots-1)
+		}
+	}
+	for _, c := range b.Crosshair {
+		if !slot(c.Slot) || !slot(c.TargetSlot) {
+			return fmt.Errorf("crosshair %d->%d: slots are 0-%d", c.Slot, c.TargetSlot, MaxSlots-1)
 		}
 	}
 	for _, c := range b.Commands {
@@ -158,7 +170,7 @@ func (m *Match) Add(b *pb.GameplayBatch) {
 			p.addAim(t, snapDeg, m.cfg.SnapSettleDeg)
 		}
 	}
-	m.addCombat(b.Shots, b.Visibility)
+	m.addCombat(b.Shots, b.Visibility, b.Crosshair)
 	// A stalled client sends nothing and then catches up; the SDK reports no window for the
 	// silent stretch. Those ticks still passed, so a short gap between two windows counts as
 	// ticks without commands. A long gap is an absence, not a stall.
@@ -223,26 +235,31 @@ func (p *Player) addAim(t *pb.AimTrack, snapDeg, snapSettle float64) {
 const consumed = math.MaxUint32
 
 type combatEvent struct {
-	tick uint32
-	vis  *pb.VisibilityEvent
-	shot *pb.ShotEvent
+	tick  uint32
+	vis   *pb.VisibilityEvent
+	cross *pb.CrosshairEvent
+	shot  *pb.ShotEvent
 }
 
-func (m *Match) addCombat(shots []*pb.ShotEvent, vis []*pb.VisibilityEvent) {
-	evs := make([]combatEvent, 0, len(shots)+len(vis))
+func (m *Match) addCombat(shots []*pb.ShotEvent, vis []*pb.VisibilityEvent, cross []*pb.CrosshairEvent) {
+	evs := make([]combatEvent, 0, len(shots)+len(vis)+len(cross))
 	for _, v := range vis {
 		evs = append(evs, combatEvent{tick: v.Tick, vis: v})
+	}
+	for _, c := range cross {
+		evs = append(evs, combatEvent{tick: c.Tick, cross: c})
 	}
 	for _, s := range shots {
 		evs = append(evs, combatEvent{tick: s.Tick, shot: s})
 	}
-	// Visibility before shots on the same tick: a target that appears and is hit on one tick
-	// is a 0 ms reaction, which is exactly what the TTD rule should see.
+	// Visibility and the crosshair before shots on the same tick: a target that appears and
+	// is hit on one tick is a 0 ms reaction, which is exactly what the TTD rule should see,
+	// and a shot on the tick the crosshair arrives is a 0 ms fire delay.
 	sort.SliceStable(evs, func(i, j int) bool {
 		if evs[i].tick != evs[j].tick {
 			return evs[i].tick < evs[j].tick
 		}
-		return evs[i].vis != nil && evs[j].vis == nil
+		return evs[i].shot == nil && evs[j].shot != nil
 	})
 	rate := m.rate()
 	// A player already shooting when the target came into view is spraying or pre-firing a
@@ -263,6 +280,12 @@ func (m *Match) addCombat(shots []*pb.ShotEvent, vis []*pb.VisibilityEvent) {
 			}
 			continue
 		}
+		if c := e.cross; c != nil {
+			if p := m.player(c.Slot); p != nil {
+				p.onTarget, p.haveTarget = c.Tick, true
+			}
+			continue
+		}
 		s := e.shot
 		p := m.player(s.Slot)
 		if p == nil {
@@ -271,6 +294,15 @@ func (m *Match) addCombat(shots []*pb.ShotEvent, vis []*pb.VisibilityEvent) {
 		before, hadShot := p.lastShot, p.haveShot
 		if !p.haveShot || s.Tick > p.lastShot {
 			p.lastShot, p.haveShot = s.Tick, true
+		}
+		if p.haveTarget && s.Tick >= p.onTarget {
+			// The first shot after the crosshair arrived, hit or miss, within a second. As
+			// with reactions, a player who was already shooting gives no sample.
+			since := p.onTarget
+			if s.Tick-since <= uint32(rate) && !(hadShot && before <= since && since-before <= prefire) && len(p.FireDelayMs) < maxFireSamples {
+				p.FireDelayMs = append(p.FireDelayMs, float64(s.Tick-since)*1000/rate)
+			}
+			p.haveTarget = false
 		}
 		if !s.Hit {
 			continue

@@ -88,6 +88,16 @@ message VisibilityEvent {
   bool visible = 4;
 }
 
+// The player's crosshair came onto an enemy: the server's trace along the player's view
+// direction first met target_slot's body at this tick. One event each time the crosshair
+// arrives on the target, not one per tick it stays there. The gateway measures how soon and
+// how evenly the player's fire follows.
+message CrosshairEvent {
+  uint32 slot = 1;
+  uint32 target_slot = 2;
+  uint32 tick = 3;
+}
+
 // User commands the server received from a player over [tick_from, tick_to).
 message CommandWindow {
   uint32 slot = 1;
@@ -301,6 +311,7 @@ message GameplayBatch {
   repeated ItemEvent items = 18;
   uint32 dropped_events = 19; // v2 samples or events the recorder dropped at its per-batch caps
   repeated DecoyTrack decoys = 20;
+  repeated CrosshairEvent crosshair = 21; // optional; without it the fire-timing signal stays unknown
 }
 
 message IngestAck {

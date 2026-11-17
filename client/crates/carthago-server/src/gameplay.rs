@@ -71,6 +71,7 @@ pub struct MatchRecorder {
     view_reset: BTreeSet<u32>,
     shots: Vec<pb::ShotEvent>,
     visibility: Vec<pb::VisibilityEvent>,
+    crosshair: Vec<pb::CrosshairEvent>,
     commands: BTreeMap<u32, u32>,
     triggers: BTreeMap<u32, Vec<u64>>,
     v2: bool,
@@ -109,6 +110,7 @@ impl MatchRecorder {
             view_reset: BTreeSet::new(),
             shots: Vec::new(),
             visibility: Vec::new(),
+            crosshair: Vec::new(),
             commands: BTreeMap::new(),
             triggers: BTreeMap::new(),
             v2: false,
@@ -405,6 +407,14 @@ impl MatchRecorder {
         self.visibility.push(pb::VisibilityEvent { observer_slot: observer, target_slot: target, tick, visible });
     }
 
+    /// The crosshair of `slot` came onto the enemy `target`: the server's trace along the
+    /// player's view direction first met that enemy's body at `tick`. Call it once each time
+    /// the crosshair arrives, not on every tick it stays there. The gateway measures how soon
+    /// and how evenly the player's fire follows, which is what gives a trigger bot away.
+    pub fn crosshair(&mut self, slot: u32, target: u32, tick: u32) {
+        self.crosshair.push(pb::CrosshairEvent { slot, target_slot: target, tick });
+    }
+
     /// The client timestamp (µs) of a trigger press, as carried in the user command.
     pub fn trigger(&mut self, slot: u32, client_time_us: u64) {
         self.triggers.entry(slot).or_default().push(client_time_us);
@@ -450,6 +460,7 @@ impl MatchRecorder {
             aim,
             shots: std::mem::take(&mut self.shots),
             visibility: std::mem::take(&mut self.visibility),
+            crosshair: std::mem::take(&mut self.crosshair),
             commands,
             triggers: std::mem::take(&mut self.triggers).into_iter().map(|(slot, t)| pb::TriggerPresses { slot, client_time_us: t }).collect(),
             match_over,
@@ -691,6 +702,7 @@ mod tests {
         r.aim(1, 110, 5.0, 1.0); // gap: new track
         r.set_tick(110);
         r.trigger(1, 1000);
+        r.crosshair(1, 2, 101);
         r.shot(pb::ShotEvent { slot: 1, tick: 102, target_slot: -1, ..Default::default() });
         let b = r.flush(false);
         assert_eq!((b.match_id.as_str(), b.batch_seq, b.tick_rate), ("m", 1, 64));
@@ -701,6 +713,7 @@ mod tests {
         assert_eq!(b.commands, vec![pb::CommandWindow { slot: 1, tick_from: 100, tick_to: 110, commands: 4 }]);
         assert_eq!(b.triggers[0].client_time_us, vec![1000]);
         assert_eq!(b.shots.len(), 1);
+        assert_eq!(b.crosshair, vec![pb::CrosshairEvent { slot: 1, target_slot: 2, tick: 101 }]);
 
         // Unchanged players are not resent; an empty window carries its commands forward.
         r.player(1, "sess", "p1", 1500);
