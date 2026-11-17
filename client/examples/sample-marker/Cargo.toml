@@ -1,0 +1,11 @@
+[package]
+name = "carthago-sample-marker"
+description = "A harmless library with one function that returns a number. The sample game loads it to stand in for a known cheat file"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "carthago_sample_marker"
+crate-type = ["cdylib"]

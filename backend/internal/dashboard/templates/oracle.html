@@ -40,7 +40,7 @@
       <p class="empty">No opinion: {{reason $v.Reason}}. <span class="muted">Tried {{ago $v.CreatedAt}}; the evidence below stands on its own.</span></p>
       {{end}}
       {{else}}<p class="empty">{{if .Waiting}}{{.Waiting}}{{else}}Not sent to the analyst: neither the rules nor the model flagged this session{{end}}</p>{{end}}
-      <p class="policy">An opinion for the reviewer, written by a language model from the pseudonymised evidence of this session. It is advisory: it never kicks, bans or changes a player's risk, and it can be wrong. Judge it against the evidence it cites.</p>
+      <p class="policy">An opinion for the reviewer, written {{if and .Verdict (eq .Verdict.V.Provider "stub")}}by the built-in analyst, which works from fixed rules without a language model,{{else}}by a language model{{end}} from the pseudonymised evidence of this session. It is advisory: it never kicks, bans or changes a player's risk, and it can be wrong. Judge it against the evidence it cites.</p>
     </div>
   </div>
 </section>

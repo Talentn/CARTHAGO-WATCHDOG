@@ -96,6 +96,7 @@ players by verifying their token offline and removes them when the gateway sends
 | `client/crates/carthago-scan` | Phase 1 client integrity scans as budgeted jobs |
 | `client/crates/carthago-harden` | Mitigation-policy profiles applied at SDK init |
 | `client/examples/gs-stub` | Game-server stub: `serve`, `verify`, `simulate` |
+| `client/examples/sample-game` | Sample game: a small C program on the SDK's C header, built by cargo, with `sample-marker`, a harmless library it loads to stand in for a known cheat file |
 | `client/cs16/` | Test kit for a game without source (Counter-Strike 1.6): `companion` (launcher that watches the game from outside, read-only), `plugin` (AMX Mod X server plugin), `bridge` (plugin stream to gameplay batches), `fakegame` (stand-in process for tests) |
 | `client/spikes/` | Phase 0 measurement harnesses (scheduler, attestation) |
 | `backend/cmd/carthago-gateway` | Carthago Gateway: the gateway, analysis pipeline and dashboard in one binary |
@@ -108,6 +109,7 @@ players by verifying their token offline and removes them when the gateway sends
 | `backend/internal/store` | Store interface; SQLite (pure Go, no cgo) and in-memory |
 | `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
 | `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
+| `backend/cmd/carthago-demo` | Buyer demo: one command that plays the whole story against a real gateway, with no game |
 | `backend/cmd/carthago-shadow-sim` | Simulated matchmaker over the shadow pool, with a gateway of its own (`docs/shadow-pool.md`) |
 | `backend/internal/attest/driverlist.go` | Windows' signed list of loaded kernel drivers: verified per session, review signals, and the unattested pool (`docs/driver-list.md`) |
 | `sdk/native/sample` | Minimal C++ game using the SDK (CMake) |
@@ -227,6 +229,32 @@ and a heartbeat-deadline kick):
 powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1          # TPM path (trust 2/3 on an attestable PC)
 powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1 -NoTpm   # software device key (trust 0)
 powershell -ExecutionPolicy Bypass -File tools\carthago-e2e.ps1 -Plaintext   # ws:// on loopback instead of pinned TLS
+```
+
+### Buyer demo and sample game
+
+**Any PC, no game** (`backend/cmd/carthago-demo`): starts a gateway with a demo studio and
+plays one story through the real client protocol, server API, rules, bans and dashboard:
+honest players, a match analysed on the server, automatic bans on certain evidence, a known
+cheat file matched by hash, a money exploit caught by the ledger, a player held in the shadow
+pool, and the Oracle putting the players outside the studio's normal play first. It prints a
+short narration, the dashboard address and login, and one `RESULT:` line. Everything in it is
+synthetic telemetry from simulated clients; `-exit` stops it after the story.
+
+```bash
+cd backend && go run ./cmd/carthago-demo
+```
+
+**Windows, the real SDK** (`client/examples/sample-game`): a small C program that uses the SDK
+through `carthago_sentinel.h` only. The script builds it with cargo, starts a gateway, and
+runs it three times: an honest player (trust level from the TPM handshake, Windows' signed
+driver list as the gateway read it), the game loading a harmless marker library whose hash
+is on the list of known cheat files (automatic ban, banned screen with the reference), and
+the banned player again (refused at sign-in). `tools/carthago-sample-check.sh` runs the same
+under Wine, where there is no TPM and no driver list.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\carthago-sample.ps1
 ```
 
 ### A real game without source: Counter-Strike 1.6

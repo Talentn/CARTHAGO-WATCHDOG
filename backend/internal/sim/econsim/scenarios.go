@@ -1,4 +1,6 @@
-package main
+// Package econsim plays a studio's game server against the economy ledger of a gateway:
+// four short scenarios over the real game-server API. It simulates reports only.
+package econsim
 
 import (
 	"bytes"
@@ -9,24 +11,26 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"carthago/backend/internal/economy"
 )
 
-// gameServer is the studio's side of the API: it reports what happens in the game.
-type gameServer struct {
+// GameServer is the studio's side of the API: it reports what happens in the game.
+type GameServer struct {
 	base, key string
 	http      *http.Client
-	run       string
-	seq       int
+	// Run ends the player names and event ids of one run, so that runs do not collide.
+	Run string
+	seq int
 	// clock is the game's time. The scenarios play inside the last five minutes.
 	clock time.Time
 	err   error
 }
 
-func newGameServer(base, key string) *gameServer {
+func NewGameServer(base, key string) *GameServer {
 	// A gateway on this PC may serve the development certificate, which no PC trusts;
 	// any other gateway must show a certificate that verifies.
 	local := false
@@ -34,10 +38,10 @@ func newGameServer(base, key string) *gameServer {
 		local = u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"
 	}
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: local}}
-	return &gameServer{base: strings.TrimRight(base, "/"), key: key, http: &http.Client{Timeout: 15 * time.Second, Transport: tr}, run: runID(), clock: time.Now().Add(-5 * time.Minute)}
+	return &GameServer{base: strings.TrimRight(base, "/"), key: key, http: &http.Client{Timeout: 15 * time.Second, Transport: tr}, Run: runID(), clock: time.Now().Add(-5 * time.Minute)}
 }
 
-func (g *gameServer) call(method, path string, body, into any) {
+func (g *GameServer) call(method, path string, body, into any) {
 	if g.err != nil {
 		return
 	}
@@ -68,13 +72,13 @@ func (g *gameServer) call(method, path string, body, into any) {
 }
 
 // player names one player of this run.
-func (g *gameServer) player(name string) string { return name + "-" + g.run }
+func (g *GameServer) player(name string) string { return name + "-" + g.Run }
 
 // event reports one change, a few seconds of game time after the last.
-func (g *gameServer) event(player string, amount int64, source, counterparty string) economy.Result {
+func (g *GameServer) event(player string, amount int64, source, counterparty string) economy.Result {
 	g.seq++
 	g.clock = g.clock.Add(5 * time.Second)
-	ev := economy.Event{EventID: fmt.Sprintf("sim-%s-%d", g.run, g.seq), Player: player, Amount: amount, Source: source, Counterparty: counterparty, AtMS: g.clock.UnixMilli()}
+	ev := economy.Event{EventID: fmt.Sprintf("sim-%s-%d", g.Run, g.seq), Player: player, Amount: amount, Source: source, Counterparty: counterparty, AtMS: g.clock.UnixMilli()}
 	var out struct {
 		Results []economy.Result `json:"results"`
 	}
@@ -88,7 +92,7 @@ func (g *gameServer) event(player string, amount int64, source, counterparty str
 	return economy.Result{}
 }
 
-func (g *gameServer) balance(player string, balance int64) economy.BalanceResult {
+func (g *GameServer) balance(player string, balance int64) economy.BalanceResult {
 	g.clock = g.clock.Add(5 * time.Second)
 	var out struct {
 		Results []economy.BalanceResult `json:"results"`
@@ -100,13 +104,13 @@ func (g *gameServer) balance(player string, balance int64) economy.BalanceResult
 	return economy.BalanceResult{}
 }
 
-func (g *gameServer) status(player string) economy.Status {
+func (g *GameServer) status(player string) economy.Status {
 	var st economy.Status
 	g.call("GET", "/v1/economy/status?player="+url.QueryEscape(player), nil, &st)
 	return st
 }
 
-func (g *gameServer) dirty(player string) int64 {
+func (g *GameServer) dirty(player string) int64 {
 	var out struct {
 		Players []economy.DirtyPlayer `json:"players"`
 	}
@@ -137,8 +141,8 @@ func describe(st economy.Status) string {
 	return fmt.Sprintf("flags: %s   banned: %s", flags, banned)
 }
 
-// scenarios plays the four scenarios and reports how many came out as they should.
-func scenarios(g *gameServer, out io.Writer) (passed, total int) {
+// Scenarios plays the four scenarios and reports how many came out as they should.
+func Scenarios(g *GameServer, out io.Writer) (passed, total int) {
 	amt := economy.Amount
 	say := func(format string, a ...any) { fmt.Fprintf(out, "   "+format+"\n", a...) }
 	verdict := func(ok bool, pass, fail string) {
@@ -154,7 +158,7 @@ func scenarios(g *gameServer, out io.Writer) (passed, total int) {
 			say("FAIL: %s", fail)
 		}
 	}
-	fmt.Fprintf(out, "run        %s (player names and event ids end in it)\n", g.run)
+	fmt.Fprintf(out, "run        %s (player names and event ids end in it)\n", g.Run)
 
 	fmt.Fprintln(out, "\n1. Honest play")
 	hana, ines := g.player("hana"), g.player("ines")
@@ -202,7 +206,7 @@ func scenarios(g *gameServer, out io.Writer) (passed, total int) {
 	}
 	b = g.balance(finn, 8_000)
 	st = g.status(finn)
-	say("%s robs 8 times for 1 000 each inside one hour; the studio's limit is %s per hour", finn, amt(robberyPerHour))
+	say("%s robs 8 times for 1 000 each inside one hour; the studio's limit is %s per hour", finn, amt(RobberyPerHour))
 	if crossed > 0 {
 		say("robbery %d took the hour over the limit and was flagged", crossed)
 	}
@@ -230,3 +234,8 @@ func scenarios(g *gameServer, out io.Writer) (passed, total int) {
 		"the passed-on money was not marked, or a receiver was banned or flagged")
 	return passed, total
 }
+
+// The limit the farming scenario runs into; the gateway must have it set for robbery.
+const RobberyPerHour, RobberyPerDay = 5_000, 20_000
+
+func runID() string { return strconv.FormatInt(time.Now().UnixMilli()%(36*36*36*36), 36) }

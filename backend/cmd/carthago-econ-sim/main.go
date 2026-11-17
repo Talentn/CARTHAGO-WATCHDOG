@@ -15,13 +15,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"carthago/backend/internal/bans"
 	"carthago/backend/internal/dashboard"
 	"carthago/backend/internal/economy"
 	"carthago/backend/internal/gateway"
+	"carthago/backend/internal/sim/econsim"
 	"carthago/backend/internal/store"
 )
 
@@ -30,7 +30,7 @@ const (
 	demoServerKey    = "demo-server-key"
 	demoDashboardKey = "demo-dashboard-key"
 	// The limit the farming scenario runs into.
-	robberyPerHour, robberyPerDay = 5_000, 20_000
+	robberyPerHour, robberyPerDay = econsim.RobberyPerHour, econsim.RobberyPerDay
 )
 
 func main() {
@@ -140,4 +140,8 @@ func newLocal(dir string) (*local, error) {
 	return &local{api: gw.Handler(), dash: d.Handler(), st: st}, nil
 }
 
-func runID() string { return strconv.FormatInt(time.Now().UnixMilli()%(36*36*36*36), 36) }
+// The scenarios and the simulated game server are shared with carthago-demo.
+var (
+	newGameServer = econsim.NewGameServer
+	scenarios     = econsim.Scenarios
+)

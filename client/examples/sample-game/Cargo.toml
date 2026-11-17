@@ -1,0 +1,18 @@
+[package]
+name = "carthago-sample-game"
+description = "Sample game: a tiny C program (game.c) that uses carthago_sentinel.dll through sdk/native/include/carthago_sentinel.h, as a studio's game does"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Not used from Rust: it makes cargo build carthago_sentinel.dll and its import library
+# before game.c is linked against them.
+carthago-sentinel = { path = "../../crates/carthago-sentinel" }
+
+[build-dependencies]
+cc = "1"
+
+[lints.cargo]
+unused_dependencies = "allow"
