@@ -255,6 +255,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "carthago-sample-game"
+version = "0.0.1"
+dependencies = [
+ "carthago-sentinel",
+ "cc",
+]
+
+[[package]]
+name = "carthago-sample-marker"
+version = "0.0.1"
+
+[[package]]
 name = "carthago-scan"
 version = "0.0.1"
 dependencies = [
