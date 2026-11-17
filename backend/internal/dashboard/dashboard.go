@@ -9,7 +9,8 @@
 // server-side session and every store query is scoped by it. Each account has a role, and
 // what it does is written to an audit log. Pages are rendered server-side with
 // html/template (contextual escaping of everything a client or game server sent us) and
-// served with a strict Content-Security-Policy and no scripts at all.
+// served with a strict Content-Security-Policy. No page runs a script, except the match
+// replay page, which runs the dashboard's own static/replay.js and nothing else (match.go).
 package dashboard
 
 import (
@@ -52,6 +53,7 @@ type Store interface {
 	store.CheatStore
 	store.EconomyStore
 	store.DriverStore
+	store.ReplayStore
 	ListBans(ctx context.Context, tenant string, limit int) ([]store.Ban, error)
 	GetSession(ctx context.Context, id string) (*store.Session, error)
 	GetDevice(ctx context.Context, id string) (*store.Device, error)
@@ -146,6 +148,14 @@ func (s *Server) parse() error {
 		"mitig":      mitigations,
 		"pretty":     prettyJSON,
 		"path":       url.PathEscape,
+		"matchURL":   matchURL,
+		"clock":      clock,
+		"replays": func(list []store.MatchReplay, player string) any {
+			return struct {
+				List   []store.MatchReplay
+				Player string
+			}{list, player}
+		},
 		"amount":     economy.Amount,
 		"query":      url.QueryEscape,
 		"add":        func(a, b int) int { return a + b },
@@ -213,6 +223,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /players", s.auth(s.players))
 	mux.HandleFunc("GET /players/{hash}", s.auth(s.player))
 	mux.HandleFunc("GET /evidence/{id}", s.auth(s.evidence))
+	mux.HandleFunc("GET /matches/{id}", s.auth(s.match))
+	mux.HandleFunc("GET /matches/{id}/replay.json", s.auth(s.matchReplay))
 	return s.securityHeaders(s.hostCheck(mux))
 }
 
@@ -278,7 +290,8 @@ func staticFiles() http.Handler {
 //
 // The policy allows the dashboard's own stylesheet, images and fonts and nothing else: no
 // script from anywhere, no inline style, no plugin, no frame, forms only back to this
-// origin. The other headers close what a policy does not: content sniffing, framing in
+// origin. The match replay page replaces it with matchCSP, which adds the dashboard's own
+// script file and nothing more. The other headers close what a policy does not: content sniffing, framing in
 // old browsers, the address of a page (which can hold a one-time link) leaking in a
 // Referer, other origins holding a handle on or embedding these pages, browser features
 // the dashboard never uses, and search engines indexing a dashboard someone left exposed.
@@ -366,6 +379,7 @@ type sessionData struct {
 	Label     labelCard
 	Ban       banCard
 	Drivers   *driverCard
+	Replays   []store.MatchReplay
 }
 
 type labelCard struct {
@@ -431,6 +445,10 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, tenant string) 
 		s.fail(w, err)
 		return
 	}
+	if d.Replays, err = s.replayLinks(ctx, tenant, store.ReplayFilter{SessionID: id}); err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, http.StatusOK, "session", page{Title: "Session " + short(id), Nav: "sessions", Tenant: tenant, Data: d})
 }
 
@@ -461,6 +479,7 @@ type playerData struct {
 	Evidence []store.Evidence
 	Oracle   *playerOracle
 	Baseline *baselineView
+	Replays  []store.MatchReplay
 }
 
 func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
@@ -511,7 +530,12 @@ func (s *Server) player(w http.ResponseWriter, r *http.Request, tenant string) {
 		s.fail(w, err)
 		return
 	}
-	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po, base}})
+	replays, err := s.replayLinks(ctx, tenant, store.ReplayFilter{PlayerHash: hash})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.render(w, http.StatusOK, "player", page{Title: "Player " + short(hash), Nav: "players", Tenant: tenant, Data: playerData{row, sess, evs, po, base, replays}})
 }
 
 func (s *Server) evidence(w http.ResponseWriter, r *http.Request, tenant string) {

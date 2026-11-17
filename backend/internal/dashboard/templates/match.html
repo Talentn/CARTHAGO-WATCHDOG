@@ -1,0 +1,67 @@
+{{define "content"}}
+{{$d := .Data}}{{$r := $d.R}}
+<div class="head">
+  <h1 class="wrapall">Match <span class="mono">{{$r.MatchID}}</span></h1>
+</div>
+<section class="kpis">
+  <div class="kpi"><span>Length recorded</span><b>{{$d.Duration}}</b><small>{{if $r.Truncated}}cut off at the recording's size cap{{else}}first batch received {{ago $r.StartedAt}}{{end}}</small></div>
+  <div class="kpi"><span>Players</span><b>{{len $d.Players}}</b><small>{{$r.Samples}} positions kept</small></div>
+  <div class="kpi{{if $d.Marks}} warn{{end}}"><span>Marks</span><b>{{add (len $d.Marks) $d.More}}</b><small>findings, their moments and Oracle flags</small></div>
+</section>
+<section class="card">
+  <h2>Replay</h2>
+  <div class="mr" id="match-replay" data-src="{{$d.Src}}" data-t="{{$d.StartMs}}" data-focus="{{$d.Focus}}">
+    <canvas class="mr-view" width="960" height="540">Top-down view of the match</canvas>
+    <div class="mr-line">
+      <input type="range" class="mr-seek" min="0" max="{{$r.DurationMs}}" step="50" value="{{$d.StartMs}}" aria-label="Match time" disabled>
+      <div class="mr-ticks"></div>
+    </div>
+    <div class="mr-bar">
+      <button type="button" class="secondary mr-play" disabled>Play</button>
+      <label>Speed <select class="mr-speed" disabled><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option></select></label>
+      <span class="mr-status muted" role="status">The replay is drawn by a script served by this dashboard. The table below lists the same moments</span>
+      <span class="mono mr-clock">{{clock $d.StartMs}} / {{$d.Duration}}</span>
+    </div>
+  </div>
+  <p class="replay-key">
+    <span><span class="dot"></span>team one</span>
+    <span><span class="dot d-b"></span>team two</span>
+    <span><span class="dot d-watch"></span>has a medium mark</span>
+    <span><span class="dot d-act"></span>has a high mark</span>
+    <span><span class="key k-viewer"></span>shot, × where it killed</span>
+  </p>
+  <p class="replay-note">Positions are what the game server sent, kept four times a second. The frame is the area the players covered; no map is drawn. The recording is a picture for review and no rule reads it.</p>
+</section>
+<section class="card">
+  <h2>Findings and Oracle flags</h2>
+  {{if $d.Marks}}
+  <table class="compact marks">
+    <thead><tr><th>Match time</th><th>Mark</th><th>Player</th><th>Rule</th><th>What was found</th><th></th></tr></thead>
+    <tbody>{{range $d.Marks}}<tr>
+      <td><button type="button" class="link mono mr-jump" data-t="{{.Ms}}" data-slot="{{.Slot}}" data-level="{{.Level}}" data-kind="{{.Kind}}" title="{{.At}} · {{.Rule}} · {{.Player}}">{{.At}}</button>{{if .Approx}} <small class="muted" title="The gateway knows the match this belongs to, not the moment">end</small>{{end}}</td>
+      <td><span class="mark mark-{{.Level}}">{{if eq .Kind "oracle"}}Oracle{{else if eq .Kind "moment"}}Moment{{else}}Finding{{end}}</span></td>
+      <td><a class="mono" href="/players/{{path .Player}}">{{short .Player}}</a></td>
+      <td class="mono">{{.Rule}}</td>
+      <td class="sum">{{.Text}}</td>
+      <td><a href="{{.Href}}">{{if eq .Kind "oracle"}}Session{{else}}Evidence{{end}}</a></td>
+    </tr>{{end}}</tbody>
+  </table>
+  {{if $d.More}}<p class="hint">{{$d.More}} later marks are not listed</p>{{end}}
+  {{else}}<p class="empty">Nothing was found in this match</p>{{end}}
+</section>
+<section class="card">
+  <h2>Players</h2>
+  <table class="compact">
+    <thead><tr><th class="num">Slot</th><th>Player</th><th class="num">Team</th><th>Session</th><th class="num">Marks</th><th></th></tr></thead>
+    <tbody>{{range $d.Players}}<tr>
+      <td class="num">{{.Slot}}</td>
+      <td><a class="mono" href="/players/{{path .PlayerHash}}">{{short .PlayerHash}}</a>{{if .Bot}} <span class="tag" title="Computer-controlled slot">bot</span>{{end}}</td>
+      <td class="num">{{if .Team}}{{.Team}}{{else}}<span class="muted">—</span>{{end}}</td>
+      <td>{{if .SessionID}}<a class="mono" href="/sessions/{{path .SessionID}}">{{short .SessionID}}</a>{{else}}<span class="muted">no verified session</span>{{end}}</td>
+      <td class="num">{{if .Marks}}{{.Marks}}{{else}}<span class="muted">—</span>{{end}}</td>
+      <td><button type="button" class="link mr-follow" data-slot="{{.Slot}}" aria-pressed="false">Highlight</button></td>
+    </tr>{{end}}</tbody>
+  </table>
+</section>
+<script src="/static/replay.js" defer></script>
+{{end}}

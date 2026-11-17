@@ -51,6 +51,7 @@
 <section class="card">
   <h2>Gameplay (telemetry v2)</h2>
   {{template "gameplaytable" $d.Gameplay}}
+  {{if $d.Replays}}<h3>Recorded matches</h3>{{template "replaytable" (replays $d.Replays $d.S.PlayerHash)}}{{end}}
 </section>
 {{range $d.Leaks}}
 <section class="card">

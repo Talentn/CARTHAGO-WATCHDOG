@@ -141,7 +141,8 @@ func (m *Memory) ListEvidence(_ context.Context, tenant string, f EvidenceFilter
 	for i := len(evs) - 1; i >= 0; i-- {
 		e := evs[i]
 		if e.TenantID != tenant || e.Severity < f.MinSeverity ||
-			(f.PlayerHash != "" && e.PlayerHash != f.PlayerHash) || (f.SessionID != "" && e.SessionID != f.SessionID) {
+			(f.PlayerHash != "" && e.PlayerHash != f.PlayerHash) || (f.SessionID != "" && e.SessionID != f.SessionID) ||
+			(f.MatchID != "" && e.MatchID != f.MatchID) {
 			continue
 		}
 		out = append(out, e)

@@ -21,6 +21,7 @@ type Memory struct {
 	dismissedCheats  map[[2]string]bool
 	econ             *memEconomy
 	drivers          *memDrivers
+	replays          map[[2]string]MatchReplay
 }
 
 func NewMemory() *Memory {

@@ -284,6 +284,8 @@ func (s *story) ingest(batches []*pb.GameplayBatch) error {
 // matchSeconds is the length of the simulated match: a full competitive match.
 const matchSeconds = 1500
 
+const demoMatch = "ranked-yard-0001"
+
 func (s *story) match() error {
 	// Ten players in one match: the eight honest ones, ilyes, and sami, whose simulated
 	// play acts on where enemies really are, also when his team could not know.
@@ -302,7 +304,7 @@ func (s *story) match() error {
 	for i := range players {
 		players[i].SessionID, players[i].PlayerHash = s.players[names[i]].SessionID(), names[i]
 	}
-	batches := synth.Batches(synth.Spec{MatchID: "ranked-yard-0001", Mode: pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER, TickRate: 64, Seconds: matchSeconds, Seed: seed, Players: players})
+	batches := synth.Batches(synth.Spec{MatchID: demoMatch, Mode: pb.GameMode_GAME_MODE_COMPETITIVE_SHOOTER, TickRate: 64, Seconds: matchSeconds, Seed: seed, Players: players})
 	if err := s.ingest(batches); err != nil {
 		return err
 	}
@@ -331,6 +333,12 @@ func (s *story) match() error {
 	s.say("The gateway works out what each team could see and hear. sami keeps aiming at enemies his team could not")
 	s.say("have known about: rule information_leak, %s severity, with the moments and a top-down replay for the reviewer.", analyzer.Severity(leak("sami").Severity))
 	s.say("It is statistics, so it goes to review. sami is not banned and not told. The nine honest players are clean.")
+	rec, err := s.gw.Store.GetMatchReplay(s.ctx, localgw.Tenant, demoMatch)
+	if err != nil || rec.Samples == 0 || len(rec.Players) != len(names) {
+		return fmt.Errorf("the match was not recorded for replay: %v", err)
+	}
+	s.say("The positions also make a replay of the whole match (%d KB stored): %s/matches/%s?player=sami", (len(rec.Data)+1023)/1024, s.gw.Dashboard, demoMatch)
+	s.say("plays it from above, with sami's flagged moments on the timeline.")
 	return nil
 }
 

@@ -88,6 +88,7 @@ type Overview struct {
 type EvidenceFilter struct {
 	PlayerHash  string
 	SessionID   string
+	MatchID     string
 	MinSeverity int
 	Limit       int
 }

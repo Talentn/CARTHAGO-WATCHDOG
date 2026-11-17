@@ -186,6 +186,10 @@ func (s *SQLite) ListEvidence(ctx context.Context, tenant string, f EvidenceFilt
 		q += ` AND session_id = ?`
 		args = append(args, f.SessionID)
 	}
+	if f.MatchID != "" {
+		q += ` AND match_id = ?`
+		args = append(args, f.MatchID)
+	}
 	q += ` ORDER BY observed_ms DESC, id DESC LIMIT ?`
 	args = append(args, limitOr(f.Limit, 100))
 	rows, err := s.db.QueryContext(ctx, q, args...)

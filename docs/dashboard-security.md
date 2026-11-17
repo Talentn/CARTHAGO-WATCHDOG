@@ -3,10 +3,16 @@
 The studio dashboard shows who is playing, who was flagged and why. This page says, in plain
 words, who can open it, what protects that, and what is not covered yet.
 
-The dashboard stays server-rendered HTML and CSS with no JavaScript. That is a security
-choice, not a shortcut: a page that runs no script has nothing for an injected script to
-hook into, and the browser is told to refuse any script, inline style or outside resource
-anyway. The work described here went into sign-in and access instead.
+The dashboard stays server-rendered HTML and CSS. That is a security choice, not a
+shortcut: a page that runs no script has nothing for an injected script to hook into, and
+the browser is told to refuse any script, inline style or outside resource anyway. The
+work described here went into sign-in and access instead.
+
+One page is the exception: the match replay (`docs/match-replay.md`) draws a moving
+picture, which needs a script. That page alone allows one script file, served by the
+dashboard itself, and its one request for the recording. Inline script, inline style and
+anything from another host stay refused there too, and every other page still allows no
+script at all.
 
 ## Accounts
 
@@ -91,8 +97,9 @@ on every request. A changed role or a disabled account takes effect on the next 
 
 - Every form that changes something carries a secret token tied to the session, and requests
   from other sites are refused, so another web page cannot act in a signed-in user's name.
-- The browser is instructed to run no script, load nothing from other hosts, never show the
-  dashboard inside another page, send no referrer, and keep no copy of a page.
+- The browser is instructed to run no script (on the match replay page: only the
+  dashboard's own script file), load nothing from other hosts, never show the dashboard
+  inside another page, send no referrer, and keep no copy of a page.
 - Away from the gateway PC the dashboard requires HTTPS: the gateway does not start a
   dashboard on a network address in plain HTTP. Give it a certificate
   (`-dashboard-tls-cert`, `-dashboard-tls-key`) or put it behind a proxy that terminates TLS

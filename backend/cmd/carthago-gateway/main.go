@@ -40,6 +40,7 @@ type evidenceStore interface {
 	store.CheatStore
 	store.EconomyStore
 	store.DriverStore
+	store.ReplayStore
 }
 
 type tenantFlag map[string]string

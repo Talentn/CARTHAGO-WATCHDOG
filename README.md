@@ -39,6 +39,7 @@ players ranked by risk, and the latest detections with the finding behind each o
 | **Server-side detections** | Snap-and-lock aim; headshot rate against an MMR baseline (exact binomial test); time-to-damage against the lobby (robust z-score); sustained command rate; trigger-interval regularity; time-source divergence; scanner stalls. Client findings are classified against an allowlist of common overlays and capture tools (Steam, Discord, OBS, RTSS, NVIDIA). |
 | **Information-leak scoring** | Telemetry v2 (positions, view, sounds, team pings, input device, versioned map geometry) feeds a per-team knowledge model: line of sight through occluders, audible sounds, and what teammates spotted. A scorer tests whether a player's aim, shots and routes follow enemies the team could not have known about, against a null model of the same enemies at shifted times. Flag-only, with the moments and a top-down replay in the dashboard; per-segment thresholds (game mode × input device) target a false-positive rate of 1 in 1,000 player-matches. |
 | **Decoys** | The game server can replicate fake enemies to one player at a time, only while that player cannot see or hear them. The server SDK places them, using the gateway's own visibility rules, and reports them. The gateway's `decoy_reaction` rule tests whether a player's aim and shots follow decoys more than the same decoys at shifted times, and needs reactions to several decoys. Flag-only, a separate evidence family with its own dashboard card and replay. Integration rules and limits: [`docs/decoys.md`](docs/decoys.md). |
+| **Match replay** | When a game server sends positions, the gateway keeps a compact top-down recording of the match (a quarter-second step, capped in size, per studio). The dashboard plays it back with play, pause, scrub and speed, and marks every finding and Oracle flag of the match on the timeline. A picture for review; no rule reads it. [`docs/match-replay.md`](docs/match-replay.md). |
 | **Studio dashboard** | Sessions and trust levels, flagged players ranked by severity × confidence, a per-player history and the raw evidence for every verdict. Tenant-isolated and served on its own listener. People sign in with their own account (password, optional or required two-factor code), hold a role (admin, reviewer, read-only), and every sign-in and change lands in an append-only audit log. |
 | **No false-ban defaults** | Behavioural evidence is advisory and goes to review. Automatic kicks can be enabled only for critical client-integrity evidence, and are off by default. |
 
@@ -107,7 +108,8 @@ players by verifying their token offline and removes them when the gateway sends
 | `backend/internal/oracle` | Carthago Oracle: behaviour model, bundle, scoring engine; `analyst` (case file, verdict checks, providers), `runtime` (local model life cycle), `train` (synthetic trainer), `tune` (label export) |
 | `backend/cmd/carthago-oracle` | Oracle tool: `train`, `eval`, `curve`, `bench`, `export`, `info`, `set` |
 | `backend/internal/store` | Store interface; SQLite (pure Go, no cgo) and in-memory |
-| `backend/internal/dashboard` | Studio dashboard (server-rendered, no JavaScript) |
+| `backend/internal/dashboard` | Studio dashboard (server-rendered; one script, for the match replay) |
+| `backend/internal/replay` | Top-down recording of a match from the positions a game server sends (`docs/match-replay.md`) |
 | `backend/cmd/carthago-sim` | Simulated clients sending synthetic telemetry (demo, tests) |
 | `backend/cmd/carthago-demo` | Buyer demo: one command that plays the whole story against a real gateway, with no game |
 | `backend/cmd/carthago-shadow-sim` | Simulated matchmaker over the shadow pool, with a gateway of its own (`docs/shadow-pool.md`) |
@@ -577,9 +579,10 @@ observer that can be lied to, never as an authority.
 - Roles are checked on the server for every route, every form that changes something
   carries a CSRF token, and sign-ins, failures and changes are written to an append-only,
   hash-chained audit log that admins can read.
-- The dashboard has no JavaScript and sends a strict `Content-Security-Policy`; its
-  stylesheet, logo and fonts are served from the dashboard itself and nothing is loaded
-  from another host.
+- The dashboard sends a strict `Content-Security-Policy`; its stylesheet, logo and fonts
+  are served from the dashboard itself and nothing is loaded from another host. No page
+  runs JavaScript except the match replay, which runs one script file of the dashboard's
+  own and nothing inline.
 - Failed sign-ins are limited per address and per account, with a lockout that doubles, and
   an unknown user gets the same answer as a wrong password.
 

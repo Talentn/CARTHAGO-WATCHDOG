@@ -144,3 +144,15 @@
   {{end}}
 </section>
 {{end}}
+
+{{define "replaytable"}}
+<table class="compact">
+  <thead><tr><th>Match</th><th>Recorded</th><th class="num">Length</th><th class="num">Positions</th><th></th></tr></thead>
+  <tbody>{{range .List}}<tr>
+    <td class="mono wrapall">{{.MatchID}}</td>
+    <td class="when" title="{{when .StartedAt}}"><span class="mono">{{.StartedAt.UTC.Format "15:04:05"}}</span> <span class="muted">{{ago .StartedAt}}</span></td>
+    <td class="num">{{clock .DurationMs}}</td><td class="num">{{.Samples}}</td>
+    <td><a href="{{matchURL .MatchID}}{{if $.Player}}?player={{query $.Player}}{{end}}">Watch replay</a></td>
+  </tr>{{end}}</tbody>
+</table>
+{{end}}

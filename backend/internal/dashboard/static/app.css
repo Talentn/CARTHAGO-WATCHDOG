@@ -380,3 +380,35 @@ a, button, input, summary { transition: color 140ms var(--ease), background-colo
 .poolacts + small { display: block; margin-top: 6px; }
 table.drivers td { vertical-align: top; }
 table.drivers td.wrapall { min-width: 18ch; font-size: 12px; }
+
+/* Match replay (templates/match.html, static/replay.js). The canvas takes its colours from
+   the tokens above: players are neutral, a player with a medium mark is amber and with a
+   high mark red, as everywhere else. The script places the ticks under the scrubber. */
+.mr { display: grid; gap: 12px; }
+.mr-view { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 600px; background: var(--inset); border: 1px solid var(--line); border-radius: 8px; }
+.mr-line { display: grid; gap: 4px; }
+.mr-seek { width: 100%; height: 16px; margin: 0; accent-color: var(--accent); }
+.mr-seek:disabled { opacity: 0.4; }
+/* The range thumb is 16px wide, so its centre travels 8px short of each end. */
+.mr-ticks { position: relative; height: 16px; margin: 0 8px; }
+.mr-tick { position: absolute; top: 0; width: 12px; height: 16px; margin-left: -6px; padding: 0; border: 0; border-radius: 2px; background: none; cursor: pointer; }
+.mr-tick::before { content: ""; position: absolute; left: 5px; top: 0; width: 2px; height: 16px; border-radius: 1px; background: var(--muted); }
+.mr-tick.kind-moment::before { top: 6px; height: 10px; }
+.mr-tick.lvl-watch::before { background: var(--accent); }
+.mr-tick.lvl-act::before { background: var(--act); }
+.mr-tick:hover::before { left: 4px; width: 4px; }
+.mr-bar { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; }
+.mr-bar label { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.mr-speed { height: 32px; font-size: 13px; }
+.mr-play { min-width: 72px; }
+.mr-play:disabled { opacity: 0.4; cursor: default; }
+.mr-status { font-size: 13px; }
+.mr-clock { margin-left: auto; color: var(--text-2); }
+.mr-jump { color: var(--text); text-decoration: underline 1px var(--line-3); text-underline-offset: 3px; }
+.mr-follow[aria-pressed=true] { color: var(--text); }
+.mark-act::before { background: var(--act); }
+.marks td.sum { max-width: 72ch; }
+.dot { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; vertical-align: -1px; background: var(--text); box-shadow: inset 0 0 0 1.5px var(--text); }
+.d-b { background: none; }
+.d-watch { background: var(--accent); box-shadow: none; }
+.d-act { background: var(--act); box-shadow: none; }

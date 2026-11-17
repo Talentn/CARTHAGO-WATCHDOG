@@ -75,6 +75,10 @@ type Config struct {
 	LeakAlert *knowledge.AlertConfig
 	// GameplayRetention is how long raw v2 batches are kept for re-scoring and review.
 	GameplayRetention time.Duration
+	// ReplayRetention is how long a match's top-down recording is kept after its last
+	// batch, and ReplayFlush how often the recording of a match in progress is written.
+	ReplayRetention time.Duration
+	ReplayFlush     time.Duration
 	// Observer, when set, is told about finished matches and session heartbeats (see
 	// Observer). It is how the Carthago Oracle sees the pipeline's numbers.
 	Observer Observer
@@ -105,6 +109,12 @@ func (c *Config) defaults() {
 	}
 	if c.GameplayRetention == 0 {
 		c.GameplayRetention = 72 * time.Hour
+	}
+	if c.ReplayRetention == 0 {
+		c.ReplayRetention = 30 * 24 * time.Hour
+	}
+	if c.ReplayFlush == 0 {
+		c.ReplayFlush = 30 * time.Second
 	}
 	if c.Now == nil {
 		c.Now = time.Now
@@ -137,6 +147,8 @@ type Pipeline struct {
 	openMatches   map[string]int // per tenant
 	droppedLogged uint64
 	maps          map[mapKey]*knowledge.Map
+	// replays is where match recordings go; nil when the store does not keep them.
+	replays store.ReplayStore
 }
 
 type clientState struct {
@@ -159,7 +171,9 @@ type matchState struct {
 	sessions map[uint32]store.Session
 	lastSeen time.Time
 	v2       *v2State
-	observed bool // the observer has been told this match finished
+	replay   *replayState
+	teams    map[uint32]uint32 // slot to team, for the recording
+	observed bool              // the observer has been told this match finished
 }
 
 // maxSeenPerSession caps the distinct pieces of client evidence recorded per session, whatever
@@ -178,6 +192,7 @@ func New(cfg Config, st store.EvidenceStore, sessions SessionLookup, kick Kicker
 		clients: map[string]*clientState{}, matches: map[[2]string]*matchState{}, openMatches: map[string]int{},
 		maps: map[mapKey]*knowledge.Map{},
 	}
+	p.replays, _ = st.(store.ReplayStore)
 	go p.run()
 	return p
 }
@@ -544,6 +559,7 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 		ms.sessions[mp.Slot] = *s
 	}
 	ms.m.Add(b)
+	p.record(tenant, ms, b, at)
 
 	var evs []store.Evidence
 	for slot, list := range ms.m.Evaluate() {
@@ -584,6 +600,7 @@ func (p *Pipeline) gameplay(tenant string, b *pb.GameplayBatch, at time.Time) (b
 		p.notifyGameplay(ms)
 	}
 	if b.MatchOver {
+		p.saveReplay(tenant, b.MatchId, ms, at)
 		p.matchFinished(key, ms, at)
 		p.closeMatch(key)
 	}
@@ -609,6 +626,7 @@ func (p *Pipeline) prune() {
 	}
 	for k, m := range p.matches {
 		if now.Sub(m.lastSeen) > p.cfg.MatchIdle {
+			p.saveReplay(k[0], k[1], m, now)
 			p.matchFinished(k, m, now)
 			p.closeMatch(k)
 		}
@@ -621,5 +639,12 @@ func (p *Pipeline) prune() {
 		p.log.Warn("prune gameplay batches", "err", err)
 	} else if n > 0 {
 		p.log.Info("pruned gameplay batches", "rows", n)
+	}
+	if p.replays != nil {
+		if n, err := p.replays.PruneMatchReplays(context.Background(), now.Add(-p.cfg.ReplayRetention)); err != nil {
+			p.log.Warn("prune match replays", "err", err)
+		} else if n > 0 {
+			p.log.Info("pruned match replays", "rows", n)
+		}
 	}
 }

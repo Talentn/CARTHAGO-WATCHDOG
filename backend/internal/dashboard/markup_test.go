@@ -56,7 +56,12 @@ func TestTemplateClassesAreStyled(t *testing.T) {
 				}
 			}
 		}
-		if strings.Contains(string(src), "style=") || strings.Contains(string(src), "<script") || strings.Contains(string(src), "<style") {
+		// The match page loads the dashboard's one script file; that tag carries no code.
+		body := string(src)
+		if file == "templates/match.html" {
+			body = strings.Replace(body, `<script src="/static/replay.js" defer></script>`, "", 1)
+		}
+		if strings.Contains(body, "style=") || strings.Contains(body, "<script") || strings.Contains(body, "<style") {
 			t.Errorf("%s: inline style or script, which the CSP blocks", file)
 		}
 	}
