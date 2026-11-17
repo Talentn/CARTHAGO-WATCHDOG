@@ -10,6 +10,7 @@ import (
 
 	"carthago/backend/internal/analyzer"
 	"carthago/backend/internal/pipeline"
+	"carthago/backend/internal/store"
 )
 
 // studio is n sessions of ordinary play, one per player: snap rates between 0 and 0.2 per
@@ -25,25 +26,105 @@ func studio(n int, at time.Time) []BaselineSample {
 }
 
 func session(snaps, reaction float64) BaselineVector {
-	v := BaselineOf(Missing(), math.NaN())
+	v := BaselineOf(Missing(), NoOwnSignals())
 	v[FAimSnapRate], v[FReactionMs] = snaps, reaction
 	return v
 }
 
-func TestBaselineOnlyWatchesUntilItHasEnoughSessions(t *testing.T) {
+// A studio with too few sessions of its own is measured against the starting baseline,
+// which is wide: it calls only play far from any person's outside normal.
+func TestStartingBaselineUntilAStudioHasEnoughSessions(t *testing.T) {
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
-	b := LearnBaseline(studio(BaselineMinSessions-1, now))
-	if b.Ready || b.Sessions != BaselineMinSessions-1 {
-		t.Fatalf("ready %v after %d sessions", b.Ready, b.Sessions)
+	few := studio(BaselineMinSessions-1, now)
+	b := LearnBaseline(few)
+	if !b.Starting || !b.Ready || b.Sessions != BaselineMinSessions-1 {
+		t.Fatalf("starting %v, ready %v after %d sessions", b.Starting, b.Ready, b.Sessions)
 	}
-	if _, _, ok := b.Distance(session(50, 20)); ok {
-		t.Fatal("a baseline that is still learning scored a session")
+	for i := range few {
+		if d, _, ok := b.Distance(few[i].Vector); !ok || d != 0 {
+			t.Fatalf("ordinary session %d against the starting baseline: distance %v, ok %v", i, d, ok)
+		}
 	}
-	if got := b.Players(studio(10, now), now); got != nil {
-		t.Fatalf("a baseline that is still learning scored players: %v", got)
+	if d, sigs, _ := b.Distance(session(6, 20)); BaselineBand(d) != BaselineFar || len(sigs) != 2 {
+		t.Fatalf("a blatant session against the starting baseline: distance %v, signals %v", d, sigs)
 	}
-	if b = LearnBaseline(studio(BaselineMinSessions, now)); !b.Ready {
-		t.Fatal("not ready at the minimum")
+	// Good and not impossible: a few snaps, quick reactions.
+	if d, _, _ := b.Distance(session(0.9, 140)); BaselineBand(d) != BaselineNormal {
+		t.Fatalf("a good player against the starting baseline: distance %v", d)
+	}
+	// The sight signals depend on the game's maps and have no starting value.
+	sight := session(0.1, 250)
+	sight[BHiddenAim], sight[BPreAim] = 1, 1
+	if d, _, _ := b.Distance(sight); d != 0 {
+		t.Fatalf("the starting baseline judged the sight signals: %v", d)
+	}
+	for i := 0; i < 3; i++ {
+		few = append(few, BaselineSample{PlayerHash: "odd", Vector: session(6, 20), At: now})
+	}
+	if p := b.Players(few, now)["odd"]; p.Band != BaselineFar {
+		t.Fatalf("the starting baseline did not score a player: %+v", p)
+	}
+	if b = LearnBaseline(studio(BaselineMinSessions, now)); b.Starting || !b.Ready {
+		t.Fatal("at the minimum the studio's own baseline must take over")
+	}
+}
+
+// Cheaters play in every studio. The baseline learns from the sessions that lie together
+// and leaves the far ones out, so that cheating does not become normal.
+func TestBaselineLearnsFromTheCleanMajority(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	samples := studio(400, now)
+	clean := LearnBaseline(samples)
+	for i := 0; i < 100; i++ { // a fifth of the studio
+		samples = append(samples, BaselineSample{PlayerHash: fmt.Sprintf("c%d", i), Vector: session(2+float64(i%5), 250), At: now})
+	}
+	b := LearnBaseline(samples)
+	if b.LeftOut != 100 || b.Sessions != 500 {
+		t.Fatalf("left out %d of %d sessions, want the 100 cheating ones", b.LeftOut, b.Sessions)
+	}
+	if b.edge != clean.edge || b.spread != clean.spread {
+		t.Fatalf("the cheating sessions moved the baseline: edges %v, without them %v", b.edge, clean.edge)
+	}
+	if d, _, _ := b.Distance(session(2, 250)); BaselineBand(d) == BaselineNormal {
+		t.Fatalf("the cheaters' play became normal: distance %v", d)
+	}
+	// The honest tail is not cut: without cheaters nothing is left out.
+	if clean.LeftOut != 0 {
+		t.Fatalf("%d ordinary sessions were left out", clean.LeftOut)
+	}
+}
+
+// Sessions with a certain finding and sessions of banned players are scored and never
+// learned from, however many there are.
+func TestBaselineNeverLearnsFromExcludedSessions(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	samples := studio(300, now)
+	clean := LearnBaseline(samples)
+	for i := 0; i < 600; i++ {
+		samples = append(samples, BaselineSample{PlayerHash: fmt.Sprintf("banned%d", i), Vector: session(0.5, 120), At: now, Excluded: true})
+	}
+	b := LearnBaseline(samples)
+	if b.Sessions != 300 || b.edge != clean.edge || b.spread != clean.spread {
+		t.Fatalf("excluded sessions were learned from: %d sessions, edges %v, without them %v", b.Sessions, b.edge, clean.edge)
+	}
+	if p := b.Players(samples, now)["banned7"]; p.Sessions != 1 || p.Distance == 0 {
+		t.Fatalf("an excluded session was not scored: %+v", p)
+	}
+	// Too few sessions left after the exclusion: the starting baseline, not a baseline
+	// learned from the excluded ones.
+	for i := range samples[:150] {
+		samples[i].Excluded = true
+	}
+	if b = LearnBaseline(samples); !b.Starting || b.Sessions != 150 {
+		t.Fatalf("starting %v with %d sessions to learn from", b.Starting, b.Sessions)
+	}
+
+	ev := []store.Evidence{{Rule: "angle_snap", Severity: 4}, {Rule: "code_patch", Severity: 4, Integrity: true}}
+	if CertainFinding(ev) {
+		t.Fatal("suspicious findings count as certain")
+	}
+	if !CertainFinding(append(ev, store.Evidence{Rule: analyzer.RuleKnownCheat, Severity: int(analyzer.SeverityCritical), Integrity: true})) {
+		t.Fatal("a known cheat file is not a certain finding")
 	}
 }
 
@@ -70,7 +151,7 @@ func TestBaselineDistance(t *testing.T) {
 	if d, _, _ := b.Distance(session(1e9, 250)); d != baselineCap {
 		t.Fatalf("capped distance %v", d)
 	}
-	if _, _, ok := b.Distance(BaselineOf(Missing(), math.NaN())); ok {
+	if _, _, ok := b.Distance(BaselineOf(Missing(), NoOwnSignals())); ok {
 		t.Fatal("a session without gameplay was judged")
 	}
 	if s := BaselineScore(baselineFar); s != 1 {
@@ -96,16 +177,18 @@ func TestBaselineFireTiming(t *testing.T) {
 	v := Missing()
 	v[FAimSnapRate], v[FTrustLevel] = 0.1, 3
 	stored, _ := json.Marshal(v)
-	got, err := ParseBaselineVector(WithFireTiming(string(stored), 0.8))
-	if err != nil || got[BFireTiming] != 0.8 || got[FAimSnapRate] != 0.1 || !math.IsNaN(got[FReactionMs]) {
-		t.Fatalf("read back %v, %v", got, err)
+	own := NoOwnSignals()
+	own[BFireTiming-NumGameplay], own[BPreAim-NumGameplay] = 0.8, 0.25
+	got, certain, err := ParseBaseline(WithBaseline(string(stored), own, true))
+	if err != nil || !certain || got[BFireTiming] != 0.8 || got[BPreAim] != 0.25 || !math.IsNaN(got[BHiddenAim]) || got[FAimSnapRate] != 0.1 || !math.IsNaN(got[FReactionMs]) {
+		t.Fatalf("read back %v, certain %v, %v", got, certain, err)
 	}
-	if got := WithFireTiming(string(stored), math.NaN()); got != string(stored) {
-		t.Fatalf("an unknown fire timing changed the stored vector: %s", got)
+	if got, certain, _ := ParseBaseline(WithBaseline(string(stored), NoOwnSignals(), false)); certain || got.Own() == own || got[FAimSnapRate] != 0.1 {
+		t.Fatalf("a session without own signals: %v, certain %v", got, certain)
 	}
-	// The model's own vector reads the same row and does not see the extra signal.
+	// The model's own vector reads the same row and does not see the extra keys.
 	var back Vector
-	if err := json.Unmarshal([]byte(WithFireTiming(string(stored), 0.8)), &back); err != nil || back[FAimSnapRate] != 0.1 || back[FTrustLevel] != 3 {
+	if err := json.Unmarshal([]byte(WithBaseline(string(stored), own, true)), &back); err != nil || back[FAimSnapRate] != 0.1 || back[FTrustLevel] != 3 {
 		t.Fatalf("the model's vector from the same row: %v, %v", back, err)
 	}
 }
@@ -176,13 +259,15 @@ func TestPlayerScoreCombinesSessionsInTheWindow(t *testing.T) {
 	}
 }
 
-// The engine stores the fire timing of the session's worst match in the score row.
+// The engine stores the baseline's own signals of the session's worst match in the score
+// row, and marks a session that carries a certain finding.
 func TestEngineStoresFireTiming(t *testing.T) {
 	h := newHarness(t, false, nil)
 	ctx := context.Background()
 	bot, few := h.session("s-bot", "p-bot", 2), h.session("s-few", "p-few", 2)
 	stats := cheaterStats()
 	stats.FireDelays, stats.FireTimed = 30, 0.7
+	stats.HiddenSamples, stats.HiddenTracked, stats.Appearances, stats.PreAimed = 1000, 50, minAppearances-1, 5
 	short := analyzer.PlayerSummary{TickRate: 64, AimSamples: 64 * 600, FireDelays: minFireDelays - 1, FireTimed: 1}
 	h.eng.MatchFinished("studio", "m1", []pipeline.MatchPlayer{{Session: bot, Slot: 1, Stats: stats}, {Session: few, Slot: 2, Stats: short}}, h.clock())
 	h.flush()
@@ -192,11 +277,15 @@ func TestEngineStoresFireTiming(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		v, err := ParseBaselineVector(row.Features)
+		v, _, err := ParseBaseline(row.Features)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return v[BFireTiming]
+	}
+	row, _ := h.st.GetOracleScore(ctx, "studio", "s-bot")
+	if v, certain, _ := ParseBaseline(row.Features); certain || v[BHiddenAim] != 0.05 || !math.IsNaN(v[BPreAim]) {
+		t.Fatalf("stored sight signals %v and %v, certain %v", v[BHiddenAim], v[BPreAim], certain)
 	}
 	if got := fire("s-bot"); got != 0.7 {
 		t.Fatalf("stored fire timing %v, want 0.7", got)
@@ -210,5 +299,16 @@ func TestEngineStoresFireTiming(t *testing.T) {
 	h.flush()
 	if got := fire("s-bot"); got != 0.7 {
 		t.Fatalf("fire timing after a cleaner match and a rescore: %v, want 0.7", got)
+	}
+	// A certain finding marks the session: the baseline will not learn from it.
+	if err := h.st.AddEvidence(ctx, []store.Evidence{{TenantID: "studio", PlayerHash: "p-bot", SessionID: "s-bot", Source: store.SourceClient,
+		Rule: analyzer.RuleKnownCheat, Severity: int(analyzer.SeverityCritical), Score: 1, Integrity: true, ObservedAt: h.clock()}}); err != nil {
+		t.Fatal(err)
+	}
+	h.eng.SessionActivity(bot, true, h.clock())
+	h.flush()
+	row, _ = h.st.GetOracleScore(ctx, "studio", "s-bot")
+	if v, certain, _ := ParseBaseline(row.Features); !certain || v[BFireTiming] != 0.7 {
+		t.Fatalf("after a certain finding: certain %v, fire timing %v", certain, v[BFireTiming])
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"carthago/backend/internal/oracle"
 	"carthago/backend/internal/store"
 )
 
@@ -83,15 +84,51 @@ func TestBaselineOrdersTheReviewQueue(t *testing.T) {
 	}
 }
 
-func TestBaselineOnlyWatchesWhileLearning(t *testing.T) {
+// A studio with too few sessions is measured against the starting baseline, and the
+// pages say so.
+func TestStartingBaselineForANewStudio(t *testing.T) {
 	f := baselineFixture(t, 50)
 	c := f.login(t, "demo", "demo-key")
 	body := f.do("GET", "/players", c, nil, nil).Body.String()
-	if !strings.Contains(body, "56 of 200 sessions") || strings.Contains(body, `href="/players/odd"`) || strings.Contains(body, "far outside") {
-		t.Errorf("while learning, the flagged list must stay as the rules made it and say that the baseline is learning")
+	if !strings.Contains(body, "Starting baseline: this studio has 56 of the 200 sessions") || !strings.Contains(body, `href="/players/odd"`) || !strings.Contains(body, "far outside") {
+		t.Errorf("a new studio's flagged list must use the starting baseline and say so")
+	}
+	if strings.Contains(body, "player0001") {
+		t.Error("the starting baseline put an ordinary player on the flagged list")
 	}
 	body = f.do("GET", "/players/odd", c, nil, nil).Body.String()
-	if !strings.Contains(body, "Learning what is normal for this studio: 56 of 200 sessions") || strings.Contains(body, "Player score") {
-		t.Errorf("while learning, a player's page must show no baseline score")
+	if !strings.Contains(body, "starting baseline · 56 of 200 own sessions so far") || !strings.Contains(body, "Player score") {
+		t.Errorf("a new studio's player page must show the score and name the starting baseline")
+	}
+}
+
+// A banned player's sessions do not feed the baseline: with most of the studio's
+// sessions banned and far out, an ordinary player stays normal and the banned stay far.
+func TestBannedPlayersDoNotFeedTheBaseline(t *testing.T) {
+	f := baselineFixture(t, 300)
+	ctx := context.Background()
+	st := f.srv.st.(*store.Memory)
+	for i := 0; i < 100; i++ {
+		player := fmt.Sprintf("banned%03d", i)
+		for j := 0; j < 5; j++ {
+			st.PutOracleScore(ctx, &store.OracleScore{TenantID: "demo", SessionID: fmt.Sprintf("b%03d-%d", i, j), PlayerHash: player, MatchID: "m", ModelID: "cob-0123456789ab",
+				FeatureVersion: 1, Score: 0.03, Band: store.OracleBandClear, Signals: `[]`, Features: `{"aim_snap_rate":3,"reaction_time":250}`, UpdatedAt: f.now.Add(-5 * time.Minute)})
+		}
+		if err := st.AddBan(ctx, &store.Ban{TenantID: "demo", PlayerHash: player, Reason: "test", BannedBy: "admin", BannedAt: f.now, EffectiveAt: f.now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tb, err := f.srv.tenantBaseline(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tb.base.Sessions != 306 {
+		t.Fatalf("the baseline learned from %d sessions, want the 306 of players who are not banned", tb.base.Sessions)
+	}
+	if p := tb.players["banned007"]; p.Band == oracle.BaselineNormal {
+		t.Fatalf("a banned player's play became normal: %+v", p)
+	}
+	if p := tb.players["player0007"]; p.Band != oracle.BaselineNormal {
+		t.Fatalf("an ordinary player: %+v", p)
 	}
 }

@@ -6,7 +6,9 @@ import (
 	"sort"
 	"time"
 
+	"carthago/backend/internal/analyzer"
 	"carthago/backend/internal/pipeline"
+	"carthago/backend/internal/store"
 )
 
 // The baseline is the Oracle's second opinion, learned from a studio's own players.
@@ -17,13 +19,26 @@ import (
 // edge is, and then says how far past the edge a session lies. It needs no labels, and one
 // tenant's baseline never uses another tenant's sessions.
 //
+// Cheaters play in every studio, and a baseline that learns from everybody learns their
+// play as normal. So it learns in two passes. The first finds, signal by signal, where the
+// middle half of the sessions lie, and leaves out every session far from that in any
+// signal. The second learns the edges from the sessions that are left. Sessions that carry
+// a certain finding, and sessions of banned players, are never learned from at all.
+//
+// A studio that has too few sessions of its own is compared with a fixed starting baseline
+// (baselineStart) until it has enough.
+//
 // Like the rest of the Oracle it is advice for a reviewer. Nothing here is stored, nothing
 // is sent to a client, and no code path leads from it to a kick or a ban.
 
 const (
 	// BaselineMinSessions is how many sessions with gameplay a tenant must have before
-	// its baseline says anything. Below it the baseline only watches.
+	// its baseline is learned from them. Below it the starting baseline is used.
 	BaselineMinSessions = 200
+	// baselineTrim is how far from the middle a session may lie in the first pass before
+	// it is left out of the second, in quartile distances (from the median to the quartile
+	// on the suspicious side). 4.45 of them are three standard deviations of a bell curve.
+	baselineTrim = 4.45
 	// baselineMinValues is the same for one signal: a signal too few sessions report is
 	// left out of the baseline.
 	baselineMinValues = 100
@@ -39,8 +54,12 @@ const (
 	// baselineTop is how many of a player's sessions make the player's score: the most
 	// suspicious ones in the window.
 	baselineTop = 3
-	// minFireDelays is how many fire delays a match must give before its fire timing is used.
-	minFireDelays = 12
+	// minFireDelays is how many fire delays a match must give before its fire timing is
+	// used; minHiddenSamples (30 s of them) and minAppearances are the same for the two
+	// sight signals.
+	minFireDelays    = 12
+	minHiddenSamples = 240
+	minAppearances   = 8
 
 	// A distance is counted in spreads: the distance between the middle and the edge of
 	// the tenant's own players. From baselineOutside spreads past the edge a session or
@@ -62,47 +81,106 @@ const (
 // feature means a new feature version and a new model for every deployment.
 const (
 	BFireTiming = NumGameplay + iota
+	BHiddenAim
+	BPreAim
 	NumBaseline
 )
+
+// NumOwn is the number of signals only the baseline has.
+const NumOwn = NumBaseline - NumGameplay
 
 var baselineSignals = func() (f [NumBaseline]Feature) {
 	copy(f[:], Features[:NumGameplay])
 	f[BFireTiming] = Feature{"fire_timing", "Fire timing on target", +1, "aim"}
+	f[BHiddenAim] = Feature{"hidden_aim", "Aim on opponents out of sight", +1, "information"}
+	f[BPreAim] = Feature{"pre_aim", "Aim ready where opponents appear", +1, "information"}
 	return f
 }()
+
+// certainKey marks, in a stored feature vector, a session that carries a certain finding.
+const certainKey = "certain_finding"
 
 // BaselineVector is one session's values of the baseline's signals; NaN is unknown.
 type BaselineVector [NumBaseline]float64
 
-// FireTiming is the fire-timing signal of one player's finished match: the largest share
-// of the times the player fired after the crosshair came onto an enemy that were both
-// faster than a person answers and nearly the same. A trigger bot fires for the player at
-// a set delay; a person's delays are longer and spread out. Unknown when the game server
-// does not report crosshair events or the match gave too few.
-func FireTiming(p *pipeline.MatchPlayer) float64 {
-	if p.Stats.FireDelays < minFireDelays {
-		return math.NaN()
+// BaselineOwn are the values of the baseline's own signals, in their order after the
+// gameplay features.
+type BaselineOwn [NumOwn]float64
+
+// NoOwnSignals has every own signal unknown.
+func NoOwnSignals() BaselineOwn {
+	var o BaselineOwn
+	for i := range o {
+		o[i] = math.NaN()
 	}
-	return p.Stats.FireTimed
+	return o
+}
+
+// OwnSignals computes the baseline's own signals from one player's finished match. Each
+// is unknown when the game server does not report what it needs or the match gave too
+// little of it.
+//
+//   - Fire timing: the largest share of the times the player fired after the crosshair
+//     came onto an enemy that were both faster than a person answers and nearly the same.
+//     A trigger bot fires for the player at a set delay; a person's delays are longer and
+//     spread out. Needs crosshair events.
+//   - Hidden aim: the share of the moments with a close opponent out of sight in which
+//     the crosshair stayed on such an opponent. Needs visibility events and positions.
+//   - Pre-aim: the share of the opponents who came into view with the crosshair already
+//     on them. Needs the same.
+func OwnSignals(p *pipeline.MatchPlayer) BaselineOwn {
+	o, s := NoOwnSignals(), &p.Stats
+	if s.FireDelays >= minFireDelays {
+		o[BFireTiming-NumGameplay] = s.FireTimed
+	}
+	if s.HiddenSamples >= minHiddenSamples {
+		o[BHiddenAim-NumGameplay] = float64(s.HiddenTracked) / float64(s.HiddenSamples)
+	}
+	if s.Appearances >= minAppearances {
+		o[BPreAim-NumGameplay] = float64(s.PreAimed) / float64(s.Appearances)
+	}
+	return o
 }
 
 // BaselineOf is the baseline's view of a session: the gameplay part of its feature vector
-// and its fire timing.
-func BaselineOf(v Vector, fireTiming float64) BaselineVector {
+// and the baseline's own signals.
+func BaselineOf(v Vector, own BaselineOwn) BaselineVector {
 	var b BaselineVector
 	copy(b[:], v[:NumGameplay])
-	b[BFireTiming] = fireTiming
+	copy(b[NumGameplay:], own[:])
 	return b
 }
 
-// WithFireTiming adds the fire timing to a stored feature vector (a score row's Features),
-// where the baseline reads it back.
-func WithFireTiming(features string, fireTiming float64) string {
+// CertainFinding reports whether a session's evidence holds a finding of the certain
+// tier: the kind the rules ban on. Such a session is scored and never learned from. The
+// stored evidence does not keep everything a ban asks for, so this takes a little more
+// than a ban would, which errs on the side of learning from less.
+func CertainFinding(evidence []store.Evidence) bool {
+	for i := range evidence {
+		e := &evidence[i]
+		if !e.Bot && e.Integrity && e.Severity >= int(analyzer.SeverityHigh) && analyzer.TierOf(e.Rule) == analyzer.TierCertain {
+			return true
+		}
+	}
+	return false
+}
+
+// WithBaseline adds what the baseline needs to a stored feature vector (a score row's
+// Features), where it reads it back: its own signals, and whether the session carries a
+// certain finding.
+func WithBaseline(features string, own BaselineOwn, certain bool) string {
 	m := map[string]float64{}
-	if math.IsNaN(fireTiming) || math.IsInf(fireTiming, 0) || json.Unmarshal([]byte(features), &m) != nil {
+	if json.Unmarshal([]byte(features), &m) != nil {
 		return features
 	}
-	m[baselineSignals[BFireTiming].Key] = fireTiming
+	for i, x := range own {
+		if !math.IsNaN(x) && !math.IsInf(x, 0) {
+			m[baselineSignals[NumGameplay+i].Key] = x
+		}
+	}
+	if certain {
+		m[certainKey] = 1
+	}
 	out, err := json.Marshal(m)
 	if err != nil {
 		return features
@@ -110,12 +188,12 @@ func WithFireTiming(features string, fireTiming float64) string {
 	return string(out)
 }
 
-// ParseBaselineVector reads the baseline's signals from a stored feature vector.
-func ParseBaselineVector(features string) (BaselineVector, error) {
-	var b BaselineVector
+// ParseBaseline reads the baseline's signals from a stored feature vector, and whether the
+// session carries a certain finding.
+func ParseBaseline(features string) (b BaselineVector, certain bool, err error) {
 	m := map[string]float64{}
 	if err := json.Unmarshal([]byte(features), &m); err != nil {
-		return b, err
+		return b, false, err
 	}
 	for i := range b {
 		b[i] = math.NaN()
@@ -123,7 +201,14 @@ func ParseBaselineVector(features string) (BaselineVector, error) {
 			b[i] = x
 		}
 	}
-	return b, nil
+	return b, m[certainKey] > 0, nil
+}
+
+// Own returns the baseline's own signals of a vector.
+func (b BaselineVector) Own() BaselineOwn {
+	var o BaselineOwn
+	copy(o[:], b[NumGameplay:])
+	return o
 }
 
 // baselineFloor is the smallest spread a signal can have, in the signal's own unit. It
@@ -140,6 +225,34 @@ var baselineFloor = [NumBaseline]float64{
 	FLeakRatio:      0.1,  // share of the rule's threshold
 	FDecoyRatio:     0.1,  // share of the rule's threshold
 	BFireTiming:     0.05, // share of the player's fire delays
+	BHiddenAim:      0.01, // share of the moments with an opponent out of sight
+	BPreAim:         0.05, // share of the opponents who came into view
+}
+
+// baselineStart is the starting baseline: for each signal the edge and the spread a new
+// studio is measured with until it has BaselineMinSessions sessions of its own. It is set
+// by hand from what each number means and learned from nothing. A session is outside
+// normal at the edge plus three spreads, and that point is put near where the analyzer's
+// own rules stand or where a person should not get: five standard deviations for the two
+// values counted in them, a reaction of 30 ms, a command rate of 1.09 a tick, two thirds
+// of the fire delays quick and alike. It is wider than what a studio's own players will
+// show, so it finds less. The two sight signals depend on the game's maps and have no
+// starting value: they begin with the studio's own baseline.
+//
+// It is not free of false flags. The headshot rate against rating has a long honest tail:
+// on the simulator about 3% of honest sessions lie past its line here, and one player in
+// seventy has two such sessions and is called outside normal. A studio's own baseline
+// measures that tail and does not have the problem.
+var baselineStart = [NumBaseline]struct{ edge, spread float64 }{
+	FAimSnapRate:    {0.4, 0.4},
+	FHeadshotZ:      {2, 1},
+	FReactionMs:     {150, 40},
+	FReactionLobbyZ: {-2, 1},
+	FCommandRatio:   {1.03, 0.02},
+	FTriggerCV:      {0.08, 0.02},
+	FLeakRatio:      {0.6, 0.2},
+	FDecoyRatio:     {0.6, 0.2},
+	BFireTiming:     {0.35, 0.1},
 }
 
 // BaselineSample is one scored session of a tenant.
@@ -147,56 +260,111 @@ type BaselineSample struct {
 	PlayerHash string
 	Vector     BaselineVector
 	At         time.Time
+	// Excluded: the session carries a certain finding or its player is banned. It is
+	// scored like any other and never learned from.
+	Excluded bool
 }
 
 // Baseline is what is normal for one tenant.
 type Baseline struct {
-	// Sessions is the number of sessions with gameplay it has seen.
+	// Sessions is the number of the tenant's sessions it could learn from: with gameplay,
+	// without a certain finding or a ban.
 	Sessions int
-	// Ready is false while the baseline only watches.
+	// Starting: the tenant has too few sessions and this is the starting baseline.
+	Starting bool
+	// LeftOut is how many sessions the first pass left out of the second.
+	LeftOut int
+	// Ready is false when no signal can be judged.
 	Ready bool
 
 	used         [NumBaseline]bool
 	edge, spread [NumBaseline]float64
 }
 
+// StartingBaseline is the baseline of a studio without enough sessions of its own.
+func StartingBaseline() *Baseline {
+	b := &Baseline{Starting: true}
+	for f, s := range baselineStart {
+		if s.spread > 0 {
+			b.used[f], b.edge[f], b.spread[f], b.Ready = true, s.edge, s.spread, true
+		}
+	}
+	return b
+}
+
 // LearnBaseline builds a tenant's baseline from its scored sessions, newest first.
 func LearnBaseline(samples []BaselineSample) *Baseline {
-	b := &Baseline{}
-	var values [NumBaseline][]float64
+	var learn []*BaselineVector
 	perPlayer := map[string]int{}
+	sessions := 0
 	for i := range samples {
 		s := &samples[i]
-		if !hasGameplay(&s.Vector) {
+		if s.Excluded || !hasGameplay(&s.Vector) {
 			continue
 		}
-		b.Sessions++
+		sessions++
 		if s.PlayerHash != "" {
 			if perPlayer[s.PlayerHash] >= baselinePerPlayer {
 				continue
 			}
 			perPlayer[s.PlayerHash]++
 		}
-		for f := range values {
-			if x := s.Vector[f]; !math.IsNaN(x) {
-				values[f] = append(values[f], x)
-			}
-		}
+		learn = append(learn, &s.Vector)
 	}
-	if b.Sessions < BaselineMinSessions {
+	if sessions < BaselineMinSessions {
+		b := StartingBaseline()
+		b.Sessions = sessions
 		return b
 	}
-	for f := range values {
-		v := values[f]
+	// First pass: the middle and the quartile on the suspicious side. Both stay where the
+	// honest sessions put them while fewer than a quarter of the sessions cheat in the
+	// same signal; an edge at 95% moves as soon as a twentieth do.
+	side := func(f int, q float64) float64 {
+		if baselineSignals[f].Direction < 0 {
+			return 1 - q
+		}
+		return q
+	}
+	values := func(from []*BaselineVector, f int) []float64 {
+		var v []float64
+		for _, s := range from {
+			if x := s[f]; !math.IsNaN(x) {
+				v = append(v, x)
+			}
+		}
+		sort.Float64s(v)
+		return v
+	}
+	var cut [NumBaseline]float64
+	var cuts [NumBaseline]bool
+	for f := range cut {
+		if v := values(learn, f); len(v) >= baselineMinValues {
+			mid := quantile(v, 0.5)
+			reach := baselineTrim * math.Max(math.Abs(quantile(v, side(f, 0.75))-mid), baselineFloor[f])
+			cut[f], cuts[f] = mid+float64(baselineSignals[f].Direction)*reach, true
+		}
+	}
+	var clean []*BaselineVector
+	for _, s := range learn {
+		in := true
+		for f := range cut {
+			if x := s[f]; cuts[f] && !math.IsNaN(x) && float64(baselineSignals[f].Direction)*(x-cut[f]) > 0 {
+				in = false
+				break
+			}
+		}
+		if in {
+			clean = append(clean, s)
+		}
+	}
+	// Second pass: the edges, from the sessions that are left.
+	b := &Baseline{Sessions: sessions, LeftOut: len(learn) - len(clean)}
+	for f := range cut {
+		v := values(clean, f)
 		if len(v) < baselineMinValues {
 			continue
 		}
-		sort.Float64s(v)
-		q := baselineEdge
-		if baselineSignals[f].Direction < 0 {
-			q = 1 - baselineEdge
-		}
-		mid, edge := quantile(v, 0.5), quantile(v, q)
+		mid, edge := quantile(v, 0.5), quantile(v, side(f, baselineEdge))
 		b.used[f], b.edge[f], b.spread[f] = true, edge, math.Max(math.Abs(edge-mid), baselineFloor[f])
 		b.Ready = true
 	}

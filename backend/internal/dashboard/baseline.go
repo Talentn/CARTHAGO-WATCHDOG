@@ -50,8 +50,10 @@ type baselineView struct {
 	// Sessions is how many of the tenant's sessions the baseline has seen, Need how many
 	// it wants before it scores anybody.
 	Sessions, Need int
-	Learning       bool
-	Players        map[string]*playerBaselineView
+	// Starting: the tenant has too few sessions, and its players are measured against
+	// the starting baseline.
+	Starting bool
+	Players  map[string]*playerBaselineView
 	// Player is set on a player's page.
 	Player *playerBaselineView
 }
@@ -69,13 +71,25 @@ func (s *Server) tenantBaseline(ctx context.Context, tenant string) (*tenantBase
 	if err != nil {
 		return nil, err
 	}
+	// A banned player's sessions are scored and never learned from, and neither is a
+	// session with a certain finding. A lifted ban counts too: lifting it does not say
+	// the play was normal.
+	bans, err := s.st.ListBans(ctx, tenant, 0)
+	if err != nil {
+		return nil, err
+	}
+	banned := make(map[string]bool, len(bans))
+	for i := range bans {
+		banned[bans[i].PlayerHash] = true
+	}
 	samples := make([]oracle.BaselineSample, 0, len(rows))
 	for i := range rows {
-		v, err := oracle.ParseBaselineVector(rows[i].Features)
+		v, certain, err := oracle.ParseBaseline(rows[i].Features)
 		if rows[i].FeatureVersion != oracle.FeatureVersion || err != nil {
 			continue
 		}
-		samples = append(samples, oracle.BaselineSample{PlayerHash: rows[i].PlayerHash, Vector: v, At: rows[i].UpdatedAt})
+		samples = append(samples, oracle.BaselineSample{PlayerHash: rows[i].PlayerHash, Vector: v, At: rows[i].UpdatedAt,
+			Excluded: certain || (rows[i].PlayerHash != "" && banned[rows[i].PlayerHash])})
 	}
 	tb := &tenantBaseline{at: now, base: oracle.LearnBaseline(samples)}
 	tb.players = tb.base.Players(samples, now)
@@ -90,7 +104,7 @@ func (s *Server) tenantBaseline(ctx context.Context, tenant string) (*tenantBase
 }
 
 func (tb *tenantBaseline) view() *baselineView {
-	v := &baselineView{Sessions: tb.base.Sessions, Need: oracle.BaselineMinSessions, Learning: !tb.base.Ready,
+	v := &baselineView{Sessions: tb.base.Sessions, Need: oracle.BaselineMinSessions, Starting: tb.base.Starting,
 		Players: make(map[string]*playerBaselineView, len(tb.players))}
 	for hash, p := range tb.players {
 		pv := &playerBaselineView{Percent: int(math.Round(100 * p.Score)), Sessions: p.Sessions, Outside: p.Outside,

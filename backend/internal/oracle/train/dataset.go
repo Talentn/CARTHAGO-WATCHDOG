@@ -96,8 +96,15 @@ type Row struct {
 	// InMatch is false for a session that only sent heartbeats.
 	InMatch bool
 	Vector  oracle.Vector
-	// FireTiming is the baseline's fire-timing signal, which the model does not use.
-	FireTiming float64
+	// Own are the baseline's own signals, which the model does not use.
+	Own oracle.BaselineOwn
+	// GameSense marks an honest player who plays on what the game tells: holds the angles
+	// opponents come from, follows footsteps, follows a teammate's call. From outside
+	// that looks a little like knowing where the opponents are.
+	GameSense bool
+	// Certain marks a session with a finding of the certain tier. The baseline never
+	// learns from one.
+	Certain bool
 	// RuleFlag is what the rules alone say: the session has evidence of medium severity
 	// or above. Risk is the session's evidence risk as the dashboard computes it.
 	RuleFlag bool
@@ -769,14 +776,16 @@ func simulate(idx int, opt Options) ([]Row, error) {
 			return nil, err
 		}
 		tel, _ := st.GetTelemetry(ctx, Tenant, p.sess.SessionID)
-		row := Row{Match: idx, Profile: p.profile, Cheating: p.profile != Honest, InMatch: p.inMatch, Vector: oracle.Missing(), FireTiming: math.NaN(), Session: p.sess}
+		row := Row{Match: idx, Profile: p.profile, Cheating: p.profile != Honest, InMatch: p.inMatch, Vector: oracle.Missing(), Own: oracle.NoOwnSignals(), Session: p.sess}
+		row.GameSense = p.profile == Honest && p.inMatch && p.play.role != synth.RoleLegit
 		if mp := bySession[p.sess.SessionID]; mp != nil {
 			oracle.GameplayFeatures(&row.Vector, mp)
-			row.FireTiming = oracle.FireTiming(mp)
+			row.Own = oracle.OwnSignals(mp)
 		} else if p.inMatch {
 			return nil, fmt.Errorf("match %d: slot %d was not reported", idx, p.slot)
 		}
 		oracle.ClientFeatures(&row.Vector, p.sess.TrustLevel, ev, tel)
+		row.Certain = oracle.CertainFinding(ev)
 		for _, e := range ev {
 			if e.Severity >= int(analyzer.SeverityMedium) {
 				row.RuleFlag = true
