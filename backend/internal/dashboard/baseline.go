@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"sort"
 	"strings"
@@ -72,8 +71,8 @@ func (s *Server) tenantBaseline(ctx context.Context, tenant string) (*tenantBase
 	}
 	samples := make([]oracle.BaselineSample, 0, len(rows))
 	for i := range rows {
-		var v oracle.Vector
-		if rows[i].FeatureVersion != oracle.FeatureVersion || json.Unmarshal([]byte(rows[i].Features), &v) != nil {
+		v, err := oracle.ParseBaselineVector(rows[i].Features)
+		if rows[i].FeatureVersion != oracle.FeatureVersion || err != nil {
 			continue
 		}
 		samples = append(samples, oracle.BaselineSample{PlayerHash: rows[i].PlayerHash, Vector: v, At: rows[i].UpdatedAt})

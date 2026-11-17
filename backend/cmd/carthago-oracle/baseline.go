@@ -72,7 +72,7 @@ func measureBaseline(rows []train.Row, keep, cheating, perPlayer int, table bool
 			}
 			kept++
 		}
-		samples = append(samples, oracle.BaselineSample{Vector: rows[i].Vector, At: now})
+		samples = append(samples, oracle.BaselineSample{Vector: oracle.BaselineOf(rows[i].Vector, rows[i].FireTiming), At: now})
 	}
 	b := oracle.LearnBaseline(samples)
 	if !b.Ready {
@@ -101,7 +101,7 @@ func measureBaseline(rows []train.Row, keep, cheating, perPlayer int, table bool
 	}
 	for i := range rows {
 		r := &rows[i]
-		d, _, ok := b.Distance(r.Vector)
+		d, _, ok := b.Distance(oracle.BaselineOf(r.Vector, r.FireTiming))
 		if !ok {
 			continue
 		}

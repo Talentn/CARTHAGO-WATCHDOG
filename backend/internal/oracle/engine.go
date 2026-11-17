@@ -95,8 +95,9 @@ type event struct {
 
 type sessionState struct {
 	sess     store.Session
-	loaded   bool   // the stored score was looked up
-	gameplay Vector // the match part of the highest-scoring match; missing when none
+	loaded   bool    // the stored score was looked up
+	gameplay Vector  // the match part of the highest-scoring match; missing when none
+	fire     float64 // that match's fire timing, for the baseline; NaN when unknown
 	matchID  string
 	scoredAt time.Time
 	seenAt   time.Time
@@ -220,7 +221,7 @@ func (e *Engine) state(ctx context.Context, sess store.Session) *sessionState {
 	k := [2]string{sess.TenantID, sess.SessionID}
 	s := e.sessions[k]
 	if s == nil {
-		s = &sessionState{gameplay: Missing()}
+		s = &sessionState{gameplay: Missing(), fire: math.NaN()}
 		e.sessions[k] = s
 	}
 	s.sess = sess
@@ -235,6 +236,9 @@ func (e *Engine) state(ctx context.Context, sess store.Session) *sessionState {
 					v[i] = math.NaN()
 				}
 				s.gameplay, s.matchID = v, row.MatchID
+				if b, err := ParseBaselineVector(row.Features); err == nil {
+					s.fire = b[BFireTiming]
+				}
 			}
 		}
 	}
@@ -246,7 +250,7 @@ func (e *Engine) handle(ctx context.Context, ev event) {
 		s := e.state(ctx, ev.sess)
 		s.seenAt = ev.at
 		if ev.fresh || s.scoredAt.IsZero() || ev.at.Sub(s.scoredAt) >= e.cfg.Rescore {
-			e.score(ctx, s, nil, "", ev.at)
+			e.score(ctx, s, nil, math.NaN(), "", ev.at)
 		}
 		return
 	}
@@ -256,13 +260,13 @@ func (e *Engine) handle(ctx context.Context, ev event) {
 		s.seenAt = ev.at
 		g := Missing()
 		GameplayFeatures(&g, p)
-		e.score(ctx, s, &g, ev.matchID, ev.at)
+		e.score(ctx, s, &g, FireTiming(p), ev.matchID, ev.at)
 	}
 }
 
 // score rescores a session and stores the result. With a new match, the match replaces
 // the session's best one if it scores higher under the session's current client evidence.
-func (e *Engine) score(ctx context.Context, s *sessionState, match *Vector, matchID string, at time.Time) {
+func (e *Engine) score(ctx context.Context, s *sessionState, match *Vector, fire float64, matchID string, at time.Time) {
 	sess := s.sess
 	evidence, err := e.st.ListEvidence(ctx, sess.TenantID, store.EvidenceFilter{SessionID: sess.SessionID, Limit: 500})
 	if err != nil {
@@ -281,11 +285,12 @@ func (e *Engine) score(ctx context.Context, s *sessionState, match *Vector, matc
 	v := full(s.gameplay)
 	if match != nil {
 		if nv := full(*match); s.matchID == "" || first(model.Score(nv)) > first(model.Score(v)) {
-			s.gameplay, s.matchID, v = *match, matchID, nv
+			s.gameplay, s.fire, s.matchID, v = *match, fire, matchID, nv
 		}
 	}
 	s.scoredAt = at
 	row := e.cfg.Bundle.ScoreRow(sess, v, s.matchID, at)
+	row.Features = WithFireTiming(row.Features, s.fire)
 	band := row.Band
 	if err := e.st.PutOracleScore(ctx, row); err != nil {
 		e.log.Warn("Carthago Oracle: store score", "session", sess.SessionID, "err", err)

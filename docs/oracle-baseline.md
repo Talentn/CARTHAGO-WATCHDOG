@@ -12,17 +12,21 @@ tenant's score rows only.
 
 - **Learning.** For every gameplay signal (aim snaps, headshot rate against rating, reaction
   time, reaction time against the lobby, command rate, trigger rhythm, information-leak score,
-  decoy score) the baseline takes the middle of the tenant's sessions and the edge that 95% of
-  them lie inside, on the suspicious side of the signal. The distance between the two is one
-  *spread*. At most 5 sessions of one player are learned from, so one account that plays all
-  day cannot move what is normal.
+  decoy score, fire timing) the baseline takes the middle of the tenant's sessions and the
+  edge that 95% of them lie inside, on the suspicious side of the signal. The distance between
+  the two is one *spread*. At most 5 sessions of one player are learned from, so one account
+  that plays all day cannot move what is normal.
 - **Watch-only first.** Below 200 sessions with gameplay the baseline scores nobody. A signal
   that fewer than 100 sessions report is left out.
 - **Session distance.** For every signal, the number of spreads the session lies past the
   edge, capped at 10 per signal and added up. Inside the edge is 0.
-- **Player score.** The mean distance of the player's sessions in the last 30 days, pulled
-  toward 0 while the sessions are few (`mean × n / (n + 1)`). From 3 the player is *outside
-  normal*, from 8 *far outside*. The dashboard shows it as 0 to 100 (8 is 50).
+- **Player score.** The mean distance of the player's three most suspicious sessions in the
+  last 30 days. A session counts for at most 8, and a session the player has not played
+  counts as 0. From 3 the player is *outside normal*, from 8 *far outside*; the dashboard
+  shows it as 0 to 100 (8 is 100). The ordinary sessions of somebody who cheats now and then
+  do not pull the score down, and one extraordinary match alone leaves a player inside
+  normal: it takes two sessions outside to be outside, and three far outside to be far
+  outside.
 - **Dashboard.** The players list has a column "Against own players" and puts players who are
   outside normal first, the furthest first; everybody else follows by rule risk as before.
   The flagged list also takes in players who are outside normal and have no rule evidence. A
@@ -49,6 +53,26 @@ is built to train a model, so about a third of its sessions cheat; the studio me
 every honest session and 3% cheating ones (`-cheat-share`). A last line shows what the
 baseline finds when it learns from the whole simulated mix instead.
 
+## Fire timing: the signal for trigger bots
+
+A trigger bot fires for the player the moment the crosshair is on an enemy, at a set delay.
+A person's fire follows later and at a different delay each time. The signal is the largest
+share of a player's fire delays that are both under 100 ms and within 32 ms of each other,
+from matches with at least 12 delays. A delay is the time from the crosshair arriving on an
+enemy to the player's next shot, hit or miss, within one second; a player who was already
+firing in the half second before gives no sample.
+
+**Integration requirement.** The gateway cannot see the crosshair. The game server has to
+report it: `MatchRecorder::crosshair(slot, target, tick)` (`CrosshairEvent` in
+`GameplayBatch.crosshair`), once each time the trace along a player's view direction first
+meets an enemy's body, not on every tick it stays there. A game server traces the view for
+its own hit detection, so it has this. Without these events the signal is unknown and
+everything else works as before.
+
+Fire timing is a signal of the baseline only. It is stored beside the model's features in a
+score row (`fire_timing`), and the behaviour model does not read it: a new model feature
+would mean a new feature version and a new model for every deployment.
+
 ## Two changes that came with it
 
 - **`angle_snap` is low severity.** Real honest players produce snap-and-lock aim movements
@@ -69,4 +93,7 @@ baseline finds when it learns from the whole simulated mix instead.
 - If many of a studio's sessions cheat, the cheating becomes part of what is normal.
 - Only the gameplay signals are used; the client integrity signals stay with the rules and
   the behaviour model.
-- The player score is a mean. It does not yet add up many small deviations of one player.
+- The player score needs two sessions outside normal. Many sessions that are each a little
+  inside the edge do not add up.
+- The simulator's fire delays, of people and of trigger bots, are assumptions. They were not
+  measured on players.

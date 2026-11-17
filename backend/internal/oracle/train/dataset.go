@@ -96,6 +96,8 @@ type Row struct {
 	// InMatch is false for a session that only sent heartbeats.
 	InMatch bool
 	Vector  oracle.Vector
+	// FireTiming is the baseline's fire-timing signal, which the model does not use.
+	FireTiming float64
 	// RuleFlag is what the rules alone say: the session has evidence of medium severity
 	// or above. Risk is the session's evidence risk as the dashboard computes it.
 	RuleFlag bool
@@ -592,6 +594,53 @@ func overlay(r *rng, batches []*pb.GameplayBatch, slot uint32, p play, seconds i
 	}
 }
 
+// crosshairs reports when a slot's crosshair came onto the enemy it then hit, for the
+// first hit after a pause in the player's fire.
+//
+// A person takes a moment to fire once the crosshair is on an enemy: about a fifth of a
+// second, different from person to person and from shot to shot. Some shots are clicked
+// together with the aim movement and follow at once, at no fixed delay. A trigger bot
+// fires for the player a set delay after the crosshair arrives, with a little jitter, for
+// as long as its key is held. These numbers are assumptions of the simulator; they were
+// not measured on players.
+func crosshairs(r *rng, batches []*pb.GameplayBatch, slot uint32, p play, bot bool) {
+	const rate = 64
+	type shot struct {
+		b *pb.GameplayBatch
+		s *pb.ShotEvent
+	}
+	var shots []shot
+	for _, b := range batches {
+		for _, s := range b.Shots {
+			if s.Slot == slot {
+				shots = append(shots, shot{b, s})
+			}
+		}
+	}
+	sort.SliceStable(shots, func(i, j int) bool { return shots[i].s.Tick < shots[j].s.Tick })
+	fireMs, fireCV := clamp(210*math.Exp(0.25*r.normal()), 130, 400), r.between(0.2, 0.45)
+	together := r.between(0.05, 0.35)
+	botMs, botJitter := r.between(0, 60), r.between(0, 25)
+	for i, x := range shots {
+		s := x.s
+		if i > 0 && s.Tick-shots[i-1].s.Tick <= rate {
+			continue // still firing: the crosshair did not arrive anew
+		}
+		if !s.Hit || s.TargetSlot < 0 {
+			continue
+		}
+		ms := fireMs * math.Exp(fireCV*r.normal())
+		if r.chance(together) {
+			ms = r.between(0, 90)
+		}
+		if bot && r.chance(p.fastShare) {
+			ms = botMs + botJitter*(2*r.unit()-1)
+		}
+		ticks := uint32(clamp(ms, 0, 450)*rate/1000 + r.unit())
+		x.b.Crosshair = append(x.b.Crosshair, &pb.CrosshairEvent{Slot: slot, TargetSlot: uint32(s.TargetSlot), Tick: s.Tick - min(ticks, s.Tick)})
+	}
+}
+
 // heartbeat is the session's n-th heartbeat, elapsed after it began.
 func (c *client) heartbeat(n int, elapsed time.Duration) *pb.Heartbeat {
 	const boot = 3 * time.Hour
@@ -696,6 +745,11 @@ func simulate(idx int, opt Options) ([]Row, error) {
 	for i := range players {
 		overlay(r, batches, players[i].Slot, people[i].play, seconds)
 	}
+	for i := range players {
+		// Its own random stream, so that everything else in the match is drawn as before.
+		rc := &rng{s: opt.Seed*0xa0761d6478bd642f + uint64(idx)*0xe7037ed1a0b428db + uint64(players[i].Slot)*0x8ebc6af09c88c6e3 + 1}
+		crosshairs(rc, batches, players[i].Slot, people[i].play, people[i].profile == Trigger)
+	}
 	for _, b := range batches {
 		if _, _, err := pl.Gameplay(ctx, Tenant, b); err != nil {
 			return nil, fmt.Errorf("match %d: %w", idx, err)
@@ -715,9 +769,10 @@ func simulate(idx int, opt Options) ([]Row, error) {
 			return nil, err
 		}
 		tel, _ := st.GetTelemetry(ctx, Tenant, p.sess.SessionID)
-		row := Row{Match: idx, Profile: p.profile, Cheating: p.profile != Honest, InMatch: p.inMatch, Vector: oracle.Missing(), Session: p.sess}
+		row := Row{Match: idx, Profile: p.profile, Cheating: p.profile != Honest, InMatch: p.inMatch, Vector: oracle.Missing(), FireTiming: math.NaN(), Session: p.sess}
 		if mp := bySession[p.sess.SessionID]; mp != nil {
 			oracle.GameplayFeatures(&row.Vector, mp)
+			row.FireTiming = oracle.FireTiming(mp)
 		} else if p.inMatch {
 			return nil, fmt.Errorf("match %d: slot %d was not reported", idx, p.slot)
 		}
