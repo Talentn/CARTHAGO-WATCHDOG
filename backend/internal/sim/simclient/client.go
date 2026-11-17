@@ -45,6 +45,10 @@ type Player struct {
 
 	mu      sync.Mutex
 	sendSeq uint64
+	// Beat, when set before Play, builds the heartbeat the client sends on beat n,
+	// elapsed after Play began. Without it the heartbeats are empty.
+	Beat func(n int, elapsed time.Duration) *pb.Heartbeat
+
 	// What the client has received since it signed in.
 	acks, notices int
 	kicked        string
@@ -103,17 +107,22 @@ func (p *Player) Online() bool {
 	return !s.Closed && s.Kicked == ""
 }
 
-// play keeps the session alive until the gateway ends it or ctx is done.
+// Play keeps the session alive until the gateway ends it or ctx is done.
 func (p *Player) Play(ctx context.Context, every time.Duration) {
 	go func() {
+		start := time.Now()
 		t := time.NewTicker(every)
 		defer t.Stop()
-		for {
+		for n := 0; ; n++ {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if p.Report(ctx) != nil {
+				hb := &pb.Heartbeat{}
+				if p.Beat != nil {
+					hb = p.Beat(n, time.Since(start))
+				}
+				if p.Heartbeat(ctx, hb) != nil {
 					return
 				}
 			}
